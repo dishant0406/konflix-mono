@@ -7,11 +7,15 @@
 # user, restricts the firewall, and tunes the kernel for many concurrent sockets.
 # Safe to re-run.
 #
-# Usage, from your machine:
+# Usage, from your machine. Prefix with sudo unless you are logging in as root:
 #   ssh root@SERVER 'bash -s' < scripts/setup-server.sh
+#   ssh ubuntu@SERVER 'sudo bash -s' < scripts/setup-server.sh
+#
+# Lightsail (and most cloud images) give you an unprivileged user with sudo rather
+# than a root login, which is why the sudo form above is the common one.
 #
 # Or, to install a deploy key in the same step:
-#   ssh root@SERVER "DEPLOY_PUBLIC_KEY='$(cat ~/.ssh/konflix_deploy.pub)' bash -s" < scripts/setup-server.sh
+#   ssh ubuntu@SERVER "DEPLOY_PUBLIC_KEY='$(cat ~/.ssh/konflix_deploy.pub)' sudo -E bash -s" < scripts/setup-server.sh
 #
 # Nothing but SSH is reachable afterwards. The stack is published through an outbound
 # Cloudflare tunnel, so no inbound port needs to be open.
@@ -25,7 +29,8 @@ DEPLOY_PUBLIC_KEY="${DEPLOY_PUBLIC_KEY:-}"
 SSH_PORT="${SSH_PORT:-22}"
 
 if [ "$(id -u)" -ne 0 ]; then
-  echo "Error: run this as root." >&2
+  echo "Error: this must run as root. Prefix the command with sudo:" >&2
+  echo "  ssh <user>@<host> 'sudo bash -s' < scripts/setup-server.sh" >&2
   exit 1
 fi
 
@@ -35,14 +40,10 @@ apt-get update
 apt-get install -y --no-install-recommends \
   ca-certificates curl gnupg rsync ufw jq
 
-install -m 0755 -d /etc/apt/keyrings
-if [ ! -f /etc/apt/keyrings/docker.asc ]; then
-  curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
-  chmod a+r /etc/apt/keyrings/docker.asc
-fi
-
-# The distribution codename is read from the host rather than assumed, so this works
-# on Debian and on Ubuntu without a branch.
+# The distribution is read from the host rather than assumed. Both the key URL and
+# the repository URL are distribution-specific: the Ubuntu key served from
+# /linux/debian/gpg has a uid of 'Docker Release (CE deb) <docker@docker.com>' and
+# apt rejects it with NO_PUBKEY for the Ubuntu archive. Verified on Ubuntu 24.04.
 . /etc/os-release
 DOCKER_DISTRO="$ID"
 case "$DOCKER_DISTRO" in
@@ -50,12 +51,24 @@ case "$DOCKER_DISTRO" in
   *) echo "Error: unsupported distribution '$DOCKER_DISTRO'." >&2; exit 1 ;;
 esac
 
+install -m 0755 -d /etc/apt/keyrings
+if [ ! -f /etc/apt/keyrings/docker.asc ]; then
+  curl -fsSL "https://download.docker.com/linux/$DOCKER_DISTRO/gpg" -o /etc/apt/keyrings/docker.asc
+  chmod a+r /etc/apt/keyrings/docker.asc
+fi
+
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/$DOCKER_DISTRO $VERSION_CODENAME stable" \
   > /etc/apt/sources.list.d/docker.list
 
 apt-get update
 apt-get install -y --no-install-recommends \
   docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+# Captured before installing so the daemon is only restarted when Docker was not
+# already present. On a re-run over an existing install the restart would interrupt
+# any running container, which is not something a provisioning script should do.
+DOCKER_WAS_INSTALLED=0
+command -v docker >/dev/null 2>&1 && DOCKER_WAS_INSTALLED=1
 
 echo "==> Creating the deploy user"
 if ! id -u "$DEPLOY_USER" >/dev/null 2>&1; then
@@ -133,7 +146,13 @@ cat > /etc/systemd/system/docker.service.d/limits.conf <<'CONF'
 LimitNOFILE=1000000
 CONF
 systemctl daemon-reload
-systemctl restart docker
+if [ "$DOCKER_WAS_INSTALLED" -eq 0 ]; then
+  # A fresh install, so there is nothing running to interrupt.
+  systemctl restart docker
+else
+  # The limit is applied by the next daemon restart rather than one forced now.
+  echo "    docker already installed; LimitNOFILE applies on its next restart"
+fi
 
 echo "==> Creating the application directory"
 install -d -m 0755 -o "$DEPLOY_USER" -g "$DEPLOY_USER" "$APP_DIR"

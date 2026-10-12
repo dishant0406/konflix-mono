@@ -115,7 +115,20 @@ app.get('/dl/:token', async (req, res, next) => {
     }
 
     if (!isAllowedDownloadUrl(url)) {
-      console.error('[dl] refusing a download link outside DEBRID_CDN_HOSTS')
+      // The hostname is logged because the provider rotates its CDN domain, and this
+      // is the only place the new one becomes visible. The URL itself is not logged:
+      // it carries the API key in its query string.
+      let host = 'unparseable'
+      try {
+        host = new URL(url).hostname
+      } catch {
+        // Leave the placeholder; the link was malformed, which the check already
+        // treats as a refusal.
+      }
+      console.error(
+        `[dl] refused a link outside DEBRID_CDN_HOSTS: host=${host}. ` +
+          'Set DEBRID_CDN_HOSTS to this domain to allow it.',
+      )
       res.status(502).json({ error: 'The download service returned an unusable link.' })
       return
     }

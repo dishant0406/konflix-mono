@@ -75,13 +75,32 @@ work but requires the Workers Paid plan, and its request-scoped model fits a
 
 ### One-time setup
 
-1. **Create the server.** Any 2 vCPU / 4GB box with a 40GB disk is enough (a Hetzner
-   CX22 is about €4/month). Ubuntu 24.04 or Debian 12.
-
-2. **Provision it.** From this repository:
+1. **Create the server.** Any 2 vCPU / 4GB box with an 80GB disk is enough. The
+   reference deployment is an **AWS Lightsail `medium_3_0`** (4GB RAM / 2 vCPU /
+   80GB SSD / 4TB transfer, ~$24/month) in `us-east-1`, created with:
 
    ```bash
-   ssh root@SERVER_IP 'bash -s' < scripts/setup-server.sh
+   aws lightsail create-key-pair --key-pair-name konflix-lightsail --region us-east-1
+   aws lightsail create-instances --region us-east-1 \
+     --instance-names konflix --availability-zone us-east-1a \
+     --blueprint-id ubuntu_24_04 --bundle-id medium_3_0 \
+     --key-pair-name konflix-lightsail
+   aws lightsail allocate-static-ip --static-ip-name konflix-ip --region us-east-1
+   aws lightsail attach-static-ip --static-ip-name konflix-ip \
+     --instance-name konflix --region us-east-1
+   # Open SSH only. Nothing else is ever published.
+   aws lightsail put-instance-public-ports --region us-east-1 --instance-name konflix \
+     --port-infos '[{"fromPort":22,"toPort":22,"protocol":"tcp","cidrs":["0.0.0.0/0"]}]'
+   ```
+
+   Ubuntu 24.04 or Debian 12. **Attach a static IP** — without one, a stop/start
+   changes the address and `DEPLOY_HOST` silently points at nothing.
+
+2. **Provision it.** From this repository. Cloud images give you an unprivileged user
+   with `sudo` rather than a root login, hence the `sudo -E`:
+
+   ```bash
+   ssh -i ~/.ssh/konflix_lightsail ubuntu@SERVER_IP 'sudo bash -s' < scripts/setup-server.sh
    ```
 
    This installs Docker, creates a `konflix` deploy user, restricts the firewall to
@@ -101,7 +120,8 @@ work but requires the Workers Paid plan, and its request-scoped model fits a
 
    ```bash
    ssh-keygen -t ed25519 -f ~/.ssh/konflix_deploy -C konflix-deploy
-   ssh root@SERVER_IP "DEPLOY_PUBLIC_KEY='$(cat ~/.ssh/konflix_deploy.pub)' bash -s" \
+   ssh -i ~/.ssh/konflix_lightsail ubuntu@SERVER_IP \
+     "DEPLOY_PUBLIC_KEY='$(cat ~/.ssh/konflix_deploy.pub)' sudo -E bash -s" \
      < scripts/setup-server.sh
    ```
 
@@ -143,12 +163,29 @@ passing silently.
 cd /opt/konflix
 docker compose ps                      # what is running
 docker compose logs -f api             # follow the API
-curl -s localhost:9000/health          # configuration and upstream status
 docker compose restart api             # restart one service
+
+# Nothing is published to the host, so /health is read inside the container.
+docker compose exec api node -e \
+  "fetch('http://127.0.0.1:9000/health').then(r=>r.json()).then(h=>console.log(h))"
 ```
 
 The torrent cache lives in the `torrent-cache` volume, capped by `MAX_CACHE_BYTES`.
 It is scratch data: deleting it costs nothing but a re-download.
+
+### When playback starts failing with a 502
+
+The debrid provider rotates its CDN domain, and `DEBRID_CDN_HOSTS` allowlists it. A
+rotation makes every playback fail with a 502 even though the API key is fine.
+
+The API log names the rejected host:
+
+```
+[dl] refused a link outside DEBRID_CDN_HOSTS: host=nexus-144.enam.tb-cdn.io.
+```
+
+Copy that domain into `DEBRID_CDN_HOSTS` in `.env.deploy` and restart the API — no
+rebuild needed. This is the only setting that has needed changing in production.
 
 ### Secrets
 

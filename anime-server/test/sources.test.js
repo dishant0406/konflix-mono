@@ -172,16 +172,19 @@ test('a debrid download URL is only allowed from a configured CDN host', () => {
   // fetches it, so it is allowlisted. A prefix check would accept every one of the
   // rejected values below.
   //
-  // The real CDN host is a *.tb-cdn.pw node. The API host torbox.app is a *different*
-  // domain, which is why it is the wrong default: allowlisting it rejects every link
-  // the API actually returns.
+  // The real CDN host is a node under one of the listed domains, e.g.
+  // nexus-144.enam.tb-cdn.io. The provider has rotated between .pw and .io, so both
+  // are allowed. The API host torbox.app is a *different* domain and is the wrong
+  // default: allowlisting it rejects every link the API actually returns.
   assert.equal(isAllowedDownloadUrl('https://nexus-078.indi.tb-cdn.pw/dld/abc?token=x'), true)
   assert.equal(isAllowedDownloadUrl('https://tb-cdn.pw/dld/abc'), true)
+  assert.equal(isAllowedDownloadUrl('https://tb-cdn.io/dld/abc'), true)
 
   assert.equal(isAllowedDownloadUrl('http://nexus-078.indi.tb-cdn.pw/dld/abc'), false, 'not https')
   assert.equal(isAllowedDownloadUrl('https://evil.example.com/f.mp4'), false, 'other host')
   assert.equal(isAllowedDownloadUrl('https://tb-cdn.pw.evil.com/f.mp4'), false, 'suffix trick')
   assert.equal(isAllowedDownloadUrl('https://eviltb-cdn.pw/f.mp4'), false, 'prefix trick')
+  assert.equal(isAllowedDownloadUrl('https://tb-cdn.io.evil.com/f.mp4'), false, 'suffix trick on the rotated domain')
   assert.equal(isAllowedDownloadUrl('https://user:pass@tb-cdn.pw/f.mp4'), false, 'credentials')
   assert.equal(isAllowedDownloadUrl('not a url'), false)
   assert.equal(isAllowedDownloadUrl(''), false)

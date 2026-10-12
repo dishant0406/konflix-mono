@@ -126,8 +126,14 @@ export const config = {
   // viewer's behalf, so it is allowlisted rather than trusted. An entry matches that
   // host and any subdomain of it.
   //
-  // The real host is a `*.tb-cdn.pw` CDN node, which was verified against the live
-  // API. The obvious-looking `torbox.app` is NOT it: the API host and the CDN host
-  // are different domains, and allowlisting the API host rejects every real link.
-  debridCdnHosts: list('DEBRID_CDN_HOSTS', 'tb-cdn.pw'),
+  // The real host is a CDN node under one of these domains, e.g.
+  // `nexus-144.enam.tb-cdn.io`. Both suffixes are listed because the provider has
+  // rotated between them: `.pw` was verified against the live API first, and `.io`
+  // replaced it. The obvious-looking `torbox.app` is NOT it - the API host and the
+  // CDN host are different domains, so allowlisting the API host rejects every link.
+  //
+  // This is the one setting most likely to need changing when the provider rotates
+  // its CDN domain again. A rejected link is logged with its hostname, so the new
+  // value can be read off the log and set via DEBRID_CDN_HOSTS without a rebuild.
+  debridCdnHosts: list('DEBRID_CDN_HOSTS', 'tb-cdn.pw,tb-cdn.io'),
 }
