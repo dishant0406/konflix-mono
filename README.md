@@ -12,6 +12,17 @@ of which are gone. This version isolates every volatile upstream behind a
 replaceable module, so a broken source degrades the app instead of taking it down.
 Each app has its own README with the detail.
 
+## Known limitations
+
+**A remuxed stream cannot seek.** When a release is an MKV that the browser cannot
+play directly, `ffmpeg` remuxes it to fragmented MP4 on the fly and the response is
+`Accept-Ranges: none`. The player must start from the beginning and cannot jump
+forward or back; the watch page says "remuxed for browser playback" when this is the
+case. Directly playable releases (MP4, and MKV the browser can decode) are served
+with real range support and seek normally. This is inherent to remuxing a live
+stream: a fragmented MP4 has no total length to advertise, so there is no byte range
+a player could ask for.
+
 ## Requirements
 
 - Node 22+ (the torrent layer uses `webtorrent` 3)
