@@ -1,0 +1,71 @@
+type Query {
+  topAnime(page: Int): [Anime]
+  recentEpisodes(page: Int): [Recent]
+  animeDetails(id: ID): AnimeDetails
+  streamLinkDetails(id: ID): StreamLink
+  animeSearch(id: ID, page: Int): [Anime]
+  recommandedAnime(genre: String): [Recommanded]
+}
+
+type Anime {
+  id: ID
+  title: String
+  trailer: String
+  imgUrl: String
+}
+
+type Recommanded {
+  animeId: ID
+  animeTitle: String
+  animeImg: String
+}
+
+type Recent {
+  animeId: ID
+  episodeId: ID
+  name: String
+  episodeNum: Int
+  subOrDub: String
+  imgUrl: String
+}
+
+type AnimeDetails {
+  id: ID
+  name: String
+  type: String
+  status: String
+  totalEpisodes: Int
+  released: Int
+  genres: [String]
+  synopsis: String
+  imageUrl: String
+  episode_id: [EpisodeID]
+  trailer: String
+  # Every title this show is known by. Releases are named inconsistently - an
+  # English title ("Attack on Titan") and its romaji ("Shingeki no Kyojin") both
+  # appear - so relevance is checked against all of them.
+  titleVariants: [String]
+}
+
+type EpisodeID {
+  episodeId: ID
+  episodeNumber: Int
+}
+
+# A playable source for one episode.
+#
+# `available` is false when no release could be found or played, in which case
+# `reason` explains why. That is a normal outcome for this layer, not an error, so
+# the UI can always render something truthful instead of a broken player.
+type StreamLink {
+  id: ID
+  url: String
+  # "file" for a directly playable MP4, "remux" for an MKV being remuxed on the fly.
+  streamType: String
+  available: Boolean
+  reason: String
+  release: String
+  animeNameWithEP: String
+  ep_num: Int
+  anime_info: String
+}
