@@ -16,7 +16,7 @@ import { config } from './lib/config.js'
 import { http } from './lib/http.js'
 import { prepareCacheDir } from './lib/cacheDir.js'
 import { provider, providerNames } from './graphql/providers/index.js'
-import { indexerNames, indexerStatus } from './graphql/indexers/index.js'
+import { enabledIndexers, indexerNames, indexerStatus } from './graphql/indexers/index.js'
 import { serveStream } from './graphql/stream/serve.js'
 import { sessionCount, cacheSizeBytes, closeAll } from './graphql/stream/torrent.js'
 import { activeSources, sourceNames, sourceStatus } from './graphql/stream/sources/index.js'
@@ -194,7 +194,11 @@ app.get('/health', async (req, res, next) => {
       activeStreamSources: activeSources().map((source) => source.name),
       availableStreamSources: sourceNames(),
       sources,
-      enabledIndexers: indexerNames(),
+      // What is actually searched, as opposed to what is registered. Reporting every
+      // registered indexer here would claim animetosho is in use when the default
+      // configuration deliberately leaves it out.
+      enabledIndexers: enabledIndexers().map((indexer) => indexer.name),
+      availableIndexers: indexerNames(),
       indexers,
       ffmpeg,
       activeTorrents: sessionCount(),
@@ -233,7 +237,7 @@ const server = app.listen(config.port, () => {
   }
   console.log(`  Metadata provider: ${provider.name}`)
   console.log(`  Stream sources:    ${activeSources().map((source) => source.name).join(', ') || 'none'}`)
-  console.log(`  Torrent indexers:  ${indexerNames().join(', ') || 'none'}`)
+  console.log(`  Torrent indexers:  ${enabledIndexers().map((indexer) => indexer.name).join(', ') || 'none'}`)
 })
 
 // Bounds how long a connection may sit idle and how many are accepted at once. Both

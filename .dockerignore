@@ -1,0 +1,19 @@
+# Build context is the repository root, because both images install from the shared
+# workspace lockfile. Everything that is not source is excluded here, otherwise a
+# local node_modules or .next would be copied into the image and shadow the ones the
+# Dockerfile installs.
+
+**/node_modules
+**/.next
+**/.env
+**/.env.*
+**/.torrent-cache
+
+.git
+.github
+.kajicode
+scripts
+docker-compose.yml
+*.md
+
+.DS_Store

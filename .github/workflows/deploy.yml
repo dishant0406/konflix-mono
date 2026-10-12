@@ -1,0 +1,197 @@
+name: Deploy
+
+# Deploys the stack to the single server that runs both apps.
+#
+# Images are built on the server, not here: the host is the only place with the CPU
+# architecture they must run on, and it removes the need for a registry and an image
+# transfer on every deploy. This workflow gets the code there, renders the
+# configuration from secrets, and runs the deploy script.
+#
+# Every value that is not in the repository comes from a repository secret or
+# variable. Nothing secret is ever written into a file that is committed.
+
+on:
+  push:
+    branches: [main]
+  # Allows a deploy of any branch or commit without pushing a new commit.
+  workflow_dispatch:
+
+# A deploy in progress must not be interrupted halfway by the next push, and two
+# deploys must never run at once. Queued runs are kept rather than cancelled, so the
+# final state always matches the latest commit.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # Reports whether the deploy target is configured, so a push to main on a
+  # repository that has not been set up yet is a skip with instructions rather than a
+  # failed run.
+  preflight:
+    runs-on: ubuntu-latest
+    outputs:
+      configured: ${{ steps.check.outputs.configured }}
+    steps:
+      - name: Check the deploy secrets
+        id: check
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          CLOUDFLARE_TUNNEL_TOKEN: ${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }}
+        run: |
+          missing=""
+          for name in DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_KEY CLOUDFLARE_TUNNEL_TOKEN; do
+            if [ -z "${!name}" ]; then
+              missing="$missing $name"
+            fi
+          done
+
+          if [ -n "$missing" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "## Deploy skipped: not configured yet"
+              echo
+              echo "Missing repository secrets:$missing"
+              echo
+              echo "Add them under **Settings > Secrets and variables > Actions**, then"
+              echo "re-run this workflow. See the Deployment section of README.md for the"
+              echo "full one-time setup."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "Deploy target is not configured. Missing:$missing"
+            exit 0
+          fi
+
+          echo "configured=true" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    needs: preflight
+    if: needs.preflight.outputs.configured == 'true'
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Start ssh-agent
+        # The key is passed through the agent rather than written to disk, so it is
+        # not left behind on the runner and cannot end up in an artifact.
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          ssh-agent -a "$SSH_AUTH_SOCK" > /dev/null
+          echo "$DEPLOY_SSH_KEY" | tr -d '\r' | ssh-add - > /dev/null
+          # The host key is recorded on first contact. The connection is key-only and
+          # the target is pinned by DEPLOY_HOST, so this does not weaken it.
+          ssh-keyscan -p "${{ secrets.DEPLOY_PORT || 22 }}" -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Render the deploy environment
+        # Written to the workspace only for the duration of the run and never
+        # uploaded. The repository's .gitignore covers .env.deploy.
+        env:
+          PUBLIC_URL: ${{ vars.PUBLIC_URL }}
+          NEXT_PUBLIC_GRAPHQL_URI: ${{ vars.NEXT_PUBLIC_GRAPHQL_URI }}
+          CLOUDFLARE_TUNNEL_TOKEN: ${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }}
+          TORBOX_API_KEY: ${{ secrets.TORBOX_API_KEY }}
+          STREAM_SOURCES: ${{ vars.STREAM_SOURCES }}
+          MAX_CACHE_BYTES: ${{ vars.MAX_CACHE_BYTES }}
+        run: |
+          # Defaults, so a missing repository variable does not silently deploy an
+          # empty value.
+          PUBLIC_URL="${PUBLIC_URL:-https://api.konflix.live}"
+          NEXT_PUBLIC_GRAPHQL_URI="${NEXT_PUBLIC_GRAPHQL_URI:-$PUBLIC_URL/graphql}"
+          STREAM_SOURCES="${STREAM_SOURCES:-debrid,torrent}"
+          MAX_CACHE_BYTES="${MAX_CACHE_BYTES:-12884901888}"
+
+          umask 077
+          cat > .env.deploy <<EOF
+          PUBLIC_URL=$PUBLIC_URL
+          NEXT_PUBLIC_GRAPHQL_URI=$NEXT_PUBLIC_GRAPHQL_URI
+          STREAM_SOURCES=$STREAM_SOURCES
+          MAX_CACHE_BYTES=$MAX_CACHE_BYTES
+          CLOUDFLARE_TUNNEL_TOKEN=$CLOUDFLARE_TUNNEL_TOKEN
+          TORBOX_API_KEY=$TORBOX_API_KEY
+          EOF
+
+          # Only the shape is reported; the file holds the tunnel token and the
+          # debrid key and must never be echoed.
+          echo "Rendered .env.deploy with $(wc -l < .env.deploy) lines."
+
+      - name: Upload the code
+        # --delete keeps the server tree an exact copy of the commit, so a deleted
+        # file does not linger and get built. .git travels with the code because the
+        # deploy script tags images with the commit. The runtime env file is excluded
+        # here and sent separately below, so its permissions can be set explicitly.
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || 22 }}
+        run: |
+          rsync -az --delete \
+            --exclude 'node_modules' \
+            --exclude '.next' \
+            --exclude '.torrent-cache' \
+            --exclude '.env' \
+            --exclude '.env.*' \
+            -e "ssh -p $DEPLOY_PORT" \
+            ./ "$DEPLOY_USER@$DEPLOY_HOST:/opt/konflix/"
+
+          scp -P "$DEPLOY_PORT" .env.deploy "$DEPLOY_USER@$DEPLOY_HOST:/opt/konflix/.env.deploy"
+          ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" "chmod 600 /opt/konflix/.env.deploy"
+
+      - name: Build and start
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || 22 }}
+        run: |
+          ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
+            'cd /opt/konflix && git config --global --add safe.directory /opt/konflix && bash scripts/deploy.sh'
+
+      - name: Verify the public endpoints
+        # Verifies through Cloudflare rather than on the box, so this fails if DNS,
+        # the tunnel, or TLS is wrong - not just if the containers started.
+        env:
+          PUBLIC_URL: ${{ vars.PUBLIC_URL }}
+          FRONTEND_URL: ${{ vars.FRONTEND_URL }}
+        run: |
+          PUBLIC_URL="${PUBLIC_URL:-https://api.konflix.live}"
+          FRONTEND_URL="${FRONTEND_URL:-https://konflix.live}"
+
+          echo "Checking $PUBLIC_URL/health"
+          curl -fsS --retry 5 --retry-delay 5 --retry-all-errors "$PUBLIC_URL/health" | head -c 400
+          echo
+
+          echo "Checking $FRONTEND_URL"
+          curl -fsS --retry 5 --retry-delay 5 --retry-all-errors -o /dev/null -w 'HTTP %{http_code}\n' "$FRONTEND_URL"
+
+          # A GraphQL round trip proves the frontend's API address and the API itself
+          # both work, which a 200 on the home page alone does not.
+          echo "Checking a GraphQL query"
+          curl -fsS --retry 3 --retry-delay 5 --retry-all-errors \
+            -X POST "$PUBLIC_URL/graphql" \
+            -H 'Content-Type: application/json' \
+            -d '{"query":"{ topAnime(page:1){ id title } }"}' | head -c 200
+          echo
+
+      - name: Report failure
+        if: failure()
+        run: |
+          {
+            echo "## Deploy failed"
+            echo
+            echo "If the build failed, the previous revision is still running unchanged."
+            echo "If a container started and then failed its health check, that container is"
+            echo "now the live one and the deploy did not roll back - inspect it on the host:"
+            echo
+            echo '```'
+            echo "cd /opt/konflix && docker compose ps && docker compose logs --tail 100 api frontend"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

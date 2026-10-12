@@ -1,0 +1,98 @@
+# Konflix production stack: one server, three containers.
+#
+#   cloudflared  the only thing exposed to the internet, over an outbound tunnel.
+#                Nothing binds a public port, so there is no open firewall hole and
+#                no certificate to renew on this box.
+#   api          the GraphQL API and the video relay (port 9000, internal only).
+#   frontend     Next.js (port 3000, internal only).
+#
+# Two hostnames reach the same tunnel and are routed by hostname in the tunnel's
+# ingress config (scripts/cloudflare.sh), which is why no reverse proxy is needed
+# here. The browser loads the frontend from konflix.live and then talks to the API
+# directly on api.konflix.live, so no proxy sits in the video byte path.
+#
+# Every value comes from the environment. The deploy script renders an env file from
+# GitHub Actions secrets and passes it with --env-file, so no secret is ever written
+# into this file or into the repository.
+
+name: konflix
+
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    environment:
+      # Passed as an environment variable rather than a `--token` argument, so the
+      # secret is not visible in the host process list.
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    command: tunnel --no-autoupdate run
+    depends_on:
+      - api
+      - frontend
+    logging: &logging
+      # Bounded, because the disk is a fixed size and a chatty container would
+      # otherwise fill it. The default json-file driver has no limit.
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  api:
+    image: ${API_IMAGE}
+    build:
+      context: .
+      dockerfile: anime-server/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 9000
+      # Stream URLs are built from this, so it must be the public API origin.
+      PUBLIC_URL: ${PUBLIC_URL}
+      CACHE_DIR: /data/torrent-cache
+      STREAM_SOURCES: ${STREAM_SOURCES:-debrid,torrent}
+      TORBOX_API_KEY: ${TORBOX_API_KEY:-}
+      # Disk ceiling for the torrent cache. The box is 40GB, and the volume below is
+      # the only thing that grows, so this leaves headroom for the OS and images.
+      MAX_CACHE_BYTES: ${MAX_CACHE_BYTES:-12884901888}
+    volumes:
+      # Named volume rather than a bind mount: the cache is scratch data, and a
+      # named volume is owned by Docker rather than by whatever user happens to
+      # exist on the host. Docker initialises it from /data in the image, which is
+      # owned by the unprivileged user the container runs as.
+      - torrent-cache:/data
+    healthcheck:
+      # The check runs inside the container, which has node and is the only place
+      # these ports are reachable from. Nothing is published to the host.
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:9000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+    logging: *logging
+
+  frontend:
+    image: ${FRONTEND_IMAGE}
+    build:
+      context: .
+      dockerfile: konflix-frontend/Dockerfile
+      args:
+        # Baked into the browser bundle at build time, so it is a build argument
+        # rather than a runtime variable. Changing it requires a rebuild.
+        NEXT_PUBLIC_GRAPHQL_URI: ${NEXT_PUBLIC_GRAPHQL_URI}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      NEXT_PUBLIC_GRAPHQL_URI: ${NEXT_PUBLIC_GRAPHQL_URI}
+    depends_on:
+      - api
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    logging: *logging
+
+volumes:
+  torrent-cache:
