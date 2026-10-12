@@ -85,12 +85,21 @@ jobs:
         run: |
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-          ssh-agent -a "$SSH_AUTH_SOCK" > /dev/null
+          # Started with the printed environment rather than `ssh-agent -a "$SSH_AUTH_SOCK"`:
+          # SSH_AUTH_SOCK is not set on a GitHub runner, so passing it as the socket
+          # path gave ssh-agent an empty argument and it exited non-zero. `eval` sets
+          # the socket and the pid from the agent's own output.
+          eval "$(ssh-agent -s)"
+          echo "SSH_AUTH_SOCK=$SSH_AUTH_SOCK" >> "$GITHUB_ENV"
+          echo "SSH_AGENT_PID=$SSH_AGENT_PID" >> "$GITHUB_ENV"
           echo "$DEPLOY_SSH_KEY" | tr -d '\r' | ssh-add - > /dev/null
           # The host key is recorded on first contact. The connection is key-only and
           # the target is pinned by DEPLOY_HOST, so this does not weaken it.
           ssh-keyscan -p "${{ secrets.DEPLOY_PORT || 22 }}" -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
           chmod 600 ~/.ssh/known_hosts
+          # Fails here, where the reason is readable, rather than at the first ssh
+          # call with a bare exit code.
+          ssh-add -l
 
       - name: Render the deploy environment
         # Written to the workspace only for the duration of the run and never
