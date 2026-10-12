@@ -17,6 +17,18 @@ import { toHexInfoHash, buildMagnet } from '../../lib/magnet.js'
 const ENDPOINT = 'https://apibay.org/q.php'
 const TTL_MS = 10 * 60 * 1000
 
+// The host sits behind a Cloudflare JS challenge, which a datacenter IP can never
+// satisfy: verified from the production server, every request answers 403 with the
+// "Just a moment..." interstitial, and a browser User-Agent does not change it. It
+// works from a residential connection, so it stays enabled.
+//
+// Without a cooldown every search retries a request that is certain to fail, once per
+// search term. A search fans out over several terms, so a failing indexer would be
+// hit that many times on every episode lookup. The cooldown makes one failure suppress
+// the rest.
+const COOLDOWN_MS = 5 * 60 * 1000
+let downUntil = 0
+
 // Returned instead of an empty list when nothing matches.
 const NO_RESULTS_HASH = '0000000000000000000000000000000000000000'
 
@@ -44,17 +56,31 @@ export default {
 
   async search(term) {
     if (!term) return []
-    return cached(`apibay:${term}`, (value) => ttlFor(value, TTL_MS), async () => {
-      const { data } = await http.get(ENDPOINT, {
-        // category 0 is "all"; filtering server-side loses the anime rows, which
-        // TPB files under a general video category.
-        params: { q: term, cat: '0' },
-        responseType: 'json',
+
+    // While the host is known to be refusing us, the empty result is returned without
+    // being cached: caching it would blackhole this term for the full TTL even though
+    // the block may lift in seconds.
+    if (downUntil > Date.now()) return []
+
+    try {
+      return await cached(`apibay:${term}`, (value) => ttlFor(value, TTL_MS), async () => {
+        const { data } = await http.get(ENDPOINT, {
+          // category 0 is "all"; filtering server-side loses the anime rows, which
+          // TPB files under a general video category.
+          params: { q: term, cat: '0' },
+          responseType: 'json',
+        })
+        return parseSearchResults(data).map((row) => ({
+          ...row,
+          magnet: buildMagnet(row.infoHash, row.title, config.trackers),
+        }))
       })
-      return parseSearchResults(data).map((row) => ({
-        ...row,
-        magnet: buildMagnet(row.infoHash, row.title, config.trackers),
-      }))
-    })
+    } catch (error) {
+      // search() must never throw. The cooldown is set here rather than in the caller
+      // so it applies to every caller, and the first failure is still reported once.
+      downUntil = Date.now() + COOLDOWN_MS
+      console.warn(`[indexer:apibay] ${error.message} (pausing for ${COOLDOWN_MS / 60000}m)`)
+      return []
+    }
   },
 }

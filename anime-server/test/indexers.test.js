@@ -4,6 +4,8 @@ import assert from 'node:assert/strict'
 import { parseSearchPage } from '../graphql/indexers/animetosho.js'
 import { parseRss } from '../graphql/indexers/nyaa.js'
 import { parseSearchResults } from '../graphql/indexers/apibay.js'
+import apibay from '../graphql/indexers/apibay.js'
+import { http } from '../lib/http.js'
 import { titleOf } from '../graphql/indexers/index.js'
 import { buildMagnet, infoHashFromMagnet, parseSize, toHexInfoHash } from '../lib/magnet.js'
 
@@ -92,6 +94,32 @@ test('parseSearchResults drops the "No results returned" sentinel', () => {
     },
   ])
   assert.deepEqual(rows, [])
+})
+
+test('a blocked apibay is not retried on every search term', async () => {
+  // apibay sits behind a Cloudflare JS challenge that a datacenter IP cannot pass:
+  // verified from the production server, every request answers 403. A search fans out
+  // over several terms, so without a cooldown one episode lookup fires a request that
+  // is certain to fail once per term.
+  //
+  // search() must never throw, and one failure must suppress the following calls.
+  const calls = []
+  const originalGet = http.get
+  http.get = async () => {
+    calls.push(1)
+    throw new Error('Request failed with status code 403')
+  }
+
+  try {
+    assert.deepEqual(await apibay.search('Bocchi the Rock 1'), [], 'returns empty, does not throw')
+    assert.equal(calls.length, 1, 'the first call reaches the host')
+
+    await apibay.search('Bocchi the Rock 01')
+    await apibay.search('Bocchi the Rock 001')
+    assert.equal(calls.length, 1, 'the cooldown suppresses the remaining terms')
+  } finally {
+    http.get = originalGet
+  }
 })
 
 test('parseSearchResults ignores malformed rows', () => {
