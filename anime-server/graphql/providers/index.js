@@ -27,7 +27,7 @@
 //
 // `episodeId` must be opaque to callers and parseable by stream.js, because the
 // frontend puts it in the URL and hands it back to streamLinkDetails. See
-// parseEpisodeId there for the two forms.
+// lib/mediaId.js for the two forms.
 
 import { config } from '../../lib/config.js'
 import anilist from './anilist.js'
