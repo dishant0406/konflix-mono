@@ -42,19 +42,6 @@ export function useMediaList(filters: MediaListFilters, enabled = true) {
   );
 }
 
-/** A page of search results. Skipped entirely when the term is empty. */
-export function useMediaSearch(term: string, filters: MediaListFilters = {}) {
-  const input = { contentType: SITE.contentType, ...filters };
-  return useQuery(
-    [QUERY_KEYS.MEDIA_SEARCH, term, input],
-    () =>
-      request<{ mediaSearch: MediaPage }>(GET_MEDIA_SEARCH, { term, input }).then(
-        (data) => data.mediaSearch,
-      ),
-    { enabled: term.trim().length > 0, keepPreviousData: true },
-  );
-}
-
 /**
  * Search results drawn from every catalogue the site carries.
  *

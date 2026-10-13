@@ -66,6 +66,28 @@ Each entry declares the content types it serves (`types: ['anime']`, `['movie']`
 `['series']`, or several), so a film search never queries an anime feed.
 `GET /health` reports every configured entry and which types it covers.
 
+## How a row and a search are ordered
+
+Two rules worth knowing, because both were bugs and both are easy to reintroduce.
+
+**A "newest" row means released, not announced.** AniList reports a null date for a
+title that has not come out and sorts it first under its date sort, and YTS sorts a film
+announced for next year above one that is out. Each provider therefore bounds its own
+date sort: AniList excludes unreleased and undated titles, YTS keeps a one-year window.
+A provider that cannot do this has no `recent` sort offered for it, rather than a sort
+that quietly returns the wrong thing.
+
+**A search spans every catalogue the site carries.** The API's search is scoped to one
+content type, because a title is addressed by a provider-specific id, so a site declares
+its catalogues in `searchContentTypes` (`konflix-frontend/src/constants/site.ts`) and the
+search box and results page query each and interleave the answers. Searching one
+catalogue would silently hide half the site: on the TV site "Breaking Bad" is a series
+and "Dangal" is a film.
+
+Results whose title starts with the term are moved ahead of fuzzy matches, because
+TVMaze's own search returned "D.N.Angel" above "Dangal". `konflix-frontend/src/lib/merge-search.ts`
+holds the merge and its tests.
+
 ## Known limitations
 
 **A converted stream starts after a short wait.** A release whose container a phone
