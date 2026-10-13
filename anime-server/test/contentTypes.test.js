@@ -83,10 +83,11 @@ test('an id whose suffix does not match its content type is rejected', () => {
   // URL and then look up the wrong episode.
   for (const id of [
     'movie-7691-ep1',
+    'movie-tt32261958-ep1',
     'anime-16498-s1e1',
     'series-169-ep1',
-    'anime-abc',
-    'movie-abc',
+    'anime-',
+    'movie-',
     '16498-ep1',
     'series-1-x',
     '',
@@ -94,6 +95,21 @@ test('an id whose suffix does not match its content type is rejected', () => {
   ]) {
     assert.equal(parseMediaId(id), null, `${JSON.stringify(id)} must not parse`)
   }
+})
+
+test('a provider id may be alphanumeric, because Cinemeta uses IMDb ids', () => {
+  // Providers do not agree on an id form: AniList, TVMaze and YTS use numbers and
+  // Cinemeta uses "tt32261958". A digits-only charset would make every film on the
+  // Cinemeta provider unreachable from the frontend, which parses the same ids.
+  const film = parseMediaId('movie-tt32261958')
+  assert.equal(film?.contentType, 'movie')
+  assert.equal(film?.mediaId, 'tt32261958')
+  assert.equal(film?.key, 'movie-tt32261958')
+
+  const series = parseMediaId('series-tt0903747-s1e5')
+  assert.equal(series?.season, 1)
+  assert.equal(series?.episodeNumber, 5)
+  assert.equal(series?.key, 'series-tt0903747')
 })
 
 test('ids from different providers do not collide', () => {
@@ -116,6 +132,49 @@ test('the id builders agree with the parser', () => {
   assert.equal(parseMediaId(seriesEpisodeId(169, 10, 24))?.season, 10)
 })
 
+test('a film whose title contains a number is not rejected as an episode', () => {
+  // The reported failure: searching for "Dhamaal 4" found 73-seeded releases and then
+  // threw all of them away, so the film reported "no source" while the indexers held
+  // plenty. The cause was parseEpisode matching the sequel number (and the year) and
+  // isEpisodeRelease treating that as a series episode. It hit Indian cinema hardest
+  // because it is sequel-heavy, but any film with a number in its name was affected.
+  const releases = [
+    { title: 'Dhamaal 4 (2026) 720p WEBRip x264 -YTS', seeders: 73, sizeBytes: 1 },
+    { title: 'Dhamaal 4 (2026) 1080p WEBRip 5.1 x264 -YTS', seeders: 41, sizeBytes: 2 },
+    { title: 'Singham Again 2024 1080p WEB-DL', seeders: 11, sizeBytes: 3 },
+    { title: 'Stree 2 (2024) 1080p WEB-DL', seeders: 5, sizeBytes: 4 },
+    { title: 'Kalki 2898 AD (2024) 1080p', seeders: 52, sizeBytes: 5 },
+    { title: 'Bhool Bhulaiyaa 3 (2024) 1080p WEBRip', seeders: 12, sizeBytes: 6 },
+  ]
+  for (const release of releases) {
+    assert.ok(
+      !isEpisodeRelease(release.title, 2026),
+      `${release.title} is a film and must not be read as an episode`,
+    )
+  }
+
+  const ranked = rankMovieReleases(releases, 2026, 'Dhamaal 4', ['Dhamaal 4'])
+  assert.equal(ranked.length, 2, 'both Dhamaal 4 releases must survive the filter')
+  assert.match(ranked[0].title, /720p/, 'the better-seeded release comes first')
+})
+
+test('a series release is still rejected even when it names a year', () => {
+  // The loosening above must not let a series episode through. Every series release
+  // carries an SxxExx, which is what the gate now keys on.
+  for (const title of [
+    'Breaking.Bad.S02E02.1080p.WEB.mkv',
+    'Fargo.S01E01.1080p.BluRay',
+    'Show.2024.S03E10.1080p',
+  ]) {
+    assert.ok(isEpisodeRelease(title), `${title} must be rejected as a film`)
+  }
+
+  // And a season pack, which names no episode at all.
+  for (const title of ['Breaking Bad S01 COMPLETE 1080p', 'Show Season 2 1080p', 'Show 01-12 [1080p]']) {
+    assert.ok(isEpisodeRelease(title), `${title} must be rejected as a film`)
+  }
+})
+
 test('a film release is not mistaken for a series episode', () => {
   // This is the regression that matters most for the film path: searching a title
   // also returns its series, and a series episode is not the film.
@@ -128,6 +187,44 @@ test('a film release is not mistaken for a series episode', () => {
   assert.equal(ranked.length, 1, 'only the film itself may be ranked')
   assert.match(ranked[0].title, /2008/)
   assert.ok(!isEpisodeRelease(ranked[0].title))
+})
+
+test('a series episode with no SxxExx is still rejected as a film', () => {
+  // The gate keys on a bare number only when the release names no year. Without that
+  // half, a series episode named "Fargo - 05 1080p" - which starts with the film's
+  // title and so passes the relevance filter - was ranked as the film itself.
+  const episodes = [
+    'Fargo - 05 1080p WEB-DL',
+    'Fargo 05 1080p WEB-DL',
+    'Fargo 05',
+    'Show - 112 1080p',
+  ]
+  for (const title of episodes) {
+    assert.ok(isEpisodeRelease(title, 1996), `${title} must be rejected as a film`)
+  }
+
+  // And it cannot reach the ranking, which is where the damage would be done.
+  const ranked = rankMovieReleases(
+    [
+      { title: 'Fargo - 05 1080p WEB-DL', seeders: 500, sizeBytes: 1 },
+      { title: 'Fargo (1996) 1080p BluRay x264', seeders: 20, sizeBytes: 2 },
+    ],
+    1996,
+    'Fargo',
+    ['Fargo'],
+  )
+  assert.equal(ranked.length, 1, 'only the film may be ranked')
+  assert.match(ranked[0].title, /1996/)
+})
+
+test('a release naming a year is a film release even when it also names a number', () => {
+  // Both halves of the rule, on the same title: with the year known the sequel number
+  // is admitted, and without it the number is treated as an episode because there is
+  // nothing to compare against.
+  assert.equal(isEpisodeRelease('Dhamaal 4 (2026) 720p WEBRip x264 -YTS', 2026), false)
+  assert.equal(isEpisodeRelease('Singham Again 2024 1080p WEB-DL', 2024), false)
+  // No year to compare, so the conservative answer is "an episode".
+  assert.equal(isEpisodeRelease('Dhamaal 4 (2026) 720p WEBRip x264 -YTS', null), true)
 })
 
 test('a film release naming the wrong year is ranked below one that matches', () => {

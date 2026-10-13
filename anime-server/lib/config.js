@@ -28,17 +28,25 @@ function list(name, fallback) {
     .filter(Boolean)
 }
 
-// Parses "anime:anilist,series:tvmaze" into { anime: 'anilist', series: 'tvmaze' }.
-// An entry without a colon is ignored rather than silently becoming a provider name
-// that matches nothing.
+// Parses "anime:anilist,series:cinemeta+tvmaze" into
+// { anime: ['anilist'], series: ['cinemeta', 'tvmaze'] }.
+//
+// Types are separated by commas, so the providers within one type are separated by
+// "+". A type may name several, most-preferred first, and the next answers when the
+// first returns nothing. An entry without a colon is ignored rather than silently
+// becoming a provider name that matches nothing.
 function providerMap(name, fallback) {
   const map = {}
   for (const entry of list(name, fallback)) {
     const separator = entry.indexOf(':')
     if (separator === -1) continue
     const type = entry.slice(0, separator).trim()
-    const provider = entry.slice(separator + 1).trim()
-    if (type && provider) map[type] = provider
+    const names = entry
+      .slice(separator + 1)
+      .split('+')
+      .map((value) => value.trim())
+      .filter(Boolean)
+    if (type && names.length > 0) map[type] = names
   }
   return map
 }
@@ -50,18 +58,24 @@ export const config = {
   // from it, so it must be the public address in production.
   publicUrl: text('PUBLIC_URL', `http://localhost:${integer('PORT', 9000)}`),
 
-// Which metadata provider to use for each content type, as "type:provider" pairs.
+  // Which metadata provider to use for each content type, as "type:provider" pairs.
   // See providers/index.js for the available keys. A provider that does not declare
   // the requested type is not selectable, so a typo here is reported at boot rather
   // than answered with the wrong catalogue.
   //
-  //   PROVIDERS=anime:anilist,series:tvmaze,movie:yts
+  //   PROVIDERS=anime:anilist,series:cinemeta+tvmaze,movie:cinemeta+yts
+  //
+  // A type may list several providers separated by "+", most-preferred first. The
+  // next one answers when the first returns nothing, which is what makes a provider
+  // outage a degraded row rather than an empty one. Cinemeta is preferred because it
+  // is a catalogue (every title, released or not) while YTS is a torrent tracker
+  // (only what has been ripped).
   //
   // METADATA_PROVIDER overrides the anime entry, so the existing single-value
   // setting keeps working.
   providers: providerMap(
     'PROVIDERS',
-    `anime:${text('METADATA_PROVIDER', 'anilist')},series:tvmaze,movie:yts`,
+    `anime:${text('METADATA_PROVIDER', 'anilist')},series:cinemeta+tvmaze,movie:cinemeta+yts`,
   ),
 
   // Which torrent indexers to search. See indexers/index.js for the available keys.
@@ -166,6 +180,11 @@ export const config = {
   // movie provider stays YTS, which needs no account.
   tvmazeBaseUrl: text('TVMAZE_BASE_URL', 'https://api.tvmaze.com'),
   tmdbApiKey: text('TMDB_API_KEY', ''),
+
+  // Cinemeta, the catalogue Stremio itself uses. One base URL covers meta and
+  // catalogs because the service redirects between its hosts and axios follows.
+  // Configurable because it has moved before, as YTS and knaben have.
+  cinemetaBaseUrl: text('CINEMETA_BASE_URL', 'https://v3-cinemeta.strem.io'),
 
   // Where the video bytes come from, in order of preference. See
   // graphql/stream/sources/index.js for the available keys.

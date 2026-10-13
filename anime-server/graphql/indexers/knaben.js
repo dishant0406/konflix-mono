@@ -34,10 +34,16 @@ import { buildMagnet, toHexInfoHash } from '../../lib/magnet.js'
 const TTL_MS = 10 * 60 * 1000
 
 // The API's category ids, by the content type this application knows about.
+//
+// A film is asked for under both the movie and the TV tree. Measured on production,
+// knaben files many films under TV as well - "verity 2026" returned 0 hits for the
+// movie tree alone and 6 (best 277 seeders) for both, and "dhamaal 4" went from 9 to
+// 18. Widening the request cannot leak adult rows: the unsafe filter below runs on
+// the rows that come back, not on the request.
 const CATEGORIES = {
-  anime: 6000000,
-  series: 2000000,
-  movie: 3000000,
+  anime: [6000000],
+  series: [2000000],
+  movie: [3000000, 2000000],
 }
 
 // The adult tree. Any row carrying one of these is dropped regardless of what was
@@ -93,12 +99,15 @@ export default {
   async search(term, options = {}) {
     if (!term) return []
 
-    const category = CATEGORIES[options.contentType]
+    const categories = CATEGORIES[options.contentType]
     // An unset category means "everything", which would return adult rows for an
     // ordinary query. Searching nothing is the honest alternative.
-    if (!category) return []
+    if (!categories) return []
 
-    return cached(`knaben:${category}:${term}`, (value) => ttlFor(value, TTL_MS), async () => {
+    // The category list is part of the cache key: widening it must not serve a
+    // narrower answer from cache, or the first query after a change would look
+    // like the change did nothing.
+    return cached(`knaben:${categories.join('+')}:${term}`, (value) => ttlFor(value, TTL_MS), async () => {
       const { data } = await http.post(
         config.knabenBaseUrl,
         {
@@ -106,7 +115,7 @@ export default {
           search_field: 'title',
           query: term,
           size: 50,
-          categories: [category],
+          categories,
           order_by: 'seeders',
           order_direction: 'desc',
         },

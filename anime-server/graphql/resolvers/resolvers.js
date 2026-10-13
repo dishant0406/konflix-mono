@@ -9,7 +9,7 @@
 // `(args, context, info)` - there is no parent argument - so the signatures below
 // take `args` first. This is the standard rootValue contract.
 
-import { providerFor } from '../providers/index.js'
+import { providerFor, withFallback } from '../providers/index.js'
 import { resolveStream } from '../stream/index.js'
 import { parseMediaId } from '../../lib/mediaId.js'
 
@@ -22,22 +22,22 @@ function typeOf(input) {
 const Query = {
   mediaList: (args) => {
     const input = args.input || {}
-    return providerFor(typeOf(input)).mediaList(input)
+    return withFallback(typeOf(input), 'mediaList', [input])
   },
 
   mediaSearch: (args) => {
     const input = { ...(args.input || {}), term: args.term }
-    return providerFor(typeOf(input)).mediaSearch(input)
+    return withFallback(typeOf(input), 'mediaSearch', [input])
   },
 
-mediaDetail: (args) => {
+  mediaDetail: (args) => {
     const input = args.input || {}
     // A detail request carries either a full media id or a bare provider id. Both
     // are accepted so an existing link keeps working; a full id wins because it is
     // the only form that says which provider to ask.
     const parsed = parseMediaId(args.id)
-    if (parsed) return providerFor(parsed.contentType).mediaDetail(parsed.mediaId)
-    return providerFor(typeOf(input)).mediaDetail(args.id)
+    if (parsed) return withFallback(parsed.contentType, 'mediaDetail', [parsed.mediaId, parsed.contentType])
+    return withFallback(typeOf(input), 'mediaDetail', [args.id, typeOf(input)])
   },
 
   // --- the anime shapes, kept because the anime site and the stream layer use them

@@ -120,16 +120,18 @@ const TV: SiteConfig = {
     { title: "Popular Series", sort: "popularity", contentType: "series" },
     { title: "Most Watched Films", sort: "popularity", contentType: "movie" },
     { title: "New Series", sort: "recent", contentType: "series" },
-    { title: "Action", genre: "action", sort: "popularity", contentType: "movie" },
+    { title: "Action", genre: "Action", sort: "popularity", contentType: "movie" },
     { title: "Drama Series", genre: "Drama", sort: "score", contentType: "series" },
   ],
   relatedTitle: "More Like This",
   recommendedTitle: "Recommended",
-  // YTS genre values are lowercase, unlike AniList's.
+  // Cinemeta's own genre values, title-case. They are matched case-insensitively by
+  // the provider, and they are the values sent as the filter, so they must be the
+  // provider's spelling rather than a display name.
   genres: [
-    "action", "adventure", "animation", "biography", "comedy", "crime",
-    "documentary", "drama", "family", "fantasy", "history", "horror",
-    "music", "mystery", "romance", "sci-fi", "sport", "thriller", "war",
+    "Action", "Adventure", "Animation", "Biography", "Comedy", "Crime",
+    "Documentary", "Drama", "Family", "Fantasy", "History", "Horror",
+    "Music", "Mystery", "Romance", "Sci-Fi", "Sport", "Thriller", "War",
   ],
   formats: [
     { value: "movie", label: "Film" },
@@ -148,7 +150,7 @@ const TV: SiteConfig = {
   supportsAdvancedFilters: false,
   searchContentTypes: ["series", "movie"],
   attribution:
-    "Film metadata from YTS. Series metadata from TVMaze, licensed CC BY-SA.",
+    "Film and series metadata from Cinemeta. Series metadata also from TVMaze, licensed CC BY-SA.",
 };
 
 export const SITE: SiteConfig = process.env.NEXT_PUBLIC_SITE === "tv" ? TV : ANIME;

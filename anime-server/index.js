@@ -15,7 +15,7 @@ import { createHandler } from 'graphql-http/lib/use/express'
 import { config } from './lib/config.js'
 import { http } from './lib/http.js'
 import { prepareCacheDir } from './lib/cacheDir.js'
-import { providerFor, providerNames, providerTypes } from './graphql/providers/index.js'
+import { providersFor, providerNames, providerTypes } from './graphql/providers/index.js'
 import { enabledIndexers, indexerNames, indexerStatus, indexerTypes } from './graphql/indexers/index.js'
 import { serveStream, serveStreamSegment } from './graphql/stream/serve.js'
 import { servePlaylist, serveSegment, prepareHlsDir, closeAllHls, hlsSessionCount, sessionForStream, streamKey, createHlsSession } from './graphql/stream/hls.js'
@@ -301,10 +301,11 @@ app.get('/health', async (req, res, next) => {
 
     res.json({
       status: 'ok',
-      // The provider per content type, so a misconfigured site is visible here
-      // rather than at the first request for a film.
+      // The provider chain per content type, so a misconfigured site is visible here
+      // rather than at the first request for a film. The first name answers unless it
+      // has nothing, in which case the next one does.
       metadataProviders: Object.fromEntries(
-        ['anime', 'series', 'movie'].map((type) => [type, providerFor(type).name]),
+        ['anime', 'series', 'movie'].map((type) => [type, providersFor(type).map((p) => p.name)]),
       ),
       availableMetadataProviders: providerNames(),
       providerTypes: providerTypes(),
@@ -358,7 +359,7 @@ const server = app.listen(config.port, () => {
   }
   console.log(
     `  Metadata providers: ${['anime', 'series', 'movie']
-      .map((type) => `${type}=${providerFor(type).name}`)
+      .map((type) => `${type}=${providersFor(type).map((p) => p.name).join('+')}`)
       .join(', ')}`,
   )
   console.log(`  Stream sources:    ${activeSources().map((source) => source.name).join(', ') || 'none'}`)

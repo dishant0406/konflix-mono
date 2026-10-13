@@ -31,7 +31,7 @@ import {
   seriesSearchTerms,
 } from './releases.js'
 import { resolveFromSources } from './sources/index.js'
-import { providerFor } from '../providers/index.js'
+import { providersFor } from '../providers/index.js'
 
 // How many ranked candidates are offered to the sources.
 //
@@ -69,8 +69,21 @@ async function findReleases(parsed, details) {
 // mediaDetail, whose MediaFull shape names the title under `title.english` and
 // carries no year - reading that here made every series search for the literal
 // string "undefined".
-function detailsFor(provider, parsed) {
-  return provider.animeDetails(parsed.mediaId)
+//
+// Providers are tried in configured order, so a title the first one does not know is
+// still looked up in the next. The content type is passed because an id alone does
+// not say which endpoint answers: an IMDb id is a film or a series, and only the
+// caller knows which.
+async function detailsFor(contentType, mediaId) {
+  for (const provider of providersFor(contentType)) {
+    try {
+      const details = await provider.animeDetails(mediaId, contentType)
+      if (details) return details
+    } catch (error) {
+      console.warn(`[stream] ${provider.name}.animeDetails failed: ${error.message}`)
+    }
+  }
+  return null
 }
 
 /**
@@ -93,8 +106,7 @@ export async function resolveStream(id) {
     return { available: false, reason: 'No episode was requested.' }
   }
 
-  const provider = providerFor(parsed.contentType)
-  const details = await detailsFor(provider, parsed)
+  const details = await detailsFor(parsed.contentType, parsed.mediaId)
   if (!details) {
     return { available: false, reason: 'Unknown title.' }
   }

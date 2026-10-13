@@ -235,8 +235,37 @@ export function isRelevant(releaseTitle, animeTitle) {
 //
 // This is the check that matters most for the film path: searching for a film by
 // title also returns its series, and a series episode is not a film.
-export function isEpisodeRelease(title) {
-  return parseEpisode(title) !== null || isBatch(title) || parseSeason(title) !== null
+//
+// A bare number is deliberately NOT enough on its own. A film's title is full of bare
+// numbers - the sequel number ("Dhamaal 4", "Stree 2", "Bhool Bhulaiyaa 3") and the
+// year ("Singham Again 2024") - and parseEpisode matches both. Filtering on it threw
+// away 7 of 10 real films, which is why searching for a film reported "no source"
+// while the indexers held 73-seeded releases for it.
+//
+// So a bare number counts as an episode only when the release does NOT name a year.
+// The year is what distinguishes the two cases, and it is why the film's own year is
+// passed in:
+//
+//   "Dhamaal 4 (2026) 720p WEBRip"  year present -> the 4 is a sequel number
+//   "Fargo - 05 1080p WEB-DL"       no year      -> the 05 is an episode
+//   "Singham Again 2024 1080p"      year present -> the 2024 is the year
+//   "Fargo.S01E01.1080p"            SxxExx       -> rejected outright
+//
+// A release that names no year and no SxxExx but does carry a bare number is treated
+// as an episode. That is the conservative choice: serving an episode as a film is
+// worse than reporting no source. The trailing-number form is checked separately
+// because parseEpisode's bare pattern needs a word after the number, so it misses
+// "Fargo 05" - while a resolution tag ("Dangal 1080p") must still be admitted.
+//
+// @param {string} title the release name.
+// @param {number|null} [year] the film's own release year, when known.
+export function isEpisodeRelease(title, year = null) {
+  if (/\bS\d{1,2}E\d{1,4}\b/i.test(words(title))) return true
+  if (isBatch(title)) return true
+  // A release naming a year is a film release, whatever numbers else it carries.
+  if (year !== null && parseYear(title) !== null) return false
+  if (parseEpisode(title) !== null) return true
+  return /(?:^|\s)\d{1,4}\s*$/.test(words(title))
 }
 
 // The year a release names, or null.
@@ -304,8 +333,9 @@ export function rankMovieReleases(releases, year, title, titles) {
     .filter((release) => isPlayableCodec(release.title))
     .filter((release) => matchesAnyTitle(release.title, known))
     // A series episode is not a film, and this is a hard filter: without it a
-    // season pack or a stray episode outranks the film itself.
-    .filter((release) => !isEpisodeRelease(release.title))
+    // season pack or a stray episode outranks the film itself. The year is passed
+    // because it is what distinguishes a sequel number from an episode number.
+    .filter((release) => !isEpisodeRelease(release.title, year))
 
   const yearMatches = usable.filter((release) => parseYear(release.title) === year)
   const others = usable.filter((release) => !yearMatches.includes(release))

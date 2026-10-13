@@ -6,6 +6,12 @@
 //   anime-16498-ep1     an anime, episode 1
 //   series-169-s1e5     a series, season 1 episode 5
 //   movie-7691          a film, no episode
+//   movie-tt32261958    a film, addressed by its IMDb id
+//
+// The provider id is alphanumeric rather than digits-only because providers do not
+// agree on a form: AniList, TVMaze and YTS use numbers, Cinemeta uses IMDb ids
+// ("tt32261958"). This mirrors konflix-frontend/src/lib/media-id.ts, and the two must
+// agree - the frontend puts the id in the URL and the API parses it back out.
 //
 // The type is part of the id rather than a separate argument because the ids come
 // from different providers and would otherwise collide: TVMaze's show 1 and YTS's
@@ -15,7 +21,7 @@
 
 const TYPES = ['anime', 'series', 'movie']
 
-const MEDIA_ID = /^(anime|series|movie)-(\d+)(?:-(.*))?$/
+const MEDIA_ID = /^(anime|series|movie)-([A-Za-z0-9]+)(?:-(.*))?$/
 const EPISODE_SUFFIX = /^ep(\d+)$/
 const SERIES_SUFFIX = /^s(\d+)e(\d+)$/
 

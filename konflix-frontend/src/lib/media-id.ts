@@ -6,18 +6,22 @@
 //   anime-16498-ep1     an anime, episode 1
 //   series-169-s1e5     a series, season 1 episode 5
 //   movie-7691          a film, no episode
+//   movie-tt32261958    a film, addressed by its IMDb id
 //   series-169          a title, for a detail page
 //
-// The type is part of the id because the ids come from different providers and would
-// otherwise collide: TVMaze's show 1 and YTS's film 1 are different titles. It also
-// means a page can tell what it is looking at from the URL alone.
+// The provider id is alphanumeric rather than digits-only because providers do not
+// agree on a form: AniList, TVMaze and YTS use numbers, Cinemeta uses IMDb ids
+// ("tt32261958"). The type is part of the id because the ids come from different
+// providers and would otherwise collide: TVMaze's show 1 and YTS's film 1 are
+// different titles. It also means a page can tell what it is looking at from the URL
+// alone.
 //
 // This mirrors anime-server/lib/mediaId.js. The API is the contract, so the two must
 // agree; they are kept deliberately small so that stays obvious.
 
 export type ContentType = "anime" | "series" | "movie";
 
-const MEDIA_ID = /^(anime|series|movie)-(\d+)(?:-(.*))?$/;
+const MEDIA_ID = /^(anime|series|movie)-([A-Za-z0-9]+)(?:-(.*))?$/;
 const ANIME_SUFFIX = /^ep(\d+)$/;
 const SERIES_SUFFIX = /^s(\d+)e(\d+)$/;
 
