@@ -67,8 +67,49 @@ jobs:
 
           echo "configured=true" >> "$GITHUB_OUTPUT"
 
+  # Runs the checks before anything is deployed.
+  #
+  # The pipeline previously went straight from checkout to rsync, so a commit that
+  # failed its tests or did not build would still be deployed and only surface as a
+  # broken site. The deploy job now waits on this one.
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install
+        # The lockfile is the source of truth, so the runner installs exactly what a
+        # local build does. `npm ci` also fails on a lockfile that disagrees with
+        # package.json, which is a real class of deploy break.
+        run: npm ci
+
+      - name: Test
+        run: npm test
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type check
+        run: npx tsc --noEmit
+        working-directory: konflix-frontend
+
+      - name: Build the frontends
+        # Both sites, because they are two builds of one codebase and the SITE argument
+        # is what makes them differ. A build that only works for one of them would
+        # otherwise be found on the server.
+        run: |
+          npm run build
+          NEXT_PUBLIC_SITE=tv npm run build
+
   deploy:
-    needs: preflight
+    needs: [preflight, verify]
     if: needs.preflight.outputs.configured == 'true'
     runs-on: ubuntu-latest
     environment: production

@@ -31,20 +31,48 @@ const TTL_MS = 10 * 60 * 1000
 // The API's own maximum.
 const MAX_PER_PAGE = 50
 
-// A year filter cannot be pushed upstream, so it is applied over one full page.
-const YEAR_SCAN_LIMIT = 50
-
 // YTS sort keys, mapped from the UI's short names. An unknown value is a 400 from
 // the API, which would look like our API breaking.
+//
+// `recent` is `date_added` rather than `year`. Sorting by year desc put the highest
+// year first regardless of whether the film exists yet, so "New Releases" opened with
+// a 2027 film nobody can watch. `date_added` is when YTS added the release, which is
+// what "new" means here, and the recency window below removes the announced-but-not-out
+// entries it still contains.
 const SORTS = {
   trending: 'download_count',
   popularity: 'download_count',
   score: 'rating',
   favourites: 'like_count',
-  recent: 'year',
+  recent: 'date_added',
   title: 'title',
   year: 'year',
   rating: 'rating',
+}
+
+// A film announced for next year is not watchable, so it is kept out of a browse row.
+// A small window is allowed so a film already released this year, or opening within the
+// next month, still counts as new.
+const FUTURE_GRACE_DAYS = 30
+
+// A browse row is scanned at this width before the recency filter is applied, because
+// the filter cannot be pushed upstream: YTS's own `year` parameter is ignored (verified -
+// `?year=2024` returned films from 2018).
+const RECENT_SCAN_LIMIT = 50
+
+export function latestReleaseYear() {
+  return new Date(Date.now() + FUTURE_GRACE_DAYS * 24 * 60 * 60 * 1000).getUTCFullYear()
+}
+
+/**
+ * Whether a film's release year counts as new.
+ *
+ * The upper bound removes a film announced for next year; the lower bound removes one
+ * YTS backfilled from decades ago, which `date_added` alone cannot distinguish.
+ */
+export function isRecentYear(value) {
+  const latest = latestReleaseYear()
+  return Number.isFinite(value) && value >= latest - 1 && value <= latest
 }
 
 function toScore(rating) {
@@ -164,20 +192,23 @@ export default {
 
   // --- full shapes, rendered by the frontend -----------------------------------
 
-  async mediaList(filters = {}) {
+async mediaList(filters = {}) {
     const { page, perPage } = pageVariables(filters.page, filters.perPage)
     const genre = filters.genre || filters.genres?.[0]
     const year = Number.parseInt(filters.year, 10)
+    const sort = filters.sort || 'popularity'
+    const isRecent = sort === 'recent'
 
-    // A year cannot be pushed upstream, so a wider page is fetched and filtered here.
-    const limit = Number.isFinite(year) ? YEAR_SCAN_LIMIT : perPage
+    // Neither a year filter nor the recency window can be pushed upstream, so a wider
+    // page is fetched and filtered here.
+    const limit = Number.isFinite(year) || isRecent ? RECENT_SCAN_LIMIT : perPage
 
     const data = await cached(
-      `yts:list:${filters.sort || ''}:${genre || ''}:${year || ''}:${page}:${limit}`,
+      `yts:list:${sort}:${genre || ''}:${year || ''}:${page}:${limit}`,
       TTL_MS,
       () =>
         get('list_movies.json', {
-          sort_by: SORTS[filters.sort] || SORTS.popularity,
+          sort_by: SORTS[sort] || SORTS.popularity,
           order_by: 'desc',
           limit,
           page,
@@ -189,16 +220,30 @@ export default {
     )
 
     const movies = data.movies || []
-    const filtered = Number.isFinite(year) ? movies.filter((movie) => movie.year === year) : movies
-    const total = Number.isFinite(year) ? filtered.length : data.movie_count || 0
+    // A film announced for next year has a year far ahead of today's, so bounding the
+    // year is what removes it. YTS has no such filter upstream.
+    //
+    // The lower bound matters as much as the upper one: YTS backfills its catalogue, so
+    // `date_added` includes films from decades ago that were added recently. Without it
+    // the row was led by a 1957 film. A one-year window keeps the row to titles that
+    // actually came out recently while leaving enough entries to fill it (measured 22-31
+    // per row against a 20-item row).
+    const filtered = movies.filter((movie) => {
+      if (!Number.isFinite(movie.year)) return false
+      if (Number.isFinite(year)) return movie.year === year
+      if (isRecent) return isRecentYear(movie.year)
+      return true
+    })
+    const narrowed = Number.isFinite(year) || isRecent
+    const total = narrowed ? filtered.length : data.movie_count || 0
 
     return {
       page,
       perPage,
       total,
-      // A filtered year has no meaningful next page: the upstream page was widened
-      // and the remainder of the catalogue was never read.
-      hasNextPage: Number.isFinite(year) ? false : page * perPage < total,
+      // A narrowed page has no meaningful next page: the upstream page was widened and
+      // the remainder of the catalogue was never read, so the count is not a total.
+      hasNextPage: narrowed ? false : page * perPage < total,
       results: filtered.map(toMediaList),
     }
   },

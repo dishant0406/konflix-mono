@@ -34,6 +34,8 @@ const { parseSearchResponse: ytsRows } = await import('../graphql/indexers/yts.j
 const { parseSearchResponse: eztvRows, toEztvId } = await import('../graphql/indexers/eztv.js')
 const { providerFor, providerTypes } = await import('../graphql/providers/index.js')
 const { enabledIndexers, indexerTypes } = await import('../graphql/indexers/index.js')
+const { applyDateSortGuard, MEDIA_FILTERS } = await import('../graphql/providers/anilist.js')
+const { isRecentYear, latestReleaseYear } = await import('../graphql/providers/yts.js')
 
 const HASH = 'a'.repeat(40)
 
@@ -358,4 +360,75 @@ test('pickVideoFile still accepts a release that names no season', async () => {
   // The season is only used to narrow an ambiguous list, so an unnamed release is
   // still a match rather than being rejected.
   assert.equal(pickVideoFile(files, 5, undefined, 2).name, 'Show - 05 1080p.mkv')
+})
+
+// --- home rows and browse -------------------------------------------------------
+//
+// Each of these pins a defect that was measured against the live APIs first. They are
+// the reason a row reads as "what is on now" rather than "what is oldest in the
+// provider's database".
+
+test('a date sort excludes unreleased and undated titles', () => {
+  // AniList reports a null date for an unreleased title and sorts it first under
+  // START_DATE_DESC, so the row led with titles carrying no date at all.
+  const guarded = applyDateSortGuard({}, 'START_DATE_DESC')
+  assert.equal(guarded.statusNot, 'NOT_YET_RELEASED')
+  assert.equal(guarded.startDateGreater, 19000101)
+})
+
+test('the date guard is not applied to sorts that cannot surface an unreleased title', () => {
+  // Popularity and score are unaffected by the defect, so adding the filter there would
+  // narrow those rows for no reason.
+  for (const sort of ['POPULARITY_DESC', 'SCORE_DESC', 'TRENDING_DESC', 'TITLE_ROMAJI']) {
+    assert.deepEqual(applyDateSortGuard({}, sort), {}, `${sort} must be left alone`)
+  }
+})
+
+test('an explicit status filter is never overridden by the date guard', () => {
+  // Choosing "Not Yet Aired" is a deliberate request for unreleased titles, so the
+  // guard must not quietly exclude exactly what was asked for.
+  const explicit = applyDateSortGuard({ status: 'NOT_YET_RELEASED' }, 'START_DATE_DESC')
+  assert.equal(explicit.statusNot, undefined)
+  assert.equal(explicit.status, 'NOT_YET_RELEASED')
+})
+
+test('startDate_greater is declared as FuzzyDateInt, the only type AniList accepts', () => {
+  // Declaring Int makes AniList reject the whole document with a 400, so the date sort
+  // returns nothing at all rather than returning the wrong thing.
+  assert.equal(MEDIA_FILTERS.startDateGreater.type, 'FuzzyDateInt')
+  assert.equal(MEDIA_FILTERS.statusNot.type, 'MediaStatus')
+})
+
+test('the date guard is the only thing that sets the unreleased filters', () => {
+  // If a caller could set these, a search filter would silently gain an unreleased
+  // exclusion it did not ask for.
+  assert.equal(MEDIA_FILTERS.statusNot.arg, 'status_not')
+  assert.equal(MEDIA_FILTERS.startDateGreater.arg, 'startDate_greater')
+})
+
+test('a film announced for the future is not a new release', () => {
+  // Sorting by year desc put the highest year first whether or not the film exists yet,
+  // so the row opened with a 2027 film nobody can watch.
+  const now = new Date().getUTCFullYear()
+  assert.equal(isRecentYear(now + 1), false, 'next year is not released yet')
+  assert.equal(isRecentYear(now), true)
+  assert.equal(isRecentYear(now - 1), true)
+})
+
+test('a film YTS backfilled from decades ago is not a new release', () => {
+  // YTS adds old films to its catalogue, so date_added alone led the row with a 1957
+  // title. The lower bound is what keeps the row to titles that actually came out.
+  const now = new Date().getUTCFullYear()
+  assert.equal(isRecentYear(1957), false)
+  assert.equal(isRecentYear(now - 5), false)
+})
+
+test('a film with no year is excluded from a new-release row', () => {
+  assert.equal(isRecentYear(undefined), false)
+  assert.equal(isRecentYear(null), false)
+  assert.equal(isRecentYear(Number.NaN), false)
+})
+
+test('the recency window is anchored to the current year', () => {
+  assert.equal(latestReleaseYear(), new Date().getUTCFullYear())
 })

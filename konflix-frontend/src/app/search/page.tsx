@@ -19,7 +19,7 @@ import { ROUTES, titlePath } from "@/constants/routes";
 import { SITE } from "@/constants/site";
 import { useSearchPageParams } from "@/hooks/use-search-params";
 import { cn } from "@/lib/utils";
-import { useMediaList, useMediaSearch } from "@/query/use-media";
+import { useMediaList, useMediaSearchAcross } from "@/query/use-media";
 
 // The season and year filters are AniList concepts. They are declared here rather than
 // in the site config because only this page offers them, and they are only rendered
@@ -72,21 +72,22 @@ function SearchResults() {
     },
     !hasTerm,
   );
-  const searchQuery = useMediaSearch(term, {
+const searchQuery = useMediaSearchAcross(term, {
     sort: params.sort,
     genres: params.genres,
     format: params.format,
     status: params.status,
     season: params.season,
     year: params.year,
-    page: params.page,
     perPage: 24,
   });
 
   const active = hasTerm ? searchQuery : listQuery;
   const results = active.data?.results ?? [];
   const page = params.page ?? 1;
-  const hasNextPage = active.data?.hasNextPage ?? false;
+  // A search spans several catalogues and is merged client-side, so it is one page by
+  // construction; only a browse has an upstream page to advance to.
+  const hasNextPage = hasTerm ? false : active.data?.hasNextPage ?? false;
 
   const apply = (next: Partial<typeof draft>) => {
     const merged = { ...draft, ...next };

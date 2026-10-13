@@ -15,7 +15,7 @@
     "dev": "npm run dev --workspace=konflix-api & npm run dev --workspace=konflix",
     "start": "npm start --workspace=konflix-api",
     "build": "npm run build --workspace=konflix",
-    "test": "npm test --workspace=konflix-api",
+    "test": "npm test --workspace=konflix-api && npm test --workspace=konflix",
     "lint": "npm run lint --workspace=konflix"
   },
   "overrides": {

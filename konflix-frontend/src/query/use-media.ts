@@ -1,11 +1,13 @@
 "use client";
 
+import { useMemo } from "react";
 import { useQueries, useQuery } from "react-query";
 
 import { request } from "@/lib/api";
 import { GET_MEDIA_DETAIL, GET_MEDIA_LIST, GET_MEDIA_SEARCH, GET_WATCH_METADATA } from "@/lib/queries";
 import { SITE, type ContentType } from "@/constants/site";
 import { parseMediaId } from "@/lib/media-id";
+import { mergeSearchPages, preferTitleMatches } from "@/lib/merge-search";
 import { QUERY_KEYS } from "./keys";
 import type { MediaFull, MediaPage } from "@/types/media";
 
@@ -54,11 +56,57 @@ export function useMediaSearch(term: string, filters: MediaListFilters = {}) {
 }
 
 /**
+ * Search results drawn from every catalogue the site carries.
+ *
+ * One request per catalogue, merged into a single page. The API's search is scoped to
+ * one content type, because a title is addressed by a provider-specific id, so covering
+ * both is a fan-out here rather than a parameter.
+ *
+ * Results are interleaved in proportion to how many each catalogue returned, so a site
+ * whose series outnumber its films does not have its first page filled entirely by
+ * series. Ordering inside each catalogue is the provider's own relevance, which is why
+ * the merge does not attempt to rank across them - there is no shared score to rank by.
+ */
+export function useMediaSearchAcross(term: string, filters: MediaListFilters = {}) {
+  const types = SITE.searchContentTypes;
+  const perPage = filters.perPage ?? 24;
+
+  const queries = useQueries(
+    types.map((contentType) => ({
+      queryKey: [QUERY_KEYS.MEDIA_SEARCH, term, contentType, filters],
+      queryFn: () =>
+        request<{ mediaSearch: MediaPage }>(GET_MEDIA_SEARCH, {
+          term,
+          // The per-catalogue page is the full requested width, so a catalogue that has
+          // matches is never starved by one that has none.
+          input: { ...filters, perPage, contentType },
+        }).then((data) => data.mediaSearch),
+      enabled: term.trim().length > 0,
+      keepPreviousData: true,
+    })),
+  );
+
+  const pages = queries.map((query) => query.data);
+  const merged = useMemo(() => {
+    const page = mergeSearchPages(pages, perPage);
+    return { ...page, results: preferTitleMatches(page.results ?? [], term) };
+  }, [pages, perPage, term]);
+
+  return {
+    data: merged,
+    // A single catalogue failing should not blank a search that the others answered.
+    isLoading: queries.every((query) => query.isLoading),
+    isError: queries.every((query) => query.isError),
+    isFetching: queries.some((query) => query.isFetching),
+  };
+}
+
+/**
  * A title's full record.
  *
  * The content type comes from the id rather than from the site, because a detail page
- * is addressed by a self-describing id and the API needs to know which provider
- * issued it. A bare id with no type falls back to this site's catalogue.
+ * is addressed by a self-describing id and the API needs to know which provider issued
+ * it. A bare id with no type falls back to this site's catalogue.
  */
 export function useMediaDetail(id: string | undefined) {
   const contentType = parseMediaId(id)?.contentType ?? SITE.contentType;

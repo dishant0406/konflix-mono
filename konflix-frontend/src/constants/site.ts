@@ -43,6 +43,18 @@ export interface SiteConfig {
    * silently does nothing.
    */
   supportsAdvancedFilters: boolean;
+  /**
+   * The catalogues a search should span, in order.
+   *
+   * Searching has to cover every catalogue the site carries, because the user has no
+   * idea which provider holds a title: on the TV site "Breaking Bad" is a series and
+   * "Dangal" is a film, and typing either into the search box should find it. A single
+   * content type would silently answer from one catalogue only.
+   *
+   * The first entry is also the catalogue a browse with no term uses, so it doubles as
+   * the site's default. It is normally the same as `contentType`.
+   */
+  searchContentTypes: ContentType[];
   /** The attribution the metadata provider requires, if any. */
   attribution: string;
 }
@@ -90,6 +102,7 @@ const ANIME: SiteConfig = {
     { value: "title", label: "Title A-Z" },
   ],
   supportsAdvancedFilters: true,
+  searchContentTypes: ["anime"],
   attribution: "Metadata from AniList.",
 };
 
@@ -103,10 +116,10 @@ const TV: SiteConfig = {
   itemLabel: "title",
   itemLabelPlural: "titles",
   rows: [
-    { title: "Top Rated Films", sort: "score", contentType: "movie" },
+    { title: "New Releases", sort: "recent", contentType: "movie" },
     { title: "Popular Series", sort: "popularity", contentType: "series" },
     { title: "Most Watched Films", sort: "popularity", contentType: "movie" },
-    { title: "New Releases", sort: "recent", contentType: "movie" },
+    { title: "New Series", sort: "recent", contentType: "series" },
     { title: "Action", genre: "action", sort: "popularity", contentType: "movie" },
     { title: "Drama Series", genre: "Drama", sort: "score", contentType: "series" },
   ],
@@ -133,6 +146,7 @@ const TV: SiteConfig = {
     { value: "title", label: "Title A-Z" },
   ],
   supportsAdvancedFilters: false,
+  searchContentTypes: ["series", "movie"],
   attribution:
     "Film metadata from YTS. Series metadata from TVMaze, licensed CC BY-SA.",
 };

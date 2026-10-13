@@ -18,7 +18,8 @@
 //   rating.average   0-10, scaled to 0-100 here so it matches AniList's scale and
 //                    the UI's "★ 92%" is comparable across the two sites.
 //   weight           TVMaze's own popularity signal, 0-100. It is the only ordering
-//                    signal available, so the browse rows sort by it.
+//                    signal available, so the browse rows sort by it - tie-broken by
+//                    rating, because weight saturates at 100 for many shows.
 
 import { http } from '../../lib/http.js'
 import { config } from '../../lib/config.js'
@@ -27,16 +28,36 @@ import { mediaKey, seriesEpisodeId } from '../../lib/mediaId.js'
 
 const TTL_MS = 10 * 60 * 1000
 
-// Building a "popular" list needs a pool to sort, because TVMaze has no
-// sort-by-popularity endpoint. The pages are fetched concurrently so the cost is one
-// page's latency (~4s), not the sum, and the pool is cached for hours.
-const BROWSE_PAGES = 4
+// Building a "popular" or "newest" list needs a pool to sort, because TVMaze has no
+// sort-by-popularity endpoint.
+//
+// The pool is the shows airing today, from `/schedule/full`. That endpoint was chosen
+// over paging `/shows` after measuring both:
+//
+//   /schedule/full   1332 currently-airing shows in one request, ~1.2s, ~14MB gzipped
+//   /shows?page=0..3  970 shows, and only the 970 OLDEST in the catalogue
+//
+// `/shows` is ordered by id, so the first pages are the earliest records - measured,
+// shows premiering between 1955 and 2015. That is what made "Popular Series" read as
+// Under the Dome and Person of Interest, and left every weight tied at 100 so the
+// order within the row was arbitrary. The schedule carries today's broadcast, which is
+// exactly the set a viewer means by "what is on", and its weights and ratings have a
+// real spread to sort by.
 const BROWSE_TTL_MS = 6 * 60 * 60 * 1000
 
 // TVMaze caps a search at 10 results and offers no pagination.
 const SEARCH_LIMIT = 10
 
 const MAX_PER_PAGE = 50
+
+// A show announced with a future premiere date is not watchable yet, so it is kept
+// out of every row. Only a date this far ahead is excluded, so a show premiering later
+// this month still appears.
+const FUTURE_GRACE_DAYS = 30
+
+function latestPremiere() {
+  return Date.now() + FUTURE_GRACE_DAYS * 24 * 60 * 60 * 1000
+}
 
 // TVMaze returns HTML in `summary`.
 export function stripHtml(html) {
@@ -217,25 +238,56 @@ async function queryOrNull(path, params) {
   }
 }
 
-// The pool of shows the browse rows are drawn from, sorted by TVMaze's own
-// popularity signal. Fetched once and cached for hours; see BROWSE_PAGES.
+// The pool of shows the browse rows are drawn from: everything airing today.
+//
+// `/schedule/full` returns one entry per episode airing, each carrying its show under
+// `_embedded.show`, so the shows are de-duplicated by id. Fetched once and cached for
+// hours. A failure here returns an empty pool rather than throwing, so a TVMaze outage
+// empties the rows instead of failing the page.
 async function browsePool() {
   return cached('tvmaze:browse', BROWSE_TTL_MS, async () => {
-    const pages = await Promise.all(
-      Array.from({ length: BROWSE_PAGES }, (_, index) =>
-        query('/shows', { page: index }).catch(() => []),
-      ),
+    const schedule = await query('/schedule/full', {}).catch(() => [])
+    if (!Array.isArray(schedule)) return []
+
+    const shows = new Map()
+    for (const entry of schedule) {
+      const show = entry?._embedded?.show
+      if (show?.id && !shows.has(show.id)) shows.set(show.id, show)
+    }
+
+    const cutoff = latestPremiere()
+    return [...shows.values()].filter(
+      (show) => show.image && (!show.premiered || Date.parse(show.premiered) <= cutoff),
     )
-    return pages.flat().filter((show) => show?.image)
   })
 }
 
+// Weight saturates at 100 for a large slice of the catalogue, so ordering by it alone
+// left the order within a row arbitrary. Rating breaks the tie, then the premiere date
+// keeps the more recent of two equally popular shows first.
+function byPopularity(a, b) {
+  return (
+    (b.weight ?? 0) - (a.weight ?? 0) ||
+    (b.rating?.average ?? 0) - (a.rating?.average ?? 0) ||
+    String(b.premiered || '').localeCompare(String(a.premiered || ''))
+  )
+}
+
+// A show with no rating would sort as zero under the score sort and land last, which is
+// wrong for a show nobody has rated yet rather than one rated badly. Unrated shows keep
+// their popularity order instead.
+function byScore(a, b) {
+  const rated = (show) => Number.isFinite(show.rating?.average)
+  if (rated(a) !== rated(b)) return rated(a) ? -1 : 1
+  return (b.rating?.average ?? 0) - (a.rating?.average ?? 0) || byPopularity(a, b)
+}
+
 const SORTS = {
-  trending: (a, b) => (b.weight ?? 0) - (a.weight ?? 0),
-  popularity: (a, b) => (b.weight ?? 0) - (a.weight ?? 0),
-  score: (a, b) => (b.rating?.average ?? 0) - (a.rating?.average ?? 0),
-  favourites: (a, b) => (b.weight ?? 0) - (a.weight ?? 0),
-  recent: (a, b) => String(b.premiered || '').localeCompare(String(a.premiered || '')),
+  trending: byPopularity,
+  popularity: byPopularity,
+  favourites: byPopularity,
+  score: byScore,
+  recent: (a, b) => String(b.premiered || '').localeCompare(String(a.premiered || '')) || byPopularity(a, b),
   title: (a, b) => String(a.name || '').localeCompare(String(b.name || '')),
 }
 

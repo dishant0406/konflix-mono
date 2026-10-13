@@ -243,14 +243,19 @@ function toPage(data, page, perPage) {
 // filter". Sending every argument with a null default therefore returned zero
 // results for every filtered query, which is why only the filters that were
 // actually set are put into the document.
-const MEDIA_FILTERS = {
+export const MEDIA_FILTERS = {
   genre: { type: 'String', arg: 'genre' },
   genres: { type: '[String]', arg: 'genre_in' },
   format: { type: 'MediaFormat', arg: 'format' },
   status: { type: 'MediaStatus', arg: 'status' },
   season: { type: 'MediaSeason', arg: 'season' },
-  year: { type: 'Int', arg: 'seasonYear' },
+year: { type: 'Int', arg: 'seasonYear' },
   search: { type: 'String', arg: 'search' },
+  // Set only by the date-sort guard below, never by a caller.
+  statusNot: { type: 'MediaStatus', arg: 'status_not' },
+  // AniList types this as FuzzyDateInt, not Int. Declaring Int makes AniList reject
+  // the whole query with a 400, so the sort silently returns nothing.
+  startDateGreater: { type: 'FuzzyDateInt', arg: 'startDate_greater' },
 }
 
 function mediaFilterArgs(filters) {
@@ -270,6 +275,13 @@ function mediaFilterArgs(filters) {
   return { declarations, args, variables }
 }
 
+// The sorts that order by a date, and so can put a title that has not come out yet
+// above one that has. AniList reports a null date for an unreleased title and sorts
+// it first, so START_DATE_DESC led with rows of NOT_YET_RELEASED titles carrying no
+// date at all - measured, 8 of 8 rows. It is specific to the date sorts; popularity
+// and score are unaffected, so the guard is applied only to these.
+const DATE_SORTS = new Set(['START_DATE_DESC', 'START_DATE', 'END_DATE_DESC', 'END_DATE'])
+
 function normaliseFilters(filters) {
   const normalised = {}
   if (filters.genre) normalised.genre = filters.genre
@@ -282,10 +294,24 @@ function normaliseFilters(filters) {
   return normalised
 }
 
+// Keeps unreleased and undated titles out of a date sort.
+//
+// `status_not` on its own is not enough: it removed NOT_YET_RELEASED, but the next
+// rows were CANCELLED titles that also carry no date, so the row still led with
+// titles nobody can watch. The date bound is what actually removes them, and a 1900
+// floor keeps every genuinely dated title in the catalogue.
+export function applyDateSortGuard(normalised, sort) {
+  if (!DATE_SORTS.has(sort)) return normalised
+  // An explicit status filter is a deliberate choice and is left alone.
+  if (normalised.status || normalised.statusNot) return normalised
+  return { ...normalised, statusNot: 'NOT_YET_RELEASED', startDateGreater: 19000101 }
+}
+
 async function mediaPage(filters) {
   const { page, perPage } = pageVariables(filters.page, filters.perPage)
   const sort = SORTS[filters.sort] || SORTS.popularity
-  const { declarations, args, variables } = mediaFilterArgs(normaliseFilters(filters))
+  const normalised = applyDateSortGuard(normaliseFilters(filters), sort)
+  const { declarations, args, variables } = mediaFilterArgs(normalised)
 
   const document = `query ($page: Int, $perPage: Int, $sort: [MediaSort]${declarations
     .map((declaration) => `, ${declaration}`)
