@@ -47,8 +47,11 @@ export default {
 
         return {
           available: true,
+          // One URL for both cases. /stream/<hash> answers with MP4 bytes when the file
+          // is directly playable and with an HLS playlist when it is not, so the player
+          // never has to know which it got.
           url: playableUrl(release.infoHash),
-          streamType: isDirectlyPlayable(session.info) ? 'file' : 'remux',
+          streamType: isDirectlyPlayable(session.info) ? 'file' : 'hls',
           release: release.title,
         }
       } catch (error) {

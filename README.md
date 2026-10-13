@@ -14,19 +14,22 @@ Each app has its own README with the detail.
 
 ## Known limitations
 
-**A remuxed stream cannot seek.** When a release is an MKV that the browser cannot
-play directly, `ffmpeg` remuxes it to fragmented MP4 on the fly and the response is
-`Accept-Ranges: none`. The player must start from the beginning and cannot jump
-forward or back; the watch page says "remuxed for browser playback" when this is the
-case. Directly playable releases (MP4, and MKV the browser can decode) are served
-with real range support and seek normally. This is inherent to remuxing a live
-stream: a fragmented MP4 has no total length to advertise, so there is no byte range
-a player could ask for.
+**A converted stream starts after a short wait.** A release whose container a phone
+cannot play (an MKV) is re-packaged as HLS: `ffmpeg` writes six-second segments plus a
+playlist, and the player starts on the first one. That takes a few seconds, and the
+watch page says "Preparing the stream for your browser" while it happens. Seeking works
+normally once segments exist, including backwards. A directly playable MP4 is relayed
+as-is with byte-range support and starts immediately.
+
+This replaced a single live fragmented MP4, which could not be played on iOS at all: iOS
+requires a media source to answer a byte-range request with a real `206` and a length,
+and a stream still being produced has neither. That played on a desktop and showed a
+play button that did nothing on a phone.
 
 ## Requirements
 
 - Node 22+ (the torrent layer uses `webtorrent` 3)
-- `ffmpeg` and `ffprobe` on `PATH` — used to inspect and remux video
+- `ffmpeg` and `ffprobe` on `PATH` — used to inspect video and convert it to HLS
 
 ## Setup
 

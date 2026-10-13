@@ -117,7 +117,7 @@ export function isLikelyMovie(title) {
 }
 
 // Codecs a browser can play. HEVC and AV1 are absent on purpose: they fail in most
-// browsers, and fixing them would need a real transcode rather than a cheap remux,
+// browsers, and fixing them would need a real transcode rather than a stream copy,
 // so they are excluded from the candidate list entirely.
 export function isPlayableCodec(title) {
   const codec = parseCodec(title)
@@ -127,7 +127,7 @@ export function isPlayableCodec(title) {
 // Whether a *file name* is a container a browser can play without this server
 // touching it.
 //
-// This is the check used by the debrid source, where there is no remux to fall back
+// This is the check used by the debrid source, where there is no transcode to fall back
 // on because the bytes go straight to the browser. MKV is accepted alongside MP4:
 // it is not a web format, but it was verified playing directly in Chrome, H.264 and
 // HEVC alike, which is the only thing that matters here. What is inside the

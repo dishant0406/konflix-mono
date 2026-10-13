@@ -10,7 +10,7 @@ replaceable, and so that a broken upstream degrades instead of taking the app do
 ## Requirements
 
 - Node 20+ (Node 22+ to run the torrent layer, which is what `webtorrent` requires)
-- `ffmpeg` and `ffprobe` on `PATH` — used to inspect and remux video containers
+- `ffmpeg` and `ffprobe` on `PATH` — used to inspect video containers and convert them to HLS
 
 ## Setup
 
@@ -66,7 +66,8 @@ graphql/stream/        video: turning a release into playable bytes
   releases.js            release name parsing and ranking (pure functions)
   torrent.js             webtorrent session and file selection
   media.js               ffprobe/ffmpeg wrappers
-  serve.js               HTTP range serving and remux piping
+  hls.js                 HLS sessions: ffmpeg to segments, playlist and segment serving
+  serve.js               routes: range serving for MP4, HLS for everything else
     sources/               where the bytes come from (see below)
       torrent.js             this server joins the swarm and relays them
       debrid.js              this server relays them from a debrid CDN
@@ -119,7 +120,7 @@ Create a file in `graphql/stream/sources/` that default-exports:
 Add it to the map in `sources/index.js` and list its key in `STREAM_SOURCES`.
 `resolve()` must never throw: a failing source should reduce what is playable,
 not fail the request. `streamType` is `file` for a source the browser plays
-directly and `remux` for one this server converts.
+directly and `hls` for one this server converts into segments.
 
 ### Adding a metadata provider
 
@@ -177,13 +178,14 @@ episode-number form, which is what makes SubsPlease fast. `searchTerms()` in
      demand, so playback can start before the download finishes.
      `ffprobe` reads the container header through the download stream:
        - an H.264/AAC MP4 is served directly with HTTP range support (seeking works)
-       - an MKV is remuxed to fragmented MP4 with `ffmpeg -c copy` while it streams
+       - an MKV is re-packaged as HLS by `ffmpeg -c copy`, served as segments
        - anything else (HEVC, AV1) is rejected and the next release is tried
    - **`debrid`** — a release TorBox has already cached is turned into a direct CDN
      link, and the browser is given a short `/dl/:token` link. This server fetches
      that link and relays the bytes, because the CDN link carries the API key and
-     must not be handed to the browser. It still avoids swarm membership, the
-     torrent disk cache, and ffmpeg.
+     must not be handed to the browser. It still avoids swarm membership and the
+     torrent disk cache. An MKV from the CDN is re-packaged as HLS, which reads the
+     CDN URL directly and so also keeps the key server-side.
 5. If no source can serve the episode, the API returns `available: false` with a
    reason. That is a normal outcome, not an error, and the UI shows it honestly.
    `RESOLVE_DEADLINE_MS` bounds the *whole* resolve: it is turned into one deadline

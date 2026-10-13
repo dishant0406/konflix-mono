@@ -80,11 +80,12 @@ export const config = {
   // and disk, so this must be bounded on a small server.
   maxTorrents: integer('MAX_TORRENTS', 12),
 
-  // Upper bound on total bytes held on disk by active torrents.
+  // Upper bound on total bytes held on disk under CACHE_DIR - the torrent cache and the
+  // HLS output together, because both are scratch data on the same disk.
   //
-  // maxTorrents alone is not a disk limit: a 1080p episode is roughly 1.4GB, and a
-  // remux reads the whole file, so twelve of them is well past 15GB. Torrents are
-  // evicted oldest-first once either limit is reached.
+  // maxTorrents alone is not a disk limit: a 1080p episode is roughly 1.4GB, and an HLS
+  // conversion reads the whole file, so twelve of them is well past 15GB. Torrents and
+  // HLS sessions are evicted oldest-first once the budget is reached.
   maxCacheBytes: integer('MAX_CACHE_BYTES', 8 * 1024 ** 3),
 
   // How long to wait for a magnet to find peers and report its file list. This is
@@ -95,6 +96,24 @@ export const config = {
 
   // How long to wait for ffprobe to read the container header.
   probeTimeoutMs: positive('PROBE_TIMEOUT_MS', 20000),
+
+  // Bounds for HLS sessions, which are what non-playable containers (MKV) are converted
+  // into. Each session is one ffmpeg process and a directory holding the whole episode,
+  // so both are capped: three concurrent episodes is roughly 4GB on a 40GB disk.
+  //
+  // A session is destroyed once it has been idle this long. It has to outlive the player
+  // fetching segments, and a paused player stops fetching, so this is a grace period
+  // rather than a per-request timeout.
+  hlsSessionTtlMs: positive('HLS_SESSION_TTL_MINUTES', 30) * 60 * 1000,
+  maxHlsSessions: positive('MAX_HLS_SESSIONS', 3),
+
+  // How long to wait for ffmpeg to write the first playlist. Measured at under 3s for the
+  // first segment, so this only bounds a transcode that never starts.
+  hlsStartTimeoutMs: positive('HLS_START_TIMEOUT_MS', 30000),
+
+  // How long a request for a segment that ffmpeg has not written yet may wait. The player
+  // asks for the segment after the one it is playing, so a short wait is normal.
+  hlsSegmentTimeoutMs: positive('HLS_SEGMENT_TIMEOUT_MS', 30000),
 
   // How many candidate releases to try before giving up on an episode.
   maxCandidates: integer('MAX_CANDIDATES', 3),

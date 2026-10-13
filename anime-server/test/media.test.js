@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import { parseProbe, isDirectlyPlayable, canRemux, startRemux } from '../graphql/stream/media.js'
+import { parseProbe, isDirectlyPlayable, canRemux, startHlsTranscode } from '../graphql/stream/media.js'
 
 // Production code always probes through a download stream, so there is no
 // path-based probe to import. These tests need to inspect finished files on disk
@@ -77,40 +77,86 @@ test('hevc cannot be remuxed and must be rejected', () => {
   assert.equal(canRemux({ videoCodec: 'h264' }), true)
 })
 
-// startRemux reads its input from stdin, because a torrent's bytes arrive
-// incrementally and ffmpeg must pull them through the download stream rather than
-// open a file that is still incomplete. These tests feed it a real file on stdin.
-function remuxFile(filePath) {
+// startHlsTranscode reads its input from stdin when the source is a torrent, because a
+// torrent's bytes arrive incrementally and ffmpeg must pull them through the download
+// stream rather than open a file that is still incomplete. These tests feed it a real
+// file on stdin, exactly as the relay does.
+function transcodeToHls(filePath, dir) {
   return new Promise((resolve, reject) => {
-    const ffmpeg = startRemux()
+    const ffmpeg = startHlsTranscode(dir, 'pipe:0')
     const source = fs.createReadStream(filePath)
     source.on('error', reject)
     source.pipe(ffmpeg.stdin)
-
-    const chunks = []
-    ffmpeg.stdout.on('data', (chunk) => chunks.push(chunk))
-    ffmpeg.on('close', (code) => resolve({ code, output: Buffer.concat(chunks) }))
+    let stderr = ''
+    ffmpeg.stderr.on('data', (chunk) => {
+      stderr += chunk.toString()
+    })
+    ffmpeg.on('close', (code) => {
+      source.destroy()
+      resolve({ code, stderr })
+    })
     ffmpeg.on('error', reject)
   })
 }
 
-test('startRemux produces a fragmented mp4 from an mkv', async () => {
-  const { code, output } = await remuxFile(mkv)
-  assert.equal(code, 0)
-  assert.ok(output.length > 0, 'remux produced no bytes')
+function hlsOutput(dir) {
+  const playlist = fs.readFileSync(path.join(dir, 'index.m3u8'), 'utf8')
+  const segments = fs
+    .readdirSync(dir)
+    .filter((name) => name.endsWith('.m4s'))
+    .sort()
+  return { playlist, segments, dir }
+}
 
-  // Confirm the output really is an mp4 by probing it.
-  const remuxed = path.join(workDir, 'remuxed.mp4')
-  fs.writeFileSync(remuxed, output)
-  const info = await probe(remuxed)
+test('startHlsTranscode turns an mkv into a playable HLS stream', async () => {
+  const dir = path.join(workDir, 'hls-mkv')
+  fs.mkdirSync(dir, { recursive: true })
+
+  const { code, stderr } = await transcodeToHls(mkv, dir)
+  assert.equal(code, 0, `ffmpeg failed: ${stderr}`)
+
+  const { playlist, segments } = hlsOutput(dir)
+  // A playlist the player can act on, and at least one real segment to fetch.
+  assert.ok(playlist.startsWith('#EXTM3U'), 'not a playlist')
+  assert.ok(playlist.includes('#EXT-X-MAP:URI="init.mp4"'), 'no init segment declared')
+  assert.ok(playlist.includes('#EXT-X-ENDLIST'), 'a finished stream must be marked so')
+  assert.ok(segments.length > 0, 'no segments were written')
+
+  // The only check that matters: the stream is a container and codecs a phone can play.
+  // The playlist is probed rather than a bare segment, because an fMP4 fragment has no
+  // moov and is not independently parseable - it is only meaningful through the init
+  // segment the playlist declares. Probing the playlist also proves it is well-formed,
+  // which is what the browser actually fetches first.
+  const info = await probe(path.join(dir, 'index.m3u8'))
   assert.equal(info.videoCodec, 'h264')
-  assert.ok(info.container.includes('mp4'))
+  assert.equal(info.audioCodec, 'aac')
 })
 
-test('startRemux handles a file with no audio track', async () => {
-  const { code, output } = await remuxFile(mkvNoAudio)
+test('startHlsTranscode handles a file with no audio track', async () => {
+  const dir = path.join(workDir, 'hls-noaudio')
+  fs.mkdirSync(dir, { recursive: true })
+
+  const { code, stderr } = await transcodeToHls(mkvNoAudio, dir)
+  assert.equal(code, 0, `ffmpeg failed: ${stderr}`)
+  assert.ok(hlsOutput(dir).segments.length > 0)
+})
+
+// The playlist must describe the whole episode, not just the first fragment, or the
+// player has nothing to seek within. `event` makes it append-only; the alternative
+// would be a sliding window that drops what has already been played.
+test('the playlist declares a duration the player can seek within', async () => {
+  const dir = path.join(workDir, 'hls-duration')
+  fs.mkdirSync(dir, { recursive: true })
+
+  const { code } = await transcodeToHls(mkv, dir)
   assert.equal(code, 0)
-  assert.ok(output.length > 0)
+
+  const { playlist } = hlsOutput(dir)
+  const total = (playlist.match(/#EXTINF:([\d.]+)/g) || []).reduce(
+    (sum, entry) => sum + Number.parseFloat(entry.slice(8)),
+    0,
+  )
+  assert.ok(total > 1, `playlist declares ${total}s, expected the episode length`)
 })
 
 test.after(() => {

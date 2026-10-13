@@ -143,7 +143,7 @@ function evict(infoHash) {
 // gets the same "reload the episode" response as any other expired stream.
 //
 // Both limits are checked, because counting torrents alone does not bound disk: a
-// 1080p episode is roughly 1.4GB, and a remux reads the whole file, so twelve
+// 1080p episode is roughly 1.4GB, and an HLS transcode reads the whole file, so twelve
 // concurrent torrents can occupy well past 15GB.
 //
 // Takes an array rather than the live Map: a Map iterator has no `length`, so

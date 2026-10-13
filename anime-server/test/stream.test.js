@@ -19,7 +19,7 @@ import { PassThrough } from 'node:stream'
 import WebTorrent from 'webtorrent'
 import { Server as TrackerServer } from 'bittorrent-tracker'
 
-import { startRemux, probeFile } from '../graphql/stream/media.js'
+import { startHlsTranscode, probeFile } from '../graphql/stream/media.js'
 
 function makeMkv(target) {
   execFileSync('ffmpeg', [
@@ -82,30 +82,27 @@ async function localSwarm(dir, sourcePath) {
   }
 }
 
-function runRemux(file) {
+function runHls(file, dir) {
   return new Promise((resolve, reject) => {
-    const ffmpeg = startRemux()
+    const ffmpeg = startHlsTranscode(dir, 'pipe:0')
     const source = file.createReadStream()
     source.on('error', reject)
     source.pipe(ffmpeg.stdin)
 
-    let bytes = 0
     let stderr = ''
-    ffmpeg.stdout.on('data', (chunk) => {
-      bytes += chunk.length
-    })
     ffmpeg.stderr.on('data', (chunk) => {
       stderr += chunk.toString()
     })
     ffmpeg.on('error', reject)
     ffmpeg.on('close', (code) => {
       source.destroy()
-      resolve({ code, bytes, stderr })
+      const segments = fs.readdirSync(dir).filter((name) => name.endsWith('.m4s'))
+      resolve({ code, bytes: segments.length, stderr })
     })
   })
 }
 
-test('remuxing a torrent reads through the download stream', async (t) => {
+test('transcoding a torrent reads through the download stream', async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'konflix-remux-'))
   const sourcePath = path.join(dir, 'Show - 01.mkv')
   makeMkv(sourcePath)
@@ -116,13 +113,15 @@ test('remuxing a torrent reads through the download stream', async (t) => {
     fs.rmSync(dir, { recursive: true, force: true })
   })
 
-  const result = await runRemux(swarm.file)
+  const hlsDir = path.join(dir, 'hls')
+  fs.mkdirSync(hlsDir, { recursive: true })
+  const result = await runHls(swarm.file, hlsDir)
 
   // A non-zero exit means ffmpeg gave up on the input. This is what happened when
   // the input was a path on disk: the bytes past the first gap had not been
   // downloaded, and ffmpeg stopped with "File ended prematurely".
   assert.equal(result.code, 0, `ffmpeg failed: ${result.stderr}`)
-  assert.ok(result.bytes > 0, 'ffmpeg produced no output')
+  assert.ok(result.bytes > 0, 'ffmpeg wrote no segments')
   assert.equal(result.stderr, '', 'ffmpeg reported an error')
 })
 

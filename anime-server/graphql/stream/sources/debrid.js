@@ -211,7 +211,7 @@ const links = new Map()
 // A /dl token is a bearer credential: whoever holds it can watch the episode. It is
 // therefore generated from a CSPRNG rather than Math.random, which is not
 // cryptographically random and would make tokens guessable.
-export function registerDownload(torrentId, fileId, fileName, delivery) {
+export function registerDownload(torrentId, fileId, fileName, delivery, url = null) {
   // Expired entries are dropped first, so a burst of new links cannot evict a token
   // that someone is still watching with.
   const now = Date.now()
@@ -221,7 +221,7 @@ export function registerDownload(torrentId, fileId, fileName, delivery) {
   while (links.size >= MAX_LINKS) links.delete(links.keys().next().value)
 
   const token = randomBytes(24).toString('base64url')
-  links.set(token, { torrentId, fileId, fileName, delivery, expiresAt: now + LINK_TTL_MS })
+  links.set(token, { torrentId, fileId, fileName, delivery, url, expiresAt: now + LINK_TTL_MS })
   return token
 }
 
@@ -267,7 +267,7 @@ const SNIFF_BYTES = 64
  * this does not try to answer them. An unsupported codec (HEVC, AV1) therefore still
  * reaches the player and is reported by it.
  *
- * @returns {Promise<'file'|'remux'|null>} null when the container is unplayable, or when
+ * @returns {Promise<'file'|'hls'|null>} null when the container is unplayable, or when
  *   the file could not be read - in which case nothing playable can be promised.
  */
 async function sniffDelivery(url, fileName, timeoutMs) {
@@ -292,9 +292,9 @@ async function sniffDelivery(url, fileName, timeoutMs) {
 
     const container = containerFromBytes(Buffer.from(response.data))
     if (container === 'mp4') return 'file'
-    // Matroska is not playable in a browser, so it must be remuxed. That is true even
-    // when the name says mp4, which is the case this exists for.
-    if (container === 'mkv') return 'remux'
+    // Matroska is not playable on a phone, so it must be re-packaged as HLS. That is
+    // true even when the name says mp4, which is the case this exists for.
+    if (container === 'mkv') return 'hls'
     // A recognised video whose bytes are neither container is still refused: the name
     // was already checked, so this is the case where the two disagree and neither can
     // be trusted.
@@ -312,7 +312,7 @@ async function sniffDelivery(url, fileName, timeoutMs) {
  * Turns a /dl token into the file to fetch.
  *
  * The file name is returned alongside the URL because it is what decides how the bytes
- * are delivered: an MKV is remuxed on the way out, an MP4 is relayed as-is. That
+ * are delivered: an MKV is re-packaged as HLS, an MP4 is relayed as-is. That
  * decision cannot be made from the URL, which is an opaque CDN path.
  *
  * @returns {Promise<{url: string, fileName: string}|null>} null when the token is
@@ -448,8 +448,8 @@ async function linkFor(release, episodeNumber, timeoutMs) {
 
   // The extension cannot be trusted to say what the file is, so the container is read
   // from the bytes. An MKV cannot be played by a mobile browser at all, and the relay
-  // already remuxes it; reporting the type honestly is what routes it through that path
-  // instead of handing the phone a container it will refuse.
+  // already re-packages it as HLS; reporting the type honestly is what routes it through
+  // that path instead of handing the phone a container it will refuse.
   const url = await cached(`torbox:url:${entry.torrentId}:${entry.fileId}`, 60 * 1000, () =>
     api('requestdl', {
       torrent_id: entry.torrentId,
@@ -462,10 +462,16 @@ async function linkFor(release, episodeNumber, timeoutMs) {
   const delivery = await sniffDelivery(url, file.name, timeoutMs)
   if (!delivery) return null
 
-  const dlToken = registerDownload(entry.torrentId, file.id, file.name, delivery)
+  // Nothing is transcoded here. Resolving must stay fast, and starting ffmpeg blocks
+  // until it has produced a playlist - measured at ~8s for a small file and far longer
+  // for a real episode, multiplied by every candidate that is tried. The token carries
+  // what is needed, and the player's first request starts the session (see the /dl
+  // route). Delivery is therefore identical for both kinds: the same URL, a different
+  // streamType telling the player whether to attach hls.js.
+  const dlToken = registerDownload(entry.torrentId, file.id, file.name, delivery, url)
   return {
     available: true,
     url: `${config.publicUrl}/dl/${dlToken}`,
-    streamType: delivery,
+    streamType: delivery === 'file' ? 'file' : 'hls',
   }
 }

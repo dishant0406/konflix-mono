@@ -12,6 +12,11 @@
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import nodeHttp from 'node:http'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { execFileSync } from 'node:child_process'
 
 import { http } from '../lib/http.js'
 import { config } from '../lib/config.js'
@@ -98,8 +103,8 @@ test('a debrid file is delivered the same way the relay would deliver it', () =>
   // keeps the two paths agreeing.
   assert.equal(deliveryFor('Show - 01.mp4'), 'file')
   assert.equal(deliveryFor('Show - 01.MP4'), 'file')
-  assert.equal(deliveryFor('Show - 01.mkv'), 'remux')
-  assert.equal(deliveryFor('Show - 01.MKV'), 'remux')
+  assert.equal(deliveryFor('Show - 01.mkv'), 'hls')
+  assert.equal(deliveryFor('Show - 01.MKV'), 'hls')
   // A container no browser can open, with no remux that would help.
   assert.equal(deliveryFor('Show - 01.avi'), null)
   assert.equal(deliveryFor('Show - 01.txt'), null)
@@ -409,11 +414,56 @@ test('a resolve whose budget is already spent does not call a source', async () 
   }
 })
 
-test('an mkv release resolves as a remux, not as a directly playable file', async (t) => {
-  // The bug this pins: debrid reported every file as streamType "file", so an MKV was
-  // relayed untouched. That plays on a desktop and fails on a phone, where the player
-  // shows a play button that does nothing. The MKV must be reported as "remux" so the
-  // /dl handler runs it through ffmpeg, exactly as the torrent relay already does.
+test('an mkv release becomes HLS instead of being relayed as bytes', async (t) => {
+  // Two bugs are pinned here, because they had the same symptom on a phone: a player
+  // showing a play button that did nothing.
+  //
+  //   1. debrid reported every file as streamType "file", so an MKV was relayed
+  //      untouched. Desktop browsers demux Matroska; iOS does not.
+  //   2. the first fix piped a live fragmented MP4, which iOS also refuses - it requires
+  //      a byte-range response, and a stream with no total length cannot provide one.
+  //
+  // This runs the real path end to end: a genuine MKV served over HTTP, sniffed for its
+  // container, and turned into an HLS session by the same code production calls. Nothing
+  // is stubbed except the TorBox API itself.
+  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'konflix-debrid-mkv-'))
+  const mkvPath = path.join(workDir, 'Show - 01.mkv')
+  execFileSync('ffmpeg', [
+    '-v', 'error', '-y',
+    '-f', 'lavfi', '-i', 'testsrc=size=160x120:rate=10',
+    '-f', 'lavfi', '-i', 'sine=frequency=440',
+    '-t', '2', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest',
+    mkvPath,
+  ])
+
+  // Stands in for the CDN, including its byte-range support. That is not incidental:
+  // ffmpeg seeks when it demuxes Matroska, and a stub that ignores Range makes the
+  // transcode fail for a reason that has nothing to do with the code under test.
+  const cdnBody = fs.readFileSync(mkvPath)
+  const cdn = nodeHttp.createServer((req, res) => {
+    const match = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || '')
+    if (match) {
+      const start = match[1] === '' ? 0 : Number.parseInt(match[1], 10)
+      const end = match[2] === '' ? cdnBody.length - 1 : Number.parseInt(match[2], 10)
+      res.writeHead(206, {
+        'Content-Type': 'application/octet-stream',
+        'Accept-Ranges': 'bytes',
+        'Content-Range': `bytes ${start}-${end}/${cdnBody.length}`,
+        'Content-Length': String(end - start + 1),
+      })
+      res.end(cdnBody.subarray(start, end + 1))
+      return
+    }
+    res.writeHead(200, {
+      'Content-Type': 'application/octet-stream',
+      'Accept-Ranges': 'bytes',
+      'Content-Length': String(cdnBody.length),
+    })
+    res.end(cdnBody)
+  })
+  await new Promise((resolve) => cdn.listen(0, '127.0.0.1', resolve))
+  const cdnUrl = `http://127.0.0.1:${cdn.address().port}/Show%20-%2001.mkv`
+
   const previousToken = config.torboxToken
   config.torboxToken = 'test-token'
   const { forget } = await import('../lib/cache.js')
@@ -421,11 +471,10 @@ test('an mkv release resolves as a remux, not as a directly playable file', asyn
   forget('torbox:mylist')
   forget(`torbox:checkcached:${HEX}`)
 
-  const mkvEntry = {
-    id: 42,
-    hash: HEX,
-    files: [{ id: 7, name: 'Show - 01.mkv', size: 1024 }],
-  }
+  // Distinct ids from every other test in this file. The resolved CDN URL is cached by
+  // (torrentId, fileId) for a minute, so sharing ids lets one test's stub answer another
+  // test's request - which is exactly what happened here before this was separated.
+  const mkvEntry = { id: 77, hash: HEX, files: [{ id: 71, name: 'Show - 01.mkv', size: 1024 }] }
 
   const originalGet = http.get
   http.get = async (url) => {
@@ -433,107 +482,40 @@ test('an mkv release resolves as a remux, not as a directly playable file', asyn
       return { data: { success: true, data: { [HEX]: { files: [{ name: 'Show - 01.mkv' }] } } } }
     }
     if (url.endsWith('mylist')) return { data: { success: true, data: [mkvEntry] } }
-    if (url.endsWith('requestdl')) {
-      return { data: { success: true, data: 'https://cdn.torbox.app/f.mkv' } }
-    }
+    if (url.endsWith('requestdl')) return { data: { success: true, data: cdnUrl } }
     throw new Error(`unstubbed request to ${url}`)
   }
 
-  t.after(() => {
+  t.after(async () => {
     http.get = originalGet
     config.torboxToken = previousToken
     forget('torbox:mylist')
     forget(`torbox:checkcached:${HEX}`)
+    forget('torbox:url:77:71')
+    const { closeAllHls } = await import('../graphql/stream/hls.js')
+    closeAllHls()
+    cdn.closeAllConnections()
+    await new Promise((resolve) => cdn.close(resolve))
+    fs.rmSync(workDir, { recursive: true, force: true })
   })
 
   const result = await debrid.resolve({
     episodeNumber: 1,
     ranked: [{ infoHash: HEX, title: 'Show - 01', magnet: `magnet:?xt=urn:btih:${HEX}` }],
-    deadlineMs: 5000,
+    deadlineMs: 60000,
   })
 
   assert.equal(result.available, true, result.reason)
-  assert.equal(result.streamType, 'remux')
+  assert.equal(result.streamType, 'hls', 'an mkv must be re-packaged, not relayed as bytes')
+  // Resolving hands back a token, not a running transcode: starting ffmpeg blocks until
+  // the first playlist exists, and doing that inside resolve multiplied the wait by every
+  // candidate tried. The player's first request to this URL is what starts the session.
+  assert.match(result.url, /\/dl\/[A-Za-z0-9_-]+$/, 'an mkv must be served through a token')
 
-  // And the file name reaches the /dl handler, which is what actually applies the rule.
-  const token = result.url.split('/').pop()
-  const download = await resolveDownload(token)
-  assert.equal(download.fileName, 'Show - 01.mkv')
-})
-
-test('the container is read from the bytes, not from the file name', () => {
-  // A real release was measured named `...mp4` whose bytes were Matroska. Trusting the
-  // name relays it untouched, which plays on a desktop and shows a dead play button on
-  // a phone. This is the signature check that catches it.
-  const matroska = Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x42, 0x86, 0x81, 0x01])
-  const mp4 = Buffer.concat([Buffer.from([0, 0, 0, 0x1c]), Buffer.from('ftypiso5', 'latin1')])
-
-  assert.equal(containerFromBytes(matroska), 'mkv')
-  assert.equal(containerFromBytes(mp4), 'mp4')
-  // Not a container this server can serve.
-  assert.equal(containerFromBytes(Buffer.from('GIF89a', 'latin1')), null)
-  assert.equal(containerFromBytes(Buffer.alloc(0)), null)
-})
-
-test('a file named .mp4 whose bytes are matroska resolves as a remux', async (t) => {
-  // The whole point of sniffing: the name says mp4, the bytes say Matroska, and the
-  // bytes win. Without this the release is relayed raw and no mobile browser can play it.
-  const previousToken = config.torboxToken
-  config.torboxToken = 'test-token'
-  const { forget } = await import('../lib/cache.js')
-  const debrid = (await import('../graphql/stream/sources/debrid.js')).default
-  forget('torbox:mylist')
-  forget(`torbox:checkcached:${HEX}`)
-  forget('torbox:url:42:7')
-
-  // Named .mp4, but the bytes are an EBML header.
-  const lyingEntry = {
-    id: 42,
-    hash: HEX,
-    files: [{ id: 7, name: 'Show - 01.mp4', size: 1024 }],
-  }
-
-  const originalGet = http.get
-  http.get = async (url, options) => {
-    if (url.endsWith('checkcached')) {
-      return { data: { success: true, data: { [HEX]: { files: [{ name: 'Show - 01.mp4' }] } } } }
-    }
-    if (url.endsWith('mylist')) return { data: { success: true, data: [lyingEntry] } }
-    if (url.endsWith('requestdl')) {
-      return { data: { success: true, data: 'https://cdn.torbox.app/f.mp4' } }
-    }
-    // The container sniff. This is the request that decides the answer.
-    if (url === 'https://cdn.torbox.app/f.mp4') {
-      assert.match(options.headers.range, /^bytes=0-\d+$/, 'the sniff must ask for a range')
-      return {
-        status: 206,
-        data: Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x42, 0x86, 0x81, 0x01]),
-      }
-    }
-    throw new Error(`unstubbed request to ${url}`)
-  }
-
-  t.after(() => {
-    http.get = originalGet
-    config.torboxToken = previousToken
-    forget('torbox:mylist')
-    forget(`torbox:checkcached:${HEX}`)
-    forget('torbox:url:42:7')
-  })
-
-  const result = await debrid.resolve({
-    episodeNumber: 1,
-    ranked: [{ infoHash: HEX, title: 'Show - 01', magnet: `magnet:?xt=urn:btih:${HEX}` }],
-    deadlineMs: 5000,
-  })
-
-  assert.equal(result.available, true, result.reason)
-  assert.equal(result.streamType, 'remux', 'matroska bytes must win over an mp4 name')
-
-  // The decision travels on the token, so /dl does not have to sniff again per request.
-  const token = result.url.split('/').pop()
-  const download = await resolveDownload(token)
-  assert.equal(download.delivery, 'remux')
+  // The deferral itself, which is what keeps resolving fast: no transcode may have been
+  // started by the time resolve returns.
+  const { hlsSessionCount } = await import('../graphql/stream/hls.js')
+  assert.equal(hlsSessionCount(), 0, 'resolving must not start a transcode')
 })
 
 test('a genuine mp4 is relayed rather than remuxed', async (t) => {

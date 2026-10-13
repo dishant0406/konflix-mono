@@ -7,7 +7,9 @@ import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { Readable } from 'node:stream'
 
-import { parseRange, streamDirect, streamRemux } from '../graphql/stream/serve.js'
+import { parseRange, streamDirect, deliveryFor } from '../graphql/stream/serve.js'
+import { startHlsTranscode } from '../graphql/stream/media.js'
+import { absolutisePlaylist } from '../graphql/stream/hls.js'
 import { pickVideoFile, overLimits } from '../graphql/stream/torrent.js'
 
 test('parseRange handles the range forms a browser sends', () => {
@@ -156,24 +158,29 @@ test('overLimits bounds disk as well as torrent count', () => {
   assert.equal(overLimits([entry(1000)], limits), true)
 })
 
-// The debrid path serves a remote file, so its remux input is an HTTP response body
-// rather than a torrent's download stream. That is the difference between the two
-// paths, and it is the one that was broken: an MKV was relayed as-is, which plays on a
-// desktop and shows a dead play button on a phone. This runs the whole thing for real -
-// a file on disk, served over HTTP, remuxed by the same function production calls.
-test('an mkv from a URL is remuxed into something a mobile browser can play', async (t) => {
-  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'konflix-serve-remux-'))
+// The debrid path serves a remote file, so its transcode input is a CDN URL rather
+// than a torrent's download stream. That is the difference between the two paths, and
+// it is the one that was broken twice: an MKV was first relayed as-is, which plays on a
+// desktop and shows a dead play button on a phone, and then piped as a live fragmented
+// MP4, which iOS refuses because it cannot answer a byte-range request.
+//
+// This runs the whole thing for real - a file on disk, served over HTTP, turned into HLS
+// by the same function production calls - and then asserts the two properties iOS
+// actually checks.
+test('an mkv from a URL becomes HLS that a mobile browser can fetch', async (t) => {
+  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'konflix-serve-hls-'))
   const mkvPath = path.join(workDir, 'episode.mkv')
+  const hlsDir = path.join(workDir, 'out')
 
   execFileSync('ffmpeg', [
     '-v', 'error', '-y',
     '-f', 'lavfi', '-i', 'testsrc=size=160x120:rate=10',
     '-f', 'lavfi', '-i', 'sine=frequency=440',
-    '-t', '2', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest',
+    '-t', '4', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest',
     mkvPath,
   ])
 
-  // Stands in for the CDN: serves the file, and refuses anything else.
+  // Stands in for the CDN.
   const cdn = http.createServer((req, res) => {
     const body = fs.readFileSync(mkvPath)
     res.writeHead(200, { 'Content-Type': 'application/octet-stream' })
@@ -181,43 +188,102 @@ test('an mkv from a URL is remuxed into something a mobile browser can play', as
   })
   await new Promise((resolve) => cdn.listen(0, '127.0.0.1', resolve))
 
-  const app = http.createServer(async (req, res) => {
-    const upstream = await fetch(`http://127.0.0.1:${cdn.address().port}/`)
-    streamRemux(res, Readable.fromWeb(upstream.body))
+  const url = `http://127.0.0.1:${cdn.address().port}/episode.mkv`
+  fs.mkdirSync(hlsDir, { recursive: true })
+
+  const { code, stderr } = await new Promise((resolve, reject) => {
+    const ffmpeg = startHlsTranscode(hlsDir, url)
+    let err = ''
+    ffmpeg.stderr.on('data', (chunk) => {
+      err += chunk.toString()
+    })
+    ffmpeg.on('close', (code) => resolve({ code, stderr: err }))
+    ffmpeg.on('error', reject)
   })
-  await new Promise((resolve) => app.listen(0, '127.0.0.1', resolve))
 
   t.after(async () => {
     cdn.closeAllConnections()
-    app.closeAllConnections()
     await new Promise((resolve) => cdn.close(resolve))
-    await new Promise((resolve) => app.close(resolve))
     fs.rmSync(workDir, { recursive: true, force: true })
   })
 
-  const response = await fetch(`http://127.0.0.1:${app.address().port}/`, {
-    headers: { Connection: 'close' },
-  })
-  assert.equal(response.status, 200)
-  // Always mp4, because that is what ffmpeg is producing. The old path forwarded the
-  // CDN's own content type, which is octet-stream for an mkv.
-  assert.equal(response.headers.get('content-type'), 'video/mp4')
+  assert.equal(code, 0, `ffmpeg failed: ${stderr}`)
 
-  const remuxed = Buffer.from(await response.arrayBuffer())
-  assert.ok(remuxed.length > 0, 'remux produced no bytes')
+  const playlist = fs.readFileSync(path.join(hlsDir, 'index.m3u8'), 'utf8')
+  const segments = fs.readdirSync(hlsDir).filter((name) => name.endsWith('.m4s')).sort()
+  assert.ok(segments.length > 0, 'no segments were written')
 
-  // The only check that matters: the bytes are a container and codecs a phone can play.
-  const outputPath = path.join(workDir, 'out.mp4')
-  fs.writeFileSync(outputPath, remuxed)
+  // The property iOS checks first, and the reason the live pipe could never work: every
+  // segment is a complete file that can be served with a real length.
+  const segment = fs.statSync(path.join(hlsDir, segments[0]))
+  assert.ok(segment.size > 0, 'the first segment is empty')
+
+  // And the codecs inside it are ones a phone can play. The playlist is probed rather
+  // than a bare segment: an fMP4 fragment has no moov of its own and is only parseable
+  // through the init segment the playlist declares. This also proves the playlist is
+  // well-formed, which is the first thing the browser fetches.
   const probed = JSON.parse(
     execFileSync('ffprobe', [
       '-v', 'error',
       '-show_entries', 'format=format_name:stream=codec_type,codec_name',
       '-of', 'json',
-      outputPath,
+      path.join(hlsDir, 'index.m3u8'),
     ]).toString(),
   )
-  assert.match(probed.format.format_name, /mp4/)
-  assert.equal(probed.streams.find((s) => s.codec_type === 'video').codec_name, 'h264')
-  assert.equal(probed.streams.find((s) => s.codec_type === 'audio').codec_name, 'aac')
+  const video = probed.streams.find((stream) => stream.codec_type === 'video')
+  assert.equal(video.codec_name, 'h264')
+})
+
+// The delivery decision is what routes an MKV away from the raw byte relay. Getting it
+// wrong is invisible on a desktop and fatal on a phone, so it is pinned here.
+test('an mkv is routed to HLS rather than relayed as bytes', () => {
+  assert.equal(deliveryFor('Show - 01.mkv'), 'hls')
+  assert.equal(deliveryFor('Show - 01.MKV'), 'hls')
+  assert.equal(deliveryFor('Show - 01.mp4'), 'file')
+  assert.equal(deliveryFor('Show - 01.avi'), null)
+})
+
+// A playlist served at a URL with no file name must still resolve its segments.
+//
+// This is the bug that made the torrent path fail while the debrid path worked: hls.js
+// resolves relative segment names against the playlist's own URL, so `/stream/<hash>`
+// turned `seg00000.m4s` into `/stream/seg00000.m4s` - a different route, which rejects it
+// with 400. The debrid path was unaffected because its URL ends in `index.m3u8`. Nothing
+// about that difference is obvious, which is why it is pinned here.
+test('a playlist makes its segments absolute, wherever it is served', () => {
+  const playlist = [
+    '#EXTM3U',
+    '#EXT-X-VERSION:7',
+    '#EXT-X-MAP:URI="init.mp4"',
+    '#EXTINF:6.006000,',
+    'seg00000.m4s',
+    '#EXTINF:6.006000,',
+    'seg00001.m4s',
+    '#EXT-X-ENDLIST',
+    '',
+  ].join('\n')
+
+  const rewritten = absolutisePlaylist(playlist, '/stream/abc123')
+
+  // The init and every segment must be reachable from the playlist's own URL, so that a
+  // player cannot resolve one to a different route.
+  assert.ok(rewritten.includes('#EXT-X-MAP:URI="/stream/abc123/init.mp4"'))
+  assert.ok(rewritten.includes('/stream/abc123/seg00000.m4s'))
+  assert.ok(rewritten.includes('/stream/abc123/seg00001.m4s'))
+  // No relative segment name may survive, which is the actual failure mode.
+  assert.ok(!/^seg\d+\.m4s$/m.test(rewritten), 'a relative segment name survived')
+  // Everything else must be passed through untouched.
+  assert.ok(rewritten.includes('#EXT-X-ENDLIST'))
+  assert.ok(rewritten.startsWith('#EXTM3U'))
+})
+
+test('absolutising a playlist does not mangle the rest of it', () => {
+  const playlist = '#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXT-X-PLAYLIST-TYPE:EVENT\n#EXTINF:6.006000,\nseg00000.m4s\n'
+  const rewritten = absolutisePlaylist(playlist, '/hls/xyz')
+  const lines = rewritten.split('\n')
+  assert.equal(lines[0], '#EXTM3U')
+  assert.equal(lines[1], '#EXT-X-TARGETDURATION:6')
+  assert.equal(lines[2], '#EXT-X-PLAYLIST-TYPE:EVENT')
+  assert.equal(lines[3], '#EXTINF:6.006000,')
+  assert.equal(lines[4], '/hls/xyz/seg00000.m4s')
 })

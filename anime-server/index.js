@@ -17,7 +17,8 @@ import { http } from './lib/http.js'
 import { prepareCacheDir } from './lib/cacheDir.js'
 import { provider, providerNames } from './graphql/providers/index.js'
 import { enabledIndexers, indexerNames, indexerStatus } from './graphql/indexers/index.js'
-import { serveStream, streamRemux, deliveryFor } from './graphql/stream/serve.js'
+import { serveStream, serveStreamSegment } from './graphql/stream/serve.js'
+import { servePlaylist, serveSegment, prepareHlsDir, closeAllHls, hlsSessionCount, sessionForStream, streamKey, createHlsSession } from './graphql/stream/hls.js'
 import { sessionCount, cacheSizeBytes, closeAll } from './graphql/stream/torrent.js'
 import { activeSources, sourceNames, sourceStatus } from './graphql/stream/sources/index.js'
 import { resolveDownload, isAllowedDownloadUrl } from './graphql/stream/sources/debrid.js'
@@ -77,7 +78,7 @@ app.all(
 
 // Video bytes, relayed from the torrent swarm. A plain GET so a <video> element can
 // use it directly.
-app.get('/stream/:infoHash', (req, res) => {
+app.get('/stream/:infoHash/:segment?', async (req, res, next) => {
   const infoHash = req.params.infoHash.toLowerCase()
   // The hash is an untrusted path segment. It is only ever used as a map key, but
   // validating the shape keeps malformed requests from reaching the stream layer.
@@ -87,7 +88,36 @@ app.get('/stream/:infoHash', (req, res) => {
     res.status(400).json({ error: 'Invalid torrent info hash.' })
     return
   }
-  serveStream(req, res, infoHash)
+  try {
+    // The bare path answers with MP4 bytes or the HLS playlist; a trailing name is one
+    // HLS segment. Express 4 does not catch a rejected promise, so this is awaited
+    // inside a try rather than left to the framework.
+    if (req.params.segment) await serveStreamSegment(res, infoHash, req.params.segment)
+    else await serveStream(req, res, infoHash)
+  } catch (error) {
+    next(error)
+  }
+})
+
+// Serves the HLS output for a session, which is how a non-playable container (MKV) is
+// delivered to the browser. The playlist lists segments with relative names, so the
+// player resolves them against this same path.
+//
+// A session id is an opaque token minted when the episode was resolved. It is validated
+// by shape before it is used as a directory name.
+app.get('/hls/:id/:file', async (req, res, next) => {
+  const { id, file } = req.params
+  if (!/^[A-Za-z0-9_-]{16}$/.test(id)) {
+    res.status(400).json({ error: 'Invalid stream id.' })
+    return
+  }
+  try {
+    // A segment that has not been written yet is awaited, so this can reject.
+    if (file === 'index.m3u8') servePlaylist(res, id, `/hls/${id}`)
+    else await serveSegment(res, id, file)
+  } catch (error) {
+    next(error)
+  }
 })
 
 // Serves a debrid file to the browser.
@@ -114,6 +144,30 @@ app.get('/dl/:token', async (req, res, next) => {
       return
     }
 
+    if (entry.delivery === 'hls') {
+      const hls = await createHlsSession({
+        kind: 'stream',
+        key: streamKey(token),
+        // The bytes are fetched by this server's HTTP client and piped to ffmpeg, rather
+        // than letting ffmpeg fetch the URL itself. The client is the one known to work
+        // against this CDN, and it is the same mechanism the torrent path uses.
+        open: async () => {
+          const upstream = await fetchDownload(entry.url, {})
+          if (typeof upstream === 'number') {
+            console.warn(`[hls] the download service answered ${upstream}`)
+            return null
+          }
+          return upstream.data
+        },
+      })
+      if (!hls) {
+        res.status(502).json({ error: 'This episode could not be prepared for playback.' })
+        return
+      }
+      servePlaylist(res, hls.id, `/dl/${token}`)
+      return
+    }
+
     if (!isAllowedDownloadUrl(entry.url)) {
       // The hostname is logged because the provider rotates its CDN domain, and this
       // is the only place the new one becomes visible. The URL itself is not logged:
@@ -130,29 +184,6 @@ app.get('/dl/:token', async (req, res, next) => {
           'Set DEBRID_CDN_HOSTS to this domain to allow it.',
       )
       res.status(502).json({ error: 'The download service returned an unusable link.' })
-      return
-    }
-
-    // How this file reaches the browser was decided when the link was minted, by reading
-    // the container signature from the file's first bytes. The extension is not trusted:
-    // a live release was named `.mp4` while its bytes were Matroska, which plays on a
-    // desktop and shows a dead play button on a phone. The decision is carried on the
-    // token so it is made once, at resolve time, rather than on every range request.
-    const delivery = entry.delivery || deliveryFor(entry.fileName)
-    if (!delivery) {
-      res.status(415).json({ error: 'This release is not a format a browser can play.' })
-      return
-    }
-
-    if (delivery === 'remux') {
-      const remuxResponse = await fetchDownload(entry.url, {})
-      if (typeof remuxResponse === 'number') {
-        console.warn(`[dl] the download service answered ${remuxResponse}`)
-        res.status(502).json({ error: 'The download service could not serve this file.' })
-        return
-      }
-      // fetchDownload returns the response; the stream is its body.
-      streamRemux(res, remuxResponse.data)
       return
     }
 
@@ -178,7 +209,7 @@ app.get('/dl/:token', async (req, res, next) => {
     }
     // Seeking depends on this being advertised, and the CDN does not always send it.
     if (!upstream.headers['accept-ranges']) res.setHeader('Accept-Ranges', 'bytes')
-    // A remuxed stream is always video/mp4; a relayed one keeps the CDN's own type,
+    // A relayed stream keeps the CDN's own type,
     // which is not reliable (`application/octet-stream` is common). A video type is
     // therefore sent whenever the CDN does not name one. Media elements treat
     // octet-stream as "no type given" and sniff the container, so this is for players
@@ -194,6 +225,35 @@ app.get('/dl/:token', async (req, res, next) => {
     upstream.data.on('error', () => res.destroy())
     res.on('close', () => upstream.data.destroy())
     upstream.data.pipe(res)
+  } catch (error) {
+    next(error)
+  }
+})
+
+// One HLS segment (or the init file) for a debrid-backed stream. A segment request must
+// never start a session of its own: if the session had expired, doing so would begin a
+// fresh transcode from the start of the episode and then time out waiting for a segment
+// the new playlist will not reach for minutes.
+app.get('/dl/:token/:segment', async (req, res, next) => {
+  const { segment } = req.params
+  // An untrusted path segment, so the shape is validated before it is used as a key.
+  const token = [REDACTED]
+  if (!/^[A-Za-z0-9_-]{32}$/.test(token)) {
+    res.status(400).json({ error: 'Invalid download token.' })
+    return
+  }
+  try {
+    const entry = await resolveDownload(token)
+    if (!entry || entry.delivery !== 'hls') {
+      res.status(404).json({ error: 'This stream has expired. Reload the episode.' })
+      return
+    }
+    const session = sessionForStream(token)
+    if (!session) {
+      res.status(404).json({ error: 'This stream has expired. Reload the episode.' })
+      return
+    }
+    await serveSegment(res, session.id, segment)
   } catch (error) {
     next(error)
   }
@@ -255,6 +315,7 @@ app.get('/health', async (req, res, next) => {
       indexers,
       ffmpeg,
       activeTorrents: sessionCount(),
+      activeHlsSessions: hlsSessionCount(),
       cacheBytes: await cacheSizeBytes(),
     })
   } catch (error) {
@@ -280,6 +341,7 @@ app.use((error, req, res, next) => {
 })
 
 prepareCacheDir()
+prepareHlsDir()
 
 const server = app.listen(config.port, () => {
   console.log(`Konflix API listening on ${config.publicUrl}`)
@@ -310,6 +372,7 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
   process.on(signal, async () => {
     server.close()
     try {
+      closeAllHls()
       await closeAll()
     } catch (error) {
       console.error(`[server] shutdown: ${error.message}`)
