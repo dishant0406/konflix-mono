@@ -190,6 +190,37 @@ jobs:
             -d '{"query":"{ topAnime(page:1){ id title } }"}' | head -c 200
           echo
 
+          # The delivery routes, which nothing else here exercises. A previous deploy
+          # returned 200 on /health and a good GraphQL response while every request to
+          # /dl threw a ReferenceError and surfaced at the edge as a 502, so the routes
+          # themselves are what must be checked.
+          echo "Checking the download route rejects a bad token"
+          code=$(curl -s -o /dev/null -w '%{http_code}' "$PUBLIC_URL/dl/not-a-real-token")
+          if [ "$code" != "400" ]; then
+            echo "expected 400 from /dl for a malformed token, got $code" >&2
+            exit 1
+          fi
+
+          echo "Checking an HLS episode resolves and serves a playlist"
+          url=$(curl -fsS -X POST "$PUBLIC_URL/graphql" \
+            -H 'Content-Type: application/json' \
+            -d '{"query":"{ streamLinkDetails(id:\"130003-ep1\"){ available streamType url } }"}' \
+            | sed -n 's/.*"url":"\([^"]*\)".*/\1/p')
+          if [ -z "$url" ]; then
+            echo "no stream url was returned; the episode did not resolve" >&2
+            exit 1
+          fi
+          # The first request starts the transcode, so this waits for the first segment.
+          body=$(curl -fsS --max-time 120 --retry 2 --retry-delay 5 --retry-all-errors "$url")
+          case "$body" in
+            '#EXTM3U'*) echo "playlist served ($(printf '%s' "$body" | grep -c 'EXTINF') segments so far)" ;;
+            *)
+              echo "expected an HLS playlist from $url, got:" >&2
+              printf '%s\n' "$body" | head -c 300 >&2
+              exit 1
+              ;;
+          esac
+
       - name: Report failure
         if: failure()
         run: |
