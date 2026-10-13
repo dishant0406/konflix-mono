@@ -90,6 +90,16 @@ jobs:
         # package.json, which is a real class of deploy break.
         run: npm ci
 
+      - name: Install ffmpeg
+        # The stream tests exercise the real transcode path - they run ffprobe on a
+        # generated file and ffmpeg on a real torrent read - so ffmpeg must be present.
+        # The ubuntu runner image does not include it, and without it nine tests fail
+        # with `spawnSync ffmpeg ENOENT` rather than skipping, which reads as a code
+        # failure rather than a missing dependency.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+
       - name: Test
         run: npm test
 
