@@ -285,9 +285,11 @@ jobs:
           fi
 
           echo "Checking an HLS episode resolves and serves a playlist"
+          # The id is self-describing, so it names its own content type. The old bare
+          # form ("130003-ep1") is no longer a media id and does not resolve.
           url=$(curl -fsS -X POST "$PUBLIC_URL/graphql" \
             -H 'Content-Type: application/json' \
-            -d '{"query":"{ streamLinkDetails(id:\"130003-ep1\"){ available streamType url } }"}' \
+            -d '{"query":"{ streamLinkDetails(id:\"anime-130003-ep1\"){ available streamType url } }"}' \
             | sed -n 's/.*"url":"\([^"]*\)".*/\1/p')
           if [ -z "$url" ]; then
             echo "no stream url was returned; the episode did not resolve" >&2
