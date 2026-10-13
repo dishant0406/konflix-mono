@@ -21,11 +21,11 @@ export default {
   },
 
   /**
-   * @param {{ episodeNumber: number, ranked: Array, deadlineMs: number }} input
+* @param {{ episodeNumber: number, season: number|null, ranked: Array, deadlineMs: number }} input
    * @returns {Promise<{ available: boolean, url?: string, streamType?: string,
    *                     release?: string, reason?: string }>}
    */
-  async resolve({ episodeNumber, ranked, deadlineMs }) {
+  async resolve({ episodeNumber, season = null, ranked, deadlineMs }) {
     const failures = []
     const deadline = Date.now() + deadlineMs
 
@@ -39,7 +39,7 @@ export default {
       }
 
       try {
-        const session = await openRelease(release, episodeNumber, remaining)
+const session = await openRelease(release, episodeNumber, remaining, season)
         if (!isDirectlyPlayable(session.info) && !canRemux(session.info)) {
           failures.push(`${release.title}: unsupported ${session.info.videoCodec}`)
           continue

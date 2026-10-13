@@ -18,6 +18,13 @@ set -euo pipefail
 ZONE="${ZONE:-konflix.live}"
 TUNNEL_NAME="${TUNNEL_NAME:-konflix}"
 # Hostname -> container service, routed by hostname in the tunnel ingress config.
+#
+# The bare zone is the anime site, so existing links keep working. tv. is the films
+# and series site; both are the same image built with a different SITE argument.
+ANIME_HOST="${ANIME_HOST:-anime.$ZONE}"
+TV_HOST="${TV_HOST:-tv.$ZONE}"
+# The bare zone redirects to anime. rather than serving the app, so there is exactly
+# one canonical address per site.
 FRONTEND_HOST="${FRONTEND_HOST:-$ZONE}"
 API_HOST="${API_HOST:-api.$ZONE}"
 
@@ -31,7 +38,11 @@ run() {
 
 echo "Zone:     $ZONE"
 echo "Tunnel:   $TUNNEL_NAME"
-echo "Hostnames: $FRONTEND_HOST -> frontend:3000, $API_HOST -> api:9000"
+echo "Hostnames:"
+echo "  $ANIME_HOST -> frontend:3000   (anime)"
+echo "  $TV_HOST    -> frontend-tv:3001 (films and series)"
+echo "  $FRONTEND_HOST -> redirect to $ANIME_HOST"
+echo "  $API_HOST   -> api:9000"
 echo
 
 echo "==> Checking the zone is on this account"
@@ -86,6 +97,8 @@ run cf tunnels config update "$TUNNEL_ID" --body "$(cat <<JSON
 {
   "config": {
     "ingress": [
+      { "hostname": "$ANIME_HOST", "service": "http://frontend:3000" },
+      { "hostname": "$TV_HOST", "service": "http://frontend-tv:3001" },
       { "hostname": "$FRONTEND_HOST", "service": "http://frontend:3000" },
       { "hostname": "$API_HOST", "service": "http://api:9000" },
       { "service": "http_status:404" }
@@ -98,7 +111,7 @@ JSON
 echo "==> Pointing DNS at the tunnel"
 # A proxied CNAME to the tunnel. No origin IP is published and no certificate has to
 # be issued on the server: the edge terminates TLS.
-for host in "$FRONTEND_HOST" "$API_HOST"; do
+for host in "$ANIME_HOST" "$TV_HOST" "$FRONTEND_HOST" "$API_HOST"; do
   RECORD_ID="$(
     cf dns records list -q -z "$ZONE" | node -e "
       let d = ''

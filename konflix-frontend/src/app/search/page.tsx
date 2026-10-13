@@ -15,11 +15,24 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ROUTES } from "@/constants/routes";
-import { genres, seasons, sorts, statuses, types, years } from "@/constants/search-filters";
+import { ROUTES, titlePath } from "@/constants/routes";
+import { SITE } from "@/constants/site";
 import { useSearchPageParams } from "@/hooks/use-search-params";
 import { cn } from "@/lib/utils";
 import { useMediaList, useMediaSearch } from "@/query/use-media";
+
+// The season and year filters are AniList concepts. They are declared here rather than
+// in the site config because only this page offers them, and they are only rendered
+// where they do something (see SITE.supportsAdvancedFilters).
+const SEASONS = [
+  { value: "winter", label: "Winter" },
+  { value: "spring", label: "Spring" },
+  { value: "summer", label: "Summer" },
+  { value: "fall", label: "Fall" },
+];
+
+const CURRENT_YEAR = new Date().getFullYear();
+const YEARS = Array.from({ length: 45 }, (_, index) => CURRENT_YEAR - index);
 
 export default function SearchPage() {
   return (
@@ -118,42 +131,50 @@ function SearchResults() {
           <FilterSelect
             label="Sort"
             value={draft.sort}
-            options={sorts}
+            options={SITE.sorts}
             onChange={(value) => apply({ sort: value })}
           />
-          <FilterSelect
-            label="Type"
-            value={draft.format}
-            options={types}
-            onChange={(value) => apply({ format: value })}
-          />
-          <FilterSelect
-            label="Status"
-            value={draft.status}
-            options={statuses}
-            onChange={(value) => apply({ status: value })}
-          />
-          <FilterSelect
-            label="Season"
-            value={draft.season}
-            options={seasons}
-            onChange={(value) => apply({ season: value })}
-          />
-          <Select
-            value={draft.year ? String(draft.year) : undefined}
-            onValueChange={(value) => apply({ year: Number(value) })}
-          >
-            <SelectTrigger className="w-[10rem]" aria-label="Year">
-              <SelectValue placeholder="Year" />
-            </SelectTrigger>
-            <SelectContent className="z-[120]">
-              {years.map((year) => (
-                <SelectItem key={year} value={String(year)}>
-                  {year}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {SITE.supportsAdvancedFilters && (
+            <>
+              <FilterSelect
+                label="Type"
+                value={draft.format}
+                options={SITE.formats}
+                onChange={(value) => apply({ format: value })}
+              />
+              <FilterSelect
+                label="Status"
+                value={draft.status}
+                options={SITE.statuses}
+                onChange={(value) => apply({ status: value })}
+              />
+            </>
+          )}
+          {SITE.supportsAdvancedFilters && (
+            <>
+              <FilterSelect
+                label="Season"
+                value={draft.season}
+                options={SEASONS}
+                onChange={(value) => apply({ season: value })}
+              />
+              <Select
+                value={draft.year ? String(draft.year) : undefined}
+                onValueChange={(value) => apply({ year: Number(value) })}
+              >
+                <SelectTrigger className="w-[10rem]" aria-label="Year">
+                  <SelectValue placeholder="Year" />
+                </SelectTrigger>
+                <SelectContent className="z-[120]">
+                  {YEARS.map((year) => (
+                    <SelectItem key={year} value={String(year)}>
+                      {year}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </>
+          )}
         </div>
 
         <div>
@@ -164,17 +185,17 @@ function SearchResults() {
             value={draft.genres ?? []}
             onValueChange={(value) => apply({ genres: value.filter(Boolean) })}
           >
-            {genres.map((genre) => (
+            {SITE.genres.map((genre) => (
               <ToggleGroupItem
-                key={genre.value}
-                value={genre.value}
+                key={genre}
+                value={genre}
                 size="sm"
                 className={cn(
                   "border border-slate-700 text-slate-300 hover:border-[#e9376b] hover:bg-transparent hover:text-[#e9376b]",
                   "data-[state=on]:border-[#e9376b] data-[state=on]:bg-[#e9376b] data-[state=on]:text-white",
                 )}
               >
-                {genre.label}
+                {genre}
               </ToggleGroupItem>
             ))}
           </ToggleGroup>
@@ -208,7 +229,7 @@ function SearchResults() {
         <p className="py-16 text-center text-sm text-gray-400">
           {hasTerm
             ? `Nothing matched “${term}” with those filters.`
-            : "No anime matched those filters."}
+            : `No ${SITE.itemLabelPlural} matched those filters.`}
         </p>
       ) : (
         <div className="grid w-full grid-cols-2 content-center gap-5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7">
@@ -216,7 +237,7 @@ function SearchResults() {
             <AnimeCard
               key={`${item.id}-${index}`}
               media={item}
-              href={`${ROUTES.ANIME_DETAILS}/${item.id}`}
+              href={titlePath(item.id)}
               className="self-center justify-self-center"
             />
           ))}

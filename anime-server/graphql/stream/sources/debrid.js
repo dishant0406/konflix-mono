@@ -368,7 +368,7 @@ export default {
     }
   },
 
-  async resolve({ episodeNumber, ranked, deadlineMs }) {
+async resolve({ episodeNumber, season = null, ranked, deadlineMs }) {
     if (!config.torboxToken) {
       return { available: false, reason: 'The debrid source is not configured.' }
     }
@@ -401,7 +401,7 @@ export default {
     for (const release of usable.slice(0, config.maxCandidates)) {
       if (left() <= 0) break
       try {
-        const link = await linkFor(release, episodeNumber, left())
+const link = await linkFor(release, episodeNumber, left(), season)
         if (link) return { ...link, release: release.title }
       } catch (error) {
         console.warn(`[stream:debrid] ${release.title}: ${redactToken(error.message)}`)
@@ -421,7 +421,7 @@ export default {
   },
 }
 
-async function linkFor(release, episodeNumber, timeoutMs) {
+async function linkFor(release, episodeNumber, timeoutMs, season = null) {
   // A cached release the account does not hold yet has no ids, so it is added first.
   // This is the step that makes the source work at all on a fresh account: without
   // it, `mylist` is empty and no release can ever be resolved.
@@ -443,7 +443,7 @@ async function linkFor(release, episodeNumber, timeoutMs) {
   const playable = entry.files.filter((file) => isBrowserPlayableFile(file.name))
   // No size floor: the file list comes from the debrid API, where an absent size
   // would otherwise reject every file and look like "nothing is playable".
-  const file = pickVideoFile(playable, episodeNumber, 0)
+const file = pickVideoFile(playable, episodeNumber, 0, season)
   if (!file) return null
 
   // The extension cannot be trusted to say what the file is, so the container is read

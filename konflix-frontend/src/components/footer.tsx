@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import Container from "@/components/container";
+import { SITE } from "@/constants/site";
 
 export default function Footer() {
   return (
@@ -10,8 +11,8 @@ export default function Footer() {
           KONFLIX
         </span>
         <p className="max-w-2xl text-xs text-gray-400">
-          Konflix stores no media on its own servers. Metadata comes from AniList, and
-          playback links are resolved from public sources at the moment you press play.
+          Konflix stores no media on its own servers. {SITE.attribution} Playback links
+          are resolved from public sources at the moment you press play.
         </p>
         <nav className="flex items-center gap-6 text-xs text-gray-400">
           <Link href="/" className="hover:text-white">

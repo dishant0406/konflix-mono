@@ -79,9 +79,12 @@ test('the entry point imports resolve', async () => {
   // The exported functions the HTTP layer calls. Each one is exercised by /health
   // or /graphql, so a missing binding here is a server that cannot start.
   const { ffmpegAvailable, parseProbe } = await import('../graphql/stream/media.js')
-  const { enabledIndexers, indexerNames, indexerStatus } = await import('../graphql/indexers/index.js')
-  const { provider, providerNames } = await import('../graphql/providers/index.js')
-  const { resolveStream } = await import('../graphql/stream/index.js')
+  const { enabledIndexers, indexerNames, indexerStatus, indexerTypes } = await import(
+    '../graphql/indexers/index.js'
+  )
+  const { providerFor, providerNames, providerTypes } = await import('../graphql/providers/index.js')
+const { resolveStream } = await import('../graphql/stream/index.js')
+  const { parseMediaId } = await import('../lib/mediaId.js')
   const { serveStream } = await import('../graphql/stream/serve.js')
 
   for (const [name, value] of Object.entries({
@@ -90,9 +93,12 @@ test('the entry point imports resolve', async () => {
     enabledIndexers,
     indexerNames,
     indexerStatus,
-    provider,
+    indexerTypes,
+    providerFor,
     providerNames,
+    providerTypes,
     resolveStream,
+    parseMediaId,
     serveStream,
   })) {
     assert.ok(value, `${name} is not exported`)
@@ -110,6 +116,11 @@ test('every enabled indexer runs and returns rows of the documented shape', asyn
   // That happened here. Every indexer threw "ttlFor is not defined" on every search
   // while the whole suite stayed green, because no test ever *called* an indexer.
   // This one does, with the upstream stubbed per host so it stays offline.
+  //
+  // Every indexer is called once per content type it declares. That is the check that
+  // matters for the type-filtered fan-out: an indexer whose `search` assumes a field
+  // its content type never supplies (knaben needs `contentType` to pick a category,
+  // EZTV needs an `imdbId`) throws here rather than in production.
   const { enabledIndexers } = await import('../graphql/indexers/index.js')
   const { http } = await import('../lib/http.js')
 
@@ -135,31 +146,111 @@ test('every enabled indexer runs and returns rows of the documented shape', asyn
     'https://subsplease.org/api/': {
       'Stub Show - 01': { episode: '01', downloads: [{ res: '1080', magnet: `magnet:?xt=urn:btih:${HASH}&dn=x&xl=100` }] },
     },
+    'https://api.knaben.org/v1': {
+      hits: [
+        {
+          hash: HASH,
+          title: 'Stub Show 2020 1080p',
+          bytes: 100,
+          liveSeeders: 5,
+          categoryId: [3000000, 3001000],
+        },
+      ],
+    },
+    'https://movies-api.accel.li/api/v2/list_movies.json': {
+      status: 'ok',
+      data: {
+        movies: [
+          {
+            id: 1,
+            title: 'Stub Show',
+            year: 2020,
+            torrents: [{ hash: HASH, quality: '1080p', type: 'bluray', seeds: 5, size_bytes: 100 }],
+          },
+        ],
+      },
+    },
+    'https://eztv.wf/api/get-torrents': {
+      torrents: [
+        { hash: HASH, filename: 'Stub.Show.S01E01.1080p.mkv', seeds: 0, size_bytes: 100 },
+      ],
+    },
   }
 
   const originalGet = http.get
+  const originalPost = http.post
   http.get = async (url) => {
+    const body = bodies[url]
+    if (body === undefined) throw new Error(`unstubbed request to ${url}`)
+    return { data: body }
+  }
+  http.post = async (url) => {
     const body = bodies[url]
     if (body === undefined) throw new Error(`unstubbed request to ${url}`)
     return { data: body }
   }
   t.after(() => {
     http.get = originalGet
+    http.post = originalPost
   })
 
-  for (const indexer of indexers) {
-    let rows
-    try {
-      rows = await indexer.search(`wiring check ${indexer.name}`)
-    } catch (error) {
-      assert.fail(`indexer "${indexer.name}" threw on its first call: ${error.message}`)
-    }
-    assert.ok(Array.isArray(rows), `indexer "${indexer.name}" must return an array`)
+  // Every content type the indexer claims, so a declared type that it cannot
+  // actually answer is caught here.
+  const TYPES = ['anime', 'series', 'movie']
+  const options = {
+    anime: { contentType: 'anime' },
+    series: { contentType: 'series', imdbId: 'tt0903747' },
+    movie: { contentType: 'movie' },
+  }
 
-    for (const row of rows) {
-      assert.match(row.infoHash, /^[0-9a-f]{40}$/, `"${indexer.name}" returned a bad info hash`)
-      assert.ok(row.title, `"${indexer.name}" returned a row with no title`)
-      assert.equal(row.source, indexer.name, `"${indexer.name}" mislabelled its own row`)
+  for (const indexer of indexers) {
+    const types = indexer.types || TYPES
+    for (const contentType of types) {
+      let rows
+      try {
+        rows = await indexer.search(`wiring check ${indexer.name}`, options[contentType])
+      } catch (error) {
+        assert.fail(
+          `indexer "${indexer.name}" threw for ${contentType}: ${error.message}`,
+        )
+      }
+      assert.ok(Array.isArray(rows), `indexer "${indexer.name}" must return an array`)
+
+      for (const row of rows) {
+        assert.match(row.infoHash, /^[0-9a-f]{40}$/, `"${indexer.name}" returned a bad info hash`)
+        assert.ok(row.title, `"${indexer.name}" returned a row with no title`)
+        assert.equal(row.source, indexer.name, `"${indexer.name}" mislabelled its own row`)
+      }
     }
   }
+
+  // The fan-out only asks the indexers that declare the type being searched, so an
+  // anime search must not reach a films-only indexer.
+  const { searchAll } = await import('../graphql/indexers/index.js')
+  const searched = []
+  http.get = async (url) => {
+    searched.push(url)
+    const body = bodies[url]
+    if (body === undefined) throw new Error(`unstubbed request to ${url}`)
+    return { data: body }
+  }
+  http.post = async (url) => {
+    searched.push(url)
+    const body = bodies[url]
+    if (body === undefined) throw new Error(`unstubbed request to ${url}`)
+    return { data: body }
+  }
+  await searchAll(['stub'], { contentType: 'movie' })
+  assert.ok(
+    !searched.includes('https://subsplease.org/api/'),
+    'a movie search must not query the anime-only SubsPlease indexer',
+  )
+  assert.ok(
+    !searched.includes('https://eztv.wf/api/get-torrents'),
+    'a movie search must not query the series-only EZTV indexer',
+  )
+  assert.ok(
+    searched.includes('https://movies-api.accel.li/api/v2/list_movies.json'),
+    'a movie search must query the films-only YTS indexer',
+  )
 })

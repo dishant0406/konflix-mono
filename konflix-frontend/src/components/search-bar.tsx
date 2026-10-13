@@ -7,7 +7,8 @@ import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 
 import { Input } from "@/components/ui/input";
-import { ROUTES } from "@/constants/routes";
+import { ROUTES, titlePath } from "@/constants/routes";
+import { SITE } from "@/constants/site";
 import useDebounce from "@/hooks/use-debounce";
 import { useSearchSuggestions } from "@/query/use-search-suggestions";
 import { cn, mediaPoster, mediaTitle } from "@/lib/utils";
@@ -45,8 +46,8 @@ export default function SearchBar({
       <SearchIcon className="pointer-events-none absolute inset-y-0 left-3 my-auto h-4 w-4 text-gray-400" />
       <Input
         value={value}
-        placeholder="Search anime..."
-        aria-label="Search anime"
+        placeholder={`Search ${SITE.itemLabelPlural}...`}
+        aria-label={`Search ${SITE.itemLabelPlural}`}
         className="h-10 w-full border-white/20 bg-black/30 pl-9 text-white placeholder:text-gray-400"
         onChange={(event) => setValue(event.target.value)}
         onFocus={() => setOpen(true)}
@@ -74,7 +75,7 @@ export default function SearchBar({
             return (
               <Link
                 key={item.id}
-                href={`${ROUTES.ANIME_DETAILS}/${item.id}`}
+                href={titlePath(item.id)}
                 onClick={close}
                 className="flex items-center gap-3 rounded-md p-2 hover:bg-black/50"
               >

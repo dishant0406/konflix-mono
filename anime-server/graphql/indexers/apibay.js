@@ -52,7 +52,8 @@ export function parseSearchResults(rows) {
 }
 
 export default {
-  name: 'apibay',
+name: 'apibay',
+  types: ['anime', 'series', 'movie'],
 
   async search(term) {
     if (!term) return []

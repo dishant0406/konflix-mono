@@ -9,6 +9,7 @@ import SearchBar from "@/components/search-bar";
 import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetClose, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { ROUTES } from "@/constants/routes";
+import { SITE } from "@/constants/site";
 import useScrollPosition from "@/hooks/use-scroll-position";
 import { cn } from "@/lib/utils";
 
@@ -30,7 +31,7 @@ export default function Navbar() {
       )}
     >
       <Container className="flex items-center justify-between gap-6 py-3">
-        <Link href={ROUTES.HOME} className="shrink-0" aria-label="Konflix home">
+        <Link href={ROUTES.HOME} className="shrink-0" aria-label={`${SITE.appName} home`}>
           <span className="bg-gradient-to-r from-gray-100 to-[#e9376b] bg-clip-text text-xl font-black tracking-widest text-transparent">
             KONFLIX
           </span>

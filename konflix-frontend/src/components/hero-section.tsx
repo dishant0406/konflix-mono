@@ -14,7 +14,7 @@ import {
   CarouselItem,
   type CarouselApi,
 } from "@/components/ui/carousel";
-import { ROUTES } from "@/constants/routes";
+import { titlePath } from "@/constants/routes";
 import { mediaBanner, mediaTitle } from "@/lib/utils";
 import type { MediaList } from "@/types/media";
 
@@ -39,7 +39,7 @@ export default function HeroSection({ media, loading }: { media: MediaList[]; lo
         <Button
           variant="outline"
           size="icon"
-          aria-label="Previous featured anime"
+          aria-label="Previous featured title"
           onClick={() => api?.scrollPrev()}
           className="h-10 w-10 rounded-full border-white/40 bg-black/30 backdrop-blur hover:bg-white/20"
         >
@@ -48,7 +48,7 @@ export default function HeroSection({ media, loading }: { media: MediaList[]; lo
         <Button
           variant="outline"
           size="icon"
-          aria-label="Next featured anime"
+          aria-label="Next featured title"
           onClick={() => api?.scrollNext()}
           className="h-10 w-10 rounded-full border-white/40 bg-black/30 backdrop-blur hover:bg-white/20"
         >
@@ -115,7 +115,7 @@ function HeroSlide({ media, priority }: { media: MediaList; priority: boolean })
 
             <div className="flex items-center gap-3 pt-3">
               <Button asChild className="h-10 bg-[#e9376b] text-white hover:bg-[#d32a5d]">
-                <Link href={`${ROUTES.ANIME_DETAILS}/${media.id}`}>Learn More</Link>
+                <Link href={titlePath(media.id)}>Learn More</Link>
               </Button>
             </div>
           </div>

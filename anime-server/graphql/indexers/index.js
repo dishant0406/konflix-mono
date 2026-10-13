@@ -1,28 +1,48 @@
 // Torrent indexer registry.
 //
 // To add an indexer: create a file next to this one that default-exports an object
-// with `name` and `async search(term)`, then add it to the map below. Enable it by
-// listing its key in TORRENT_INDEXERS.
+// with `name`, `types` and `async search(term)`, then add it to the map below.
+// Enable it by listing its key in TORRENT_INDEXERS.
 //
+//   types                       content types this indexer can serve
 //   search(term) -> [{ title, infoHash, magnet, sizeBytes, seeders, source }]
 //
 // search() must never throw. Indexers go down and get blocked; a failing indexer
 // should reduce the number of results, not fail the request.
+//
+// `types` is what keeps a movie search from querying an anime feed and vice versa.
+// A search only asks the indexers that declare the type being searched.
 
 import { config } from '../../lib/config.js'
 import animetosho from './animetosho.js'
 import apibay from './apibay.js'
+import eztv from './eztv.js'
+import knaben from './knaben.js'
 import nyaa from './nyaa.js'
 import subsplease from './subsplease.js'
+import yts from './yts.js'
 
-const indexers = { animetosho, apibay, nyaa, subsplease }
+const indexers = { animetosho, apibay, eztv, knaben, nyaa, subsplease, yts }
 
-export function enabledIndexers() {
-  return config.indexers.map((name) => indexers[name]).filter(Boolean)
+// The indexers enabled for a content type, in configured order.
+//
+// An indexer with no `types` is treated as covering everything, so an indexer added
+// before this field existed keeps working.
+export function enabledIndexers(contentType) {
+  return config.indexers
+    .map((name) => indexers[name])
+    .filter((indexer) => indexer && (!contentType || !indexer.types || indexer.types.includes(contentType)))
 }
 
 export function indexerNames() {
   return Object.keys(indexers)
+}
+
+// Which types each indexer serves, for /health.
+export function indexerTypes() {
+  return Object.fromEntries(
+    Object.entries(indexers).map(([name, indexer]) => [name, indexer.types || []]),
+  )
 }
 
 // A search fans out over every (indexer, term) pair, which is 24 requests for one
@@ -65,19 +85,19 @@ async function inBatches(items, size, run) {
   return results
 }
 
-export async function searchAll(terms) {
+export async function searchAll(terms, options = {}) {
   // One term or many; a fan-out over several search forms is the common case.
   const queries = (Array.isArray(terms) ? terms : [terms]).filter(Boolean)
   if (queries.length === 0) return []
 
-  const active = enabledIndexers()
+  const active = enabledIndexers(options.contentType)
 
-  // An indexer that returns every episode for a title (SubsPlease) is asked once per
-  // distinct title, not once per episode-number form: asking it per form would fetch
-  // the same response several times over. Every title variant is still searched,
-  // because a show is known by several names and releases use them inconsistently -
-  // searching only the first would miss the romaji form of a show whose releases are
-  // named in romaji.
+  // An indexer that returns every episode for a title (SubsPlease, EZTV) is asked
+  // once per distinct title, not once per episode-number form: asking it per form
+  // would fetch the same response several times over. Every title variant is still
+  // searched, because a show is known by several names and releases use them
+  // inconsistently - searching only the first would miss the romaji form of a show
+  // whose releases are named in romaji.
   const pairs = active.flatMap((indexer) =>
     indexer.titleOnly
       ? [...new Set(queries.map(titleOf))].map((term) => ({ indexer, term }))
@@ -86,7 +106,10 @@ export async function searchAll(terms) {
 
   const results = await inBatches(pairs, MAX_CONCURRENT_REQUESTS, async ({ indexer, term }) => {
     try {
-      return await withTimeout(indexer.search(term), config.indexerTimeoutMs)
+      return await withTimeout(
+        indexer.search(term, options),
+        config.indexerTimeoutMs,
+      )
     } catch (error) {
       console.warn(`[indexer:${indexer.name}] ${error.message}`)
       return []
@@ -105,13 +128,13 @@ export async function searchAll(terms) {
 
 // Per-indexer reachability, used by /health so failures are visible before users
 // report them.
-export async function indexerStatus(term = 'one piece') {
-  const active = enabledIndexers()
+export async function indexerStatus(term = 'one piece', options = {}) {
+  const active = enabledIndexers(options.contentType)
   const status = {}
   await Promise.all(
     active.map(async (indexer) => {
       try {
-        const rows = await indexer.search(term)
+        const rows = await indexer.search(term, options)
         status[indexer.name] = { ok: true, results: rows.length }
       } catch (error) {
         status[indexer.name] = { ok: false, error: error.message }

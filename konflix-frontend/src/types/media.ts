@@ -71,6 +71,21 @@ export interface MediaPage {
   results: MediaList[] | null;
 }
 
+/**
+ * One episode of a series.
+ *
+ * AniList supplies no such list (an anime has a flat count), so this is present for
+ * providers that do, and absent otherwise.
+ */
+export interface MediaEpisode {
+  season: number;
+  number: number;
+  name: string | null;
+  airdate: string | null;
+  /** The provider's own id for this episode, already self-describing. */
+  episodeId: string;
+}
+
 export interface MediaRelationNode {
   id: string | null;
   type: string | null;
@@ -100,6 +115,8 @@ export interface MediaFull extends MediaList {
   } | null;
   externalLinks: { url: string | null; site: string | null; type: string | null }[] | null;
   streamingEpisodes: { title: string | null; thumbnail: string | null; url: string | null; site: string | null }[] | null;
+  /** Present for a series, absent for an anime and a film. */
+  episodeList?: MediaEpisode[] | null;
 }
 
 export interface StreamLink {

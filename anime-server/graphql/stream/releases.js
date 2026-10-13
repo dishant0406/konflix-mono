@@ -77,6 +77,16 @@ export function parseEpisode(title) {
   return null
 }
 
+// The season a release names, or null.
+//
+// Series releases use "S01E05", and the season is part of the identity: "S02E05" is
+// a different episode from "S01E05". The anime path ignores the season because its
+// episode ids are a flat count, but the series path matches on both.
+export function parseSeason(title) {
+  const match = /\bS(\d{1,2})E\d{1,4}\b/i.exec(words(title))
+  return match ? Number.parseInt(match[1], 10) : null
+}
+
 // Release names separate words with spaces, dots and underscores. Underscore is a
 // regex word character, so "\bmovie\b" would not match "_Movie_"; normalising the
 // separators first makes the word-boundary checks below behave as intended.
@@ -220,12 +230,120 @@ export function isRelevant(releaseTitle, animeTitle) {
   return false
 }
 
-// Rejects a release that names an episode other than the one requested.
+// A release that names an episode must never be served as a film. Every series
+// release carries an SxxExx or a season token, so their presence is the signal.
+//
+// This is the check that matters most for the film path: searching for a film by
+// title also returns its series, and a series episode is not a film.
+export function isEpisodeRelease(title) {
+  return parseEpisode(title) !== null || isBatch(title) || parseSeason(title) !== null
+}
+
+// The year a release names, or null.
+//
+// A film is identified by title *and* year - "Dangal" alone is ambiguous, and
+// remakes share titles. The year appears as "(2016)" or "[2016]" in scene naming and
+// bare in others ("Dangal 2016 1080p").
+export function parseYear(title) {
+  const match = /[([]?((?:19|20)\d{2})[)\]]?/.exec(words(title))
+  return match ? Number.parseInt(match[1], 10) : null
+}
+
+// Ranks a release for a film. Higher is better.
+//
+// Differs from scoreRelease in what it rewards: a film is one large file, so 2160p
+// is not the liability it is for an episode and is scored above 1080p, and there is
+// no episode to match.
+export function scoreMovieRelease(release, year) {
+  const title = release.title
+  let score = 0
+
+  const releaseYear = parseYear(title)
+  // The right year is the strongest signal available that this is the right film
+  // rather than a remake, a sequel or an unrelated title.
+  if (year && releaseYear === year) score += 40
+  else if (year && releaseYear !== null) score -= 10
+
+  const resolution = parseResolution(title)
+  if (resolution === 2160) score += 30
+  else if (resolution === 1080) score += 28
+  else if (resolution === 720) score += 18
+  else if (resolution === 480) score += 8
+  else if (resolution !== null && resolution < 480) score -= 10
+
+  const codec = parseCodec(title)
+  if (codec === 'h264') score += 15
+
+  const audio = parseAudio(title)
+  if (audio === 'compressed') score += 10
+  else if (audio === 'lossless') score -= 5 // needs an audio transcode
+
+  if (/\b(web-?dl|web-?rip|bdrip|bluray|remux)\b/i.test(title)) score += 5
+
+  score += Math.min(release.seeders || 0, 100) / 100
+
+  return score
+}
+
+/**
+ * Ranks releases for a film.
+ *
+ * Only releases that pass the relevance gate and do not look like an episode are
+ * considered. A release naming the requested year is ordered first, so a remake is
+ * not served in place of the film that was asked for.
+ *
+ * @param {Array} releases indexer rows.
+ * @param {number} year the film's release year, or null when unknown.
+ * @param {string} title the film title, used by the relevance gate.
+ * @param {string[]} titles every title the film is known by.
+ */
+export function rankMovieReleases(releases, year, title, titles) {
+  const known = titles?.length ? titles : [title]
+
+  const usable = releases
+    .filter((release) => isPlayableCodec(release.title))
+    .filter((release) => matchesAnyTitle(release.title, known))
+    // A series episode is not a film, and this is a hard filter: without it a
+    // season pack or a stray episode outranks the film itself.
+    .filter((release) => !isEpisodeRelease(release.title))
+
+  const yearMatches = usable.filter((release) => parseYear(release.title) === year)
+  const others = usable.filter((release) => !yearMatches.includes(release))
+
+  // The year decides the order, but quality and seeders order within each group.
+  const byScore = (group) =>
+    group
+      .map((release) => ({ ...release, score: scoreMovieRelease(release, year) }))
+      .filter((release) => release.score > 0)
+      .sort((a, b) => {
+        const tier = healthTier(a.seeders || 0) - healthTier(b.seeders || 0)
+        if (tier !== 0) return tier
+        return b.score - a.score
+      })
+
+  // Only when the year is known: with no year there is nothing to prefer, and
+  // treating every release as "not the year" would empty the first group anyway.
+  if (!year) return byScore(usable)
+
+  return [...byScore(yearMatches), ...byScore(others)]
+}
+
+// Rejects a release that names an episode other than the one requested, and for a
+// series also rejects a release from a different season.
+//
 // Serving the wrong episode silently is worse than serving nothing, so this is a
-// hard filter rather than a score penalty.
-export function matchesEpisode(releaseTitle, episodeNumber) {
+// hard filter rather than a score penalty. For a series the season is part of the
+// episode's identity: "S02E05" must not satisfy a request for "S01E05".
+export function matchesEpisode(releaseTitle, episodeNumber, season) {
   const episode = parseEpisode(releaseTitle)
-  return episode === null || episode === episodeNumber
+  if (episode !== null && episode !== episodeNumber) return false
+  if (season === undefined || season === null) return true
+
+  const releaseSeason = parseSeason(releaseTitle)
+  // A release naming no season is accepted: some groups omit it, and the episode
+  // number alone is still a real signal.
+  if (releaseSeason === null) return true
+  return releaseSeason === season
 }
 
 // Seeders decide whether a release can be played at all, but they were only a
@@ -268,7 +386,7 @@ export function matchesAnyTitle(releaseTitle, animeTitles) {
   return !wanted.some((title) => /[a-z]/.test(title))
 }
 
-export function rankReleases(releases, episodeNumber, animeTitle, animeTitles) {
+export function rankReleases(releases, episodeNumber, animeTitle, animeTitles, season) {
   const titles = animeTitles?.length ? animeTitles : [animeTitle]
 
   // When no title can be compared against a release name, relevance passes
@@ -279,7 +397,7 @@ export function rankReleases(releases, episodeNumber, animeTitle, animeTitles) {
   const usable = releases
     .filter((release) => isPlayableCodec(release.title))
     .filter((release) => matchesAnyTitle(release.title, titles))
-    .filter((release) => matchesEpisode(release.title, episodeNumber))
+    .filter((release) => matchesEpisode(release.title, episodeNumber, season))
     .filter((release) => !requireNamedEpisode || parseEpisode(release.title) === episodeNumber)
 
   // A release that names the requested episode is always the right answer, so those
@@ -341,4 +459,57 @@ export function searchTerms(animeTitles, episodeNumber) {
     }
   }
   return terms
+}
+
+// Series search terms.
+//
+// The episode number is written with a season ("S01E05") or without it ("05"), and
+// indexers match literally, so both forms are searched. The season is included
+// because series releases almost always carry it, and without it the search returns
+// every season of the show mixed together.
+export function seriesSearchTerms(titles, season, episodeNumber) {
+  const bases = normalizeBases(titles)
+  const seasonNumber = Number.parseInt(season, 10) || 1
+  const episode = Number.parseInt(episodeNumber, 10)
+  if (!Number.isFinite(episode)) return bases
+
+  const forms = [
+    `S${String(seasonNumber).padStart(2, '0')}E${String(episode).padStart(2, '0')}`,
+    String(episode).padStart(2, '0'),
+    String(episode),
+  ]
+
+  const terms = []
+  for (const base of bases) {
+    for (const form of forms) {
+      const term = `${base} ${form}`
+      if (!terms.includes(term)) terms.push(term)
+      if (terms.length >= MAX_TERMS) return terms
+    }
+  }
+  return terms
+}
+
+// Film search terms.
+//
+// The year is what distinguishes a film from its remakes and from its series, so it
+// is searched as part of the term. It is optional: YTS is searched by title and
+// matches loosely, so a term without the year still finds the film.
+export function movieSearchTerms(titles, year) {
+  const bases = normalizeBases(titles)
+  const terms = []
+  for (const base of bases) {
+    for (const term of year ? [`${base} ${year}`, base] : [base]) {
+      if (!terms.includes(term)) terms.push(term)
+      if (terms.length >= MAX_TERMS) return terms
+    }
+  }
+  return terms
+}
+
+// The comparable form of every title a work is known by.
+function normalizeBases(titles) {
+  return (Array.isArray(titles) ? titles : [titles])
+    .map((title) => (title || '').replace(/[^\p{L}\p{N}\s-]/gu, ' ').replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
 }

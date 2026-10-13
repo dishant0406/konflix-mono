@@ -81,7 +81,8 @@ async function searchMirror(baseUrl, term) {
 }
 
 export default {
-  name: 'nyaa',
+name: 'nyaa',
+  types: ['anime'],
 
   async search(term) {
     if (!term) return []

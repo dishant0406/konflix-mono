@@ -17,6 +17,7 @@
 
 import { http } from '../../lib/http.js'
 import { cached } from '../../lib/cache.js'
+import { animeEpisodeId, mediaKey } from '../../lib/mediaId.js'
 
 const ENDPOINT = 'https://graphql.anilist.co'
 const TTL_MS = 10 * 60 * 1000
@@ -185,7 +186,8 @@ function pageVariables(page, perPage) {
 // directly, so the shape is fixed here rather than left to the caller.
 export function toMediaList(media) {
   return {
-    id: media.id,
+    // The id names its content type, so the frontend can route from the URL alone.
+    id: mediaKey('anime', media.id),
     title: media.title,
     coverImage: media.coverImage,
     bannerImage: media.bannerImage || null,
@@ -305,6 +307,7 @@ async function mediaPage(filters) {
 
 export default {
   name: 'anilist',
+  types: ['anime'],
 
   // --- full media shapes, rendered by the frontend -----------------------------
 
@@ -356,7 +359,7 @@ export default {
       ),
     )
     return data.Page.media.map((media) => ({
-      id: String(media.id),
+      id: mediaKey('anime', media.id),
       title: displayTitle(media.title),
       trailer: trailerUrl(media.trailer),
       imgUrl: media.coverImage.extraLarge || media.coverImage.large,
@@ -381,7 +384,7 @@ export default {
       ),
     )
     return data.Page.media.map((media) => ({
-      id: String(media.id),
+      id: mediaKey('anime', media.id),
       title: displayTitle(media.title),
       trailer: trailerUrl(media.trailer),
       imgUrl: media.coverImage.extraLarge || media.coverImage.large,
@@ -414,7 +417,7 @@ export default {
 
     const total = episodeCount(media)
     return {
-      id: String(media.id),
+      id: mediaKey('anime', media.id),
       name: displayTitle(media.title),
       type: media.format || 'ANIME',
       status: media.status,
@@ -426,7 +429,7 @@ export default {
       trailer: trailerUrl(media.trailer),
       titleVariants: [media.title.english, media.title.romaji, media.title.native].filter(Boolean),
       episode_id: Array.from({ length: total }, (_, index) => ({
-        episodeId: `${media.id}-ep${index + 1}`,
+        episodeId: animeEpisodeId(media.id, index + 1),
         episodeNumber: index + 1,
       })),
     }
@@ -454,8 +457,8 @@ export default {
       if (seen.has(key)) continue
       seen.add(key)
       episodes.push({
-        animeId: String(entry.media.id),
-        episodeId: `${entry.media.id}-ep${entry.episode}`,
+        animeId: mediaKey('anime', entry.media.id),
+        episodeId: animeEpisodeId(entry.media.id, entry.episode),
         name: displayTitle(entry.media.title),
         episodeNum: entry.episode,
         subOrDub: 'sub',
@@ -482,7 +485,7 @@ export default {
       ),
     )
     return data.Page.media.map((media) => ({
-      animeId: String(media.id),
+      animeId: mediaKey('anime', media.id),
       animeTitle: displayTitle(media.title),
       animeImg: media.coverImage.extraLarge || media.coverImage.large,
     }))

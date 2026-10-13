@@ -82,6 +82,7 @@ export const GET_MEDIA_DETAIL = gql`
       }
       externalLinks { url site type }
       streamingEpisodes { title thumbnail url site }
+      episodeList { episodeId season number name airdate }
     }
   }
 `;
@@ -101,6 +102,7 @@ export const GET_WATCH_METADATA = gql`
       nextAiringEpisode { episode }
       genres
       description
+      episodeList { episodeId season number name airdate }
     }
   }
 `;

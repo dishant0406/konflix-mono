@@ -2,7 +2,9 @@ type Query {
   topAnime(page: Int): [Anime]
   recentEpisodes(page: Int): [Recent]
   animeDetails(id: ID): AnimeDetails
-  streamLinkDetails(id: ID): StreamLink
+  # contentType selects which provider answers and which indexers are searched, so
+  # the same three media fields serve the anime, series and movie sites.
+  streamLinkDetails(id: ID, contentType: String): StreamLink
   animeSearch(id: ID, page: Int): [Anime]
   recommandedAnime(genre: String): [Recommanded]
   mediaList(input: MediaListInput): MediaPage
@@ -83,6 +85,8 @@ type StreamLink {
 # ---------------------------------------------------------------------------
 
 input MediaListInput {
+  # "anime" (default), "series" or "movie". Selects the provider.
+  contentType: String
   sort: String
   # A single genre, used by the home page rows.
   genre: String
@@ -235,6 +239,19 @@ type MediaCharacters {
   edges: [MediaCharacterEdge]
 }
 
+# One episode of a series.
+#
+# Present only for a provider that supplies an episode list (TVMaze). AniList reports
+# a flat count instead, so an anime has no such list and the UI falls back to counting
+# from 1. `episodeId` is already self-describing, so the watch page can route from it.
+type MediaEpisode {
+  episodeId: ID
+  season: Int
+  number: Int
+  name: String
+  airdate: String
+}
+
 type MediaExternalLink {
   url: String
   site: String
@@ -281,4 +298,6 @@ type MediaFull {
   characters: MediaCharacters
   externalLinks: [MediaExternalLink]
   streamingEpisodes: [MediaStreamingEpisode]
+  # Absent for an anime; see MediaEpisode.
+  episodeList: [MediaEpisode]
 }

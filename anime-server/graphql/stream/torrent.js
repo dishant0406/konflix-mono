@@ -14,7 +14,7 @@ import WebTorrent from 'webtorrent'
 
 import { config } from '../../lib/config.js'
 import { cacheDir } from '../../lib/cacheDir.js'
-import { isVideoFile, parseEpisode } from './releases.js'
+import { isVideoFile, parseEpisode, parseSeason } from './releases.js'
 import { probeFile } from './media.js'
 
 // The webtorrent client is created on first use rather than at import time.
@@ -92,11 +92,36 @@ function addTorrent(magnet, expectedInfoHash, timeoutMs = config.metadataTimeout
 // `minBytes` excludes samples. The debrid source passes 0 because its file list
 // comes from the debrid API, where a missing size must not silently reject every
 // file; the extension and episode checks are what matter there.
-export function pickVideoFile(files, episodeNumber, minBytes = MIN_VIDEO_BYTES) {
+//
+// `episodeNumber` may be null, which means the torrent is a film: a film has no
+// episode number, so the largest video file is the feature and everything else
+// (samples, extras, a trailer) is smaller than it.
+//
+// `season` narrows the match for a series, where a single torrent can hold every
+// season. It is ignored when the torrent names no seasons at all, because plenty of
+// releases name only the episode.
+export function pickVideoFile(files, episodeNumber, minBytes = MIN_VIDEO_BYTES, season = null) {
   const videos = files.filter((file) => isVideoFile(file.name) && file.length >= minBytes)
   if (videos.length === 0) return null
 
-  const matching = videos.filter((file) => parseEpisode(file.name) === episodeNumber)
+  if (episodeNumber === null || episodeNumber === undefined) {
+    // Largest first, so a sample or an extra cannot be mistaken for the feature.
+    return [...videos].sort((a, b) => b.length - a.length)[0]
+  }
+
+  let matching = videos.filter((file) => parseEpisode(file.name) === episodeNumber)
+
+  // Several seasons of one show inside one torrent means the episode number alone is
+  // ambiguous. Only apply the season when it actually narrows the list: a release that
+  // names no season is still a valid match.
+  if (season !== null && season !== undefined && matching.length > 1) {
+    const inSeason = matching.filter((file) => {
+      const named = parseSeason(file.name)
+      return named === null || named === season
+    })
+    if (inSeason.length > 0) matching = inSeason
+  }
+
   if (matching.length > 0) {
     // Several files can match, for example an episode plus its preview or a v2
     // repack. The first match wins so that naming order is preserved.
@@ -196,24 +221,26 @@ function makeRoom() {
 /**
  * Makes a torrent ready for playback.
  *
- * @param {{ infoHash: string, magnet: string, title: string }} release
+* @param {{ infoHash: string, magnet: string, title: string }} release
  * @param {number} episodeNumber
+ * @param {number} timeoutMs
+ * @param {number|null} season
  * @returns {Promise<{ torrent: object, file: object, info: object }>} the live session
  */
-export async function openRelease(release, episodeNumber, timeoutMs) {
+export async function openRelease(release, episodeNumber, timeoutMs, season = null) {
   // Concurrent requests for the same episode must share one torrent, so the
   // pending open is stored before it finishes.
   const pending = pendingOpens.get(release.infoHash)
   if (pending) return pending
 
-  const opening = openNewRelease(release, episodeNumber, timeoutMs).finally(() => {
+  const opening = openNewRelease(release, episodeNumber, timeoutMs, season).finally(() => {
     pendingOpens.delete(release.infoHash)
   })
   pendingOpens.set(release.infoHash, opening)
   return opening
 }
 
-async function openNewRelease(release, episodeNumber, timeoutMs) {
+async function openNewRelease(release, episodeNumber, timeoutMs, season = null) {
   const existing = active.get(release.infoHash)
   if (existing) {
     existing.lastUsed = Date.now()
@@ -238,7 +265,7 @@ async function openNewRelease(release, episodeNumber, timeoutMs) {
   // Otherwise it keeps holding sockets and disk, and because it was never added
   // to `active` the LRU eviction can never reclaim it.
   try {
-    const file = pickVideoFile(torrent.files, episodeNumber)
+const file = pickVideoFile(torrent.files, episodeNumber, undefined, season)
     if (!file) {
       throw new Error(`No playable video file in "${release.title}"`)
     }

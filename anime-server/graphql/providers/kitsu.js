@@ -9,6 +9,7 @@
 
 import { http } from '../../lib/http.js'
 import { cached } from '../../lib/cache.js'
+import { animeEpisodeId, mediaKey } from '../../lib/mediaId.js'
 
 const ENDPOINT = 'https://kitsu.io/api/edge'
 const TTL_MS = 10 * 60 * 1000
@@ -39,7 +40,7 @@ function trailerUrl(entry) {
 
 function toAnime(entry) {
   return {
-    id: entry.id,
+    id: mediaKey('anime', entry.id),
     title: title(entry),
     trailer: trailerUrl(entry),
     imgUrl: poster(entry),
@@ -127,7 +128,7 @@ function toMediaList(entry, genres = []) {
   const a = attributes(entry)
   const image = a.posterImage || {}
   return {
-    id: entry.id,
+    id: mediaKey('anime', entry.id),
     title: {
       romaji: a.titles?.en_jp || a.canonicalTitle || null,
       english: a.titles?.en || a.canonicalTitle || null,
@@ -281,6 +282,7 @@ async function toPage(data, page, perPage) {
 
 export default {
   name: 'kitsu',
+  types: ['anime'],
 
   // --- full media shapes, rendered by the frontend -----------------------------
 
@@ -383,7 +385,7 @@ export default {
 
     const total = attributes(entry).episodeCount || (await episodeTotal(entry.id))
     return {
-      id: entry.id,
+      id: mediaKey('anime', entry.id),
       name: title(entry),
       type: attributes(entry).subtype?.toUpperCase() || 'ANIME',
       status: attributes(entry).status?.toUpperCase() || null,
@@ -400,7 +402,7 @@ export default {
         attributes(entry).titles?.ja_jp,
       ].filter(Boolean),
       episode_id: Array.from({ length: total }, (_, index) => ({
-        episodeId: `${entry.id}-ep${index + 1}`,
+        episodeId: animeEpisodeId(entry.id, index + 1),
         episodeNumber: index + 1,
       })),
     }
@@ -433,8 +435,8 @@ export default {
       if (!airDate || airDate > today) continue
 
       episodes.push({
-        animeId: media.id,
-        episodeId: `${media.id}-ep${entry.attributes.number}`,
+        animeId: mediaKey('anime', media.id),
+        episodeId: animeEpisodeId(media.id, entry.attributes.number),
         name: title(media),
         episodeNum: entry.attributes.number,
         subOrDub: 'sub',
@@ -450,7 +452,7 @@ export default {
       get('/anime', { 'filter[categories]': genre, 'page[limit]': 12 }),
     )
     return data.data.map((entry) => ({
-      animeId: entry.id,
+      animeId: mediaKey('anime', entry.id),
       animeTitle: title(entry),
       animeImg: poster(entry),
     }))

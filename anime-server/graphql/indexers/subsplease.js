@@ -88,7 +88,8 @@ export function parseSearchResponse(body) {
 }
 
 export default {
-  name: 'subsplease',
+name: 'subsplease',
+  types: ['anime'],
 
   // Search this one with the show title alone: it returns every episode, so querying
   // it once per episode-number form would repeat identical work 4 times over.

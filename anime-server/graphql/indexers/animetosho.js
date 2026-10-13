@@ -61,7 +61,8 @@ export function parseSearchPage(html) {
 }
 
 export default {
-  name: 'animetosho',
+name: 'animetosho',
+  types: ['anime'],
 
   async search(term) {
     if (!term) return []

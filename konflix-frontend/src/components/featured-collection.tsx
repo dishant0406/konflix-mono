@@ -2,7 +2,7 @@ import Link from "next/link";
 import Image from "next/image";
 
 import Container from "@/components/container";
-import { ROUTES } from "@/constants/routes";
+import { titlePath } from "@/constants/routes";
 import { mediaPoster, mediaTitle } from "@/lib/utils";
 import type { MediaList } from "@/types/media";
 
@@ -55,7 +55,7 @@ function FeaturedCard({ category }: { category: FeaturedCategory }) {
           return (
             <Link
               key={`${item.id}-${index}`}
-              href={`${ROUTES.ANIME_DETAILS}/${item.id}`}
+              href={titlePath(item.id)}
               aria-label={mediaTitle(item.title)}
               className={`absolute w-[9.375rem] overflow-hidden rounded-md border-[0.5rem] border-[#212121] transition-transform duration-300 hover:z-10 hover:scale-105 ${positions[index]}`}
             >

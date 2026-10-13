@@ -61,6 +61,9 @@ fi
 # ${API_IMAGE} and ${FRONTEND_IMAGE} out of the environment.
 export API_IMAGE="konflix-api:$IMAGE_TAG"
 export FRONTEND_IMAGE="konflix-frontend:$IMAGE_TAG"
+# The tv site is the same frontend image built with a different SITE argument, so it
+# needs its own tag: one image name cannot hold two different builds.
+export FRONTEND_TV_IMAGE="konflix-frontend-tv:$IMAGE_TAG"
 export NEXT_PUBLIC_GRAPHQL_URI="$(read_env NEXT_PUBLIC_GRAPHQL_URI)"
 
 compose() {
@@ -95,16 +98,18 @@ wait_for_health() {
 
 echo "==> Deploying $IMAGE_TAG"
 echo "    api image      $API_IMAGE"
-echo "    frontend image $FRONTEND_IMAGE"
+echo "    frontend image $FRONTEND_IMAGE (anime)"
+echo "    frontend image $FRONTEND_TV_IMAGE (tv)"
 echo "    api origin     $PUBLIC_URL_VALUE"
 
 if [ -n "${SKIP_BUILD:-}" ]; then
   echo "==> Skipping build (SKIP_BUILD is set)"
 else
   echo "==> Building images"
-  # The frontend build needs the API address baked in, which is a build argument
-  # rather than a runtime variable.
-  compose build ${PULL:+--pull} api frontend
+  # The frontend build needs the API address and the site name baked in, both of which
+  # are build arguments rather than runtime variables. Both frontends are built, and
+  # they share every layer up to the site argument, so the second is nearly free.
+  compose build ${PULL:+--pull} api frontend frontend-tv
 fi
 
 echo "==> Starting the stack"
@@ -117,6 +122,7 @@ echo "==> Waiting for the containers to report healthy"
 # reachable from: nothing is published to the host.
 wait_for_health konflix-api-1 api
 wait_for_health konflix-frontend-1 frontend
+wait_for_health konflix-frontend-tv-1 frontend-tv
 
 # Reports what is actually configured, which is the difference between "the process
 # started" and "it can do its job". Run inside the container so the host needs no node.
@@ -125,7 +131,8 @@ docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T api node -e "
   fetch('http://127.0.0.1:9000/health')
     .then((r) => r.json())
     .then((h) => {
-      console.log('    metadata provider: ' + h.metadataProvider)
+      const providers = h.metadataProviders || {}
+      console.log('    metadata providers: ' + Object.entries(providers).map(([t, n]) => t + '=' + n).join(', '))
       console.log('    stream sources:    ' + (h.activeStreamSources || []).join(', '))
       console.log('    indexers:          ' + (h.enabledIndexers || []).join(', '))
       console.log('    ffmpeg:            ' + h.ffmpeg)
@@ -147,11 +154,16 @@ echo "==> Retiring images from earlier deploys"
 # referenced by their containers, so a removal that races with a viewer is refused
 # rather than fatal, which is why the failure is ignored.
 docker image ls --format '{{.Repository}}:{{.Tag}}' \
-  | grep -E '^konflix-(api|frontend):' \
+  | grep -E '^konflix-(api|frontend|frontend-tv):' \
   | grep -v ":${IMAGE_TAG}\$" \
   | xargs -r docker image rm >/dev/null 2>&1 || true
 
+# Derived from the API origin ("https://api.example.com" -> "example.com") so this
+# works for any zone without another variable to keep in sync.
+ZONE_VALUE="$(printf '%s' "$PUBLIC_URL_VALUE" | sed -E 's|^https?://||; s|/.*$||; s|^api\.||')"
+
 echo
 echo "Deployed $IMAGE_TAG."
-echo "  frontend  $FRONTEND_URL_VALUE"
-echo "  api       $PUBLIC_URL_VALUE"
+echo "  anime site  https://anime.$ZONE_VALUE"
+echo "  tv site     https://tv.$ZONE_VALUE"
+echo "  api         $PUBLIC_URL_VALUE"

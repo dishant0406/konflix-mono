@@ -170,13 +170,29 @@ jobs:
         env:
           PUBLIC_URL: ${{ vars.PUBLIC_URL }}
           FRONTEND_URL: ${{ vars.FRONTEND_URL }}
+          TV_URL: ${{ vars.TV_URL }}
         run: |
           PUBLIC_URL="${PUBLIC_URL:-https://api.konflix.live}"
-          FRONTEND_URL="${FRONTEND_URL:-https://konflix.live}"
+          FRONTEND_URL="${FRONTEND_URL:-https://anime.konflix.live}"
+          TV_URL="${TV_URL:-https://tv.konflix.live}"
 
           echo "Checking $PUBLIC_URL/health"
-          curl -fsS --retry 5 --retry-delay 5 --retry-all-errors "$PUBLIC_URL/health" | head -c 400
+          health=$(curl -fsS --retry 5 --retry-delay 5 --retry-all-errors "$PUBLIC_URL/health")
+          printf '%s\n' "$health" | head -c 400
           echo
+
+          # Every content type must resolve to a provider. A misconfigured map is
+          # invisible otherwise: the anime site keeps working while every film request
+          # answers from the anime catalogue.
+          for type in anime series movie; do
+            case "$health" in
+              *"\"$type\":"*) ;;
+              *)
+                echo "/health does not report a provider for $type" >&2
+                exit 1
+                ;;
+            esac
+          done
 
           echo "Checking $FRONTEND_URL"
           curl -fsS --retry 5 --retry-delay 5 --retry-all-errors -o /dev/null -w 'HTTP %{http_code}\n' "$FRONTEND_URL"
@@ -201,7 +217,9 @@ jobs:
           for body in \
             '{"query":"{ mediaList(input:{sort:\"trending\",perPage:2}){ total results{ id title{ english } bannerImage } } }"}' \
             '{"query":"{ mediaSearch(term:\"naruto\", input:{perPage:2}){ total results{ id format } } }"}' \
-            '{"query":"{ mediaDetail(id:\"16498\"){ id description relations{ edges{ node{ id } } } recommendations{ nodes{ mediaRecommendation{ id } } } characters{ edges{ node{ name{ full } } } } } }"}'
+            '{"query":"{ mediaDetail(id:\"anime-16498\"){ id description relations{ edges{ node{ id } } } recommendations{ nodes{ mediaRecommendation{ id } } } characters{ edges{ node{ name{ full } } } } } }"}' \
+            '{"query":"{ mediaDetail(id:\"series-169\"){ id description episodeList{ episodeId season number } } }"}' \
+            '{"query":"{ mediaSearch(term:\"dangal\", input:{contentType:\"movie\",perPage:2}){ total results{ id title{ english } } } }"}'
           do
             response=$(curl -fsS --retry 3 --retry-delay 5 --retry-all-errors \
               -X POST "$PUBLIC_URL/graphql" \
@@ -220,8 +238,11 @@ jobs:
 
           # The routes themselves. A build can succeed while every page 404s, which a
           # check of the home page alone would not catch.
-          echo "Checking the frontend routes"
-          for route in "/" "/search?q=naruto" "/anime/16498" "/anime/watch/130003/130003-ep1"; do
+          #
+          # Both sites are checked, because they are two builds of one codebase and a
+          # site argument that broke would only show on one of them.
+          echo "Checking the anime site routes"
+          for route in "/" "/search?q=naruto" "/title/anime-16498" "/watch/anime-130003/anime-130003-ep1"; do
             code=$(curl -sL -o /dev/null -w '%{http_code}' --retry 3 --retry-delay 5 --retry-all-errors "$FRONTEND_URL$route")
             if [ "$code" != "200" ]; then
               echo "expected 200 from $FRONTEND_URL$route, got $code" >&2
@@ -229,6 +250,28 @@ jobs:
             fi
             echo "  $route -> $code"
           done
+
+          echo "Checking the tv site routes"
+          for route in "/" "/search?q=dangal" "/title/movie-7691" "/title/series-169"; do
+            code=$(curl -sL -o /dev/null -w '%{http_code}' --retry 3 --retry-delay 5 --retry-all-errors "$TV_URL$route")
+            if [ "$code" != "200" ]; then
+              echo "expected 200 from $TV_URL$route, got $code" >&2
+              exit 1
+            fi
+            echo "  $route -> $code"
+          done
+
+          # The two sites must actually differ. A shared build would render the anime
+          # home page on both hosts, which the route checks above would not notice.
+          echo "Checking the two sites render different copy"
+          anime_title=$(curl -fsS --retry 3 --retry-delay 5 --retry-all-errors "$FRONTEND_URL" | grep -o '<title>[^<]*</title>' | head -1)
+          tv_title=$(curl -fsS --retry 3 --retry-delay 5 --retry-all-errors "$TV_URL" | grep -o '<title>[^<]*</title>' | head -1)
+          echo "  anime: $anime_title"
+          echo "  tv:    $tv_title"
+          if [ "$anime_title" = "$tv_title" ]; then
+            echo "both sites served the same title; the SITE build argument did not take effect" >&2
+            exit 1
+          fi
 
           # The delivery routes, which nothing else here exercises. A previous deploy
           # returned 200 on /health and a good GraphQL response while every request to

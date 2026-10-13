@@ -6,10 +6,13 @@ import Navbar from "@/components/navbar";
 import { Toaster } from "@/components/ui/sonner";
 import { appFont } from "@/lib/fonts";
 import QueryProvider from "@/providers/query-provider";
+import { SITE } from "@/constants/site";
 
-const APP_NAME = "Konflix";
-const APP_TITLE = "Konflix | Anime Streaming";
-const APP_DESCRIPTION = "Browse and stream anime, with metadata from AniList.";
+// All copy comes from the site config, so the two builds differ by data. See
+// src/constants/site.ts.
+const APP_NAME = SITE.appName;
+const APP_TITLE = SITE.title;
+const APP_DESCRIPTION = SITE.description;
 
 export const metadata: Metadata = {
   applicationName: APP_NAME,

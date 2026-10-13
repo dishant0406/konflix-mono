@@ -1,11 +1,17 @@
 # Konflix
 
-Anime metadata and streaming, as two apps in one repository.
+Anime, series and films from one API, served as two sites.
+
+| Site | Catalogue | Container |
+| --- | --- | --- |
+| `anime.konflix.live` | Anime (AniList) | `frontend` |
+| `tv.konflix.live` | Series (TVMaze) and films (YTS) | `frontend-tv` |
+| `api.konflix.live` | GraphQL, shared by both | `api` |
 
 | Directory | What it is | Port |
 | --- | --- | --- |
-| `anime-server/` | GraphQL API. Metadata from AniList or Kitsu, releases from torrent indexers, video streamed from a torrent swarm or a debrid CDN. | 9000 |
-| `konflix-frontend/` | Next.js app (App Router, TypeScript). Browse, search, and a player. | 3000 |
+| `anime-server/` | GraphQL API. Metadata from AniList/Kitsu/TVMaze/YTS, releases from torrent indexers, video streamed from a torrent swarm or a debrid CDN. | 9000 |
+| `konflix-frontend/` | Next.js app (App Router, TypeScript). Built twice, once per site. | 3000 / 3001 |
 
 The previous version of this project scraped a private site and a public API, both
 of which are gone. This version isolates every volatile upstream behind a
@@ -15,6 +21,50 @@ Each app has its own README with the detail.
 The frontend's UI is derived from [Kitsune](https://github.com/Dovakiin0/Kitsune)
 (MIT); see [ATTRIBUTION.md](ATTRIBUTION.md) for exactly what was taken and what
 was deliberately left behind.
+
+## How one codebase serves two sites
+
+Both sites are the **same image built twice**, with `NEXT_PUBLIC_SITE` (`anime` or
+`tv`) selecting a config object in `konflix-frontend/src/constants/site.ts`. That
+object holds everything that differs: the content type sent to the API, the row
+titles, the genre list, the filter vocabulary, the attribution. Components read
+`SITE` rather than branching on a site name.
+
+This is a build argument rather than a runtime variable on purpose. Next.js inlines
+`NEXT_PUBLIC_*` at build time, and the API address is identical for both sites, so
+there is no host detection and no per-request branching.
+
+## Content types
+
+Every media id is self-describing, which is what lets one API and one set of routes
+serve three catalogues:
+
+```
+anime-16498-ep1     an anime, episode 1
+series-169-s1e5     a series, season 1 episode 5
+movie-7691          a film, no episode
+series-169          a title, for a detail page
+```
+
+The type is part of the id because the ids come from different providers and would
+otherwise collide - TVMaze's show 1 and YTS's film 1 are different titles. It also
+means the watch page knows what it is looking at from the URL alone.
+`anime-server/lib/mediaId.js` and `konflix-frontend/src/lib/media-id.ts` must agree.
+
+## Adding a provider or an indexer
+
+Both are name-keyed maps, selected by environment variable, so adding one is a new
+file and a key - no change to the schema, the resolvers, or the frontend.
+
+| Map | Directory | Selected by |
+| --- | --- | --- |
+| Metadata providers | `anime-server/graphql/providers/` | `PROVIDERS` (per type), `METADATA_PROVIDER` |
+| Torrent indexers | `anime-server/graphql/indexers/` | `TORRENT_INDEXERS` |
+| Stream sources | `anime-server/graphql/stream/sources/` | `STREAM_SOURCES` |
+
+Each entry declares the content types it serves (`types: ['anime']`, `['movie']`,
+`['series']`, or several), so a film search never queries an anime feed.
+`GET /health` reports every configured entry and which types it covers.
 
 ## Known limitations
 
@@ -67,18 +117,21 @@ npm run dev --workspace=konflix
 
 ## Deployment
 
-One server runs both apps. Three containers, defined in `docker-compose.yml`:
+One server runs both apps. Four containers, defined in `docker-compose.yml`:
 
 | Container | Role |
 | --- | --- |
 | `cloudflared` | The only thing reachable from the internet, over an outbound tunnel |
 | `api` | GraphQL and the video relay (`:9000`, internal only) |
-| `frontend` | Next.js (`:3000`, internal only) |
+| `frontend` | Next.js, the anime site (`:3000`, internal only) |
+| `frontend-tv` | Next.js, the films and series site (`:3001`, internal only) |
 
-Two hostnames reach the same tunnel and are routed by hostname in its ingress config:
-`konflix.live` to the frontend, `api.konflix.live` to the API. **No reverse proxy**,
-because the tunnel already routes by hostname, and the browser loads the API directly
-so nothing sits in the video byte path.
+Three hostnames reach the same tunnel and are routed by hostname in its ingress
+config: `anime.konflix.live` to `frontend`, `tv.konflix.live` to `frontend-tv`, and
+`api.konflix.live` to the API. `konflix.live` still resolves to the anime site, so
+existing links keep working. **No reverse proxy**, because the tunnel already routes
+by hostname, and the browser loads the API directly so nothing sits in the video byte
+path.
 
 Nothing binds a public port. `cloudflared` dials out, so there is no open firewall
 hole and no certificate to renew on the server.
@@ -131,7 +184,7 @@ work but requires the Workers Paid plan, and its request-scoped model fits a
    ./scripts/cloudflare.sh       # prints the tunnel token
    ```
 
-   This creates the tunnel, sets its ingress rules, points both hostnames at it with
+   This creates the tunnel, sets its ingress rules, points every hostname at it with
    proxied CNAMEs, and sets TLS mode to `full`.
 
 4. **Create an SSH key for deploys** and authorise it on the server:

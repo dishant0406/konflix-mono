@@ -28,6 +28,21 @@ function list(name, fallback) {
     .filter(Boolean)
 }
 
+// Parses "anime:anilist,series:tvmaze" into { anime: 'anilist', series: 'tvmaze' }.
+// An entry without a colon is ignored rather than silently becoming a provider name
+// that matches nothing.
+function providerMap(name, fallback) {
+  const map = {}
+  for (const entry of list(name, fallback)) {
+    const separator = entry.indexOf(':')
+    if (separator === -1) continue
+    const type = entry.slice(0, separator).trim()
+    const provider = entry.slice(separator + 1).trim()
+    if (type && provider) map[type] = provider
+  }
+  return map
+}
+
 export const config = {
   port: integer('PORT', 9000),
 
@@ -35,16 +50,31 @@ export const config = {
   // from it, so it must be the public address in production.
   publicUrl: text('PUBLIC_URL', `http://localhost:${integer('PORT', 9000)}`),
 
-  // Which metadata provider to use. See providers/index.js for the available keys.
-  metadataProvider: text('METADATA_PROVIDER', 'anilist'),
+// Which metadata provider to use for each content type, as "type:provider" pairs.
+  // See providers/index.js for the available keys. A provider that does not declare
+  // the requested type is not selectable, so a typo here is reported at boot rather
+  // than answered with the wrong catalogue.
+  //
+  //   PROVIDERS=anime:anilist,series:tvmaze,movie:yts
+  //
+  // METADATA_PROVIDER overrides the anime entry, so the existing single-value
+  // setting keeps working.
+  providers: providerMap(
+    'PROVIDERS',
+    `anime:${text('METADATA_PROVIDER', 'anilist')},series:tvmaze,movie:yts`,
+  ),
 
   // Which torrent indexers to search. See indexers/index.js for the available keys.
   //
-  // AnimeTosho is deliberately absent. It is the slowest of the four and its own
-  // shutdown page says ingestion stopped in May 2026, so it is a frozen archive: it
-  // has nothing for a currently airing show. The file is kept so it can be re-enabled
-  // with this one variable if it ever recovers.
-  indexers: list('TORRENT_INDEXERS', 'subsplease,apibay,nyaa'),
+  // Each indexer declares the content types it serves, so one list covers all of
+  // them and the search only asks the relevant ones.
+  //
+  // AnimeTosho and apibay are deliberately absent. AnimeTosho's own shutdown page
+  // says ingestion stopped in May 2026, so it is a frozen archive with nothing for a
+  // currently airing show. apibay answers 403 from a datacenter IP and reports
+  // "ok" while returning nothing. Both files are kept so either can be re-enabled
+  // with this one variable.
+  indexers: list('TORRENT_INDEXERS', 'subsplease,nyaa,knaben,yts,eztv'),
 
   // How long one indexer request may take before it is abandoned.
   //
@@ -118,11 +148,24 @@ export const config = {
   // How many candidate releases to try before giving up on an episode.
   maxCandidates: integer('MAX_CANDIDATES', 3),
 
-  // Upper bound on resolving one episode, across all candidates. Without this a
-  // run of unreachable swarms could keep a request open for minutes
+// Upper bound on resolving one episode or film, across all candidates. Without
+  // this a run of unreachable swarms could keep a request open for minutes
   // (maxCandidates * (metadata + header)), holding a torrent slot and leaving the
   // viewer on a spinner.
   resolveDeadlineMs: positive('RESOLVE_DEADLINE_MS', 75000),
+
+  // Hosts a torrent *indexer* may be reached at. Only knaben and YTS are
+  // configurable, because both have already moved once: knaben is one operator's
+  // service and YTS is mid-migration from yts.mx to movies-api.accel.li. Changing a
+  // host is then an environment change rather than a rebuild.
+  knabenBaseUrl: text('KNABEN_BASE_URL', 'https://api.knaben.org/v1'),
+  ytsBaseUrl: text('YTS_BASE_URL', 'https://movies-api.accel.li/api/v2'),
+  eztvBaseUrl: text('EZTV_BASE_URL', 'https://eztv.wf/api'),
+
+  // TVMaze is keyless. TMDB is not, and is optional: when its key is absent the
+  // movie provider stays YTS, which needs no account.
+  tvmazeBaseUrl: text('TVMAZE_BASE_URL', 'https://api.tvmaze.com'),
+  tmdbApiKey: text('TMDB_API_KEY', ''),
 
   // Where the video bytes come from, in order of preference. See
   // graphql/stream/sources/index.js for the available keys.

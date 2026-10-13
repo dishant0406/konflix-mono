@@ -15,8 +15,8 @@ import { createHandler } from 'graphql-http/lib/use/express'
 import { config } from './lib/config.js'
 import { http } from './lib/http.js'
 import { prepareCacheDir } from './lib/cacheDir.js'
-import { provider, providerNames } from './graphql/providers/index.js'
-import { enabledIndexers, indexerNames, indexerStatus } from './graphql/indexers/index.js'
+import { providerFor, providerNames, providerTypes } from './graphql/providers/index.js'
+import { enabledIndexers, indexerNames, indexerStatus, indexerTypes } from './graphql/indexers/index.js'
 import { serveStream, serveStreamSegment } from './graphql/stream/serve.js'
 import { servePlaylist, serveSegment, prepareHlsDir, closeAllHls, hlsSessionCount, sessionForStream, streamKey, createHlsSession } from './graphql/stream/hls.js'
 import { sessionCount, cacheSizeBytes, closeAll } from './graphql/stream/torrent.js'
@@ -301,8 +301,13 @@ app.get('/health', async (req, res, next) => {
 
     res.json({
       status: 'ok',
-      metadataProvider: provider.name,
+      // The provider per content type, so a misconfigured site is visible here
+      // rather than at the first request for a film.
+      metadataProviders: Object.fromEntries(
+        ['anime', 'series', 'movie'].map((type) => [type, providerFor(type).name]),
+      ),
       availableMetadataProviders: providerNames(),
+      providerTypes: providerTypes(),
       configuredStreamSources: config.streamSources,
       activeStreamSources: activeSources().map((source) => source.name),
       availableStreamSources: sourceNames(),
@@ -312,6 +317,7 @@ app.get('/health', async (req, res, next) => {
       // configuration deliberately leaves it out.
       enabledIndexers: enabledIndexers().map((indexer) => indexer.name),
       availableIndexers: indexerNames(),
+      indexerTypes: indexerTypes(),
       indexers,
       ffmpeg,
       activeTorrents: sessionCount(),
@@ -350,7 +356,11 @@ const server = app.listen(config.port, () => {
   if (config.publicUrl.includes('localhost')) {
     console.warn('  PUBLIC_URL is still localhost: stream URLs will not work for remote viewers.')
   }
-  console.log(`  Metadata provider: ${provider.name}`)
+  console.log(
+    `  Metadata providers: ${['anime', 'series', 'movie']
+      .map((type) => `${type}=${providerFor(type).name}`)
+      .join(', ')}`,
+  )
   console.log(`  Stream sources:    ${activeSources().map((source) => source.name).join(', ') || 'none'}`)
   console.log(`  Torrent indexers:  ${enabledIndexers().map((indexer) => indexer.name).join(', ') || 'none'}`)
 })
