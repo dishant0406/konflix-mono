@@ -190,6 +190,46 @@ jobs:
             -d '{"query":"{ topAnime(page:1){ id title } }"}' | head -c 200
           echo
 
+          # The fields the UI renders. A schema that loads but does not answer these
+          # produces a frontend that builds and deploys and then shows nothing, which
+          # a health check and a topAnime probe would both pass.
+          #
+          # Each body is a single-quoted literal so the inner \" stays valid JSON.
+          # Building the body with an interpolated variable collapses the nested
+          # quotes and the API answers 400.
+          echo "Checking the media queries the frontend uses"
+          for body in \
+            '{"query":"{ mediaList(input:{sort:\"trending\",perPage:2}){ total results{ id title{ english } bannerImage } } }"}' \
+            '{"query":"{ mediaSearch(term:\"naruto\", input:{perPage:2}){ total results{ id format } } }"}' \
+            '{"query":"{ mediaDetail(id:\"16498\"){ id description relations{ edges{ node{ id } } } recommendations{ nodes{ mediaRecommendation{ id } } } characters{ edges{ node{ name{ full } } } } } }"}'
+          do
+            response=$(curl -fsS --retry 3 --retry-delay 5 --retry-all-errors \
+              -X POST "$PUBLIC_URL/graphql" \
+              -H 'Content-Type: application/json' \
+              --data-binary "$body")
+            case "$response" in
+              *'"errors"'*)
+                echo "GraphQL returned errors for: $body" >&2
+                echo "$response" >&2
+                exit 1
+                ;;
+            esac
+            printf '%s\n' "$response" | head -c 120
+            echo
+          done
+
+          # The routes themselves. A build can succeed while every page 404s, which a
+          # check of the home page alone would not catch.
+          echo "Checking the frontend routes"
+          for route in "/" "/search?q=naruto" "/anime/16498" "/anime/watch/130003/130003-ep1"; do
+            code=$(curl -sL -o /dev/null -w '%{http_code}' --retry 3 --retry-delay 5 --retry-all-errors "$FRONTEND_URL$route")
+            if [ "$code" != "200" ]; then
+              echo "expected 200 from $FRONTEND_URL$route, got $code" >&2
+              exit 1
+            fi
+            echo "  $route -> $code"
+          done
+
           # The delivery routes, which nothing else here exercises. A previous deploy
           # returned 200 on /health and a good GraphQL response while every request to
           # /dl threw a ReferenceError and surfaced at the edge as a 502, so the routes

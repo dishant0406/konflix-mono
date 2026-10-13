@@ -2,6 +2,10 @@
 #
 # The build context is the repository root, not this directory, because the frontend
 # is one workspace of a monorepo and installs from the shared lockfile.
+#
+# Next is built with `output: "standalone"`, which emits a self-contained server
+# bundle. The runtime stage therefore copies that bundle instead of the workspace
+# tree, so it carries no devDependencies, no source, and no test files.
 
 # --- build ----------------------------------------------------------------------
 FROM node:22-bookworm-slim AS build
@@ -12,9 +16,12 @@ COPY package.json package-lock.json ./
 COPY anime-server/package.json ./anime-server/
 COPY konflix-frontend/package.json ./konflix-frontend/
 
-# The build needs devDependencies (Next, Tailwind, PostCSS), so --omit=dev is
-# deliberately absent here.
-RUN npm ci --workspace=konflix --include=dev --no-audit --no-fund
+# The build needs devDependencies (Next, Tailwind, TypeScript, ESLint), so
+# --omit=dev is deliberately absent here. --ignore-scripts for the same reason as
+# the API image: the workspace tree contains node-datachannel (via webtorrent),
+# whose install script always fails. None of the frontend's own dependencies have
+# install scripts.
+RUN npm ci --workspace=konflix --include=dev --ignore-scripts --no-audit --no-fund
 
 COPY konflix-frontend ./konflix-frontend
 
@@ -23,6 +30,11 @@ COPY konflix-frontend ./konflix-frontend
 ARG NEXT_PUBLIC_GRAPHQL_URI
 ENV NEXT_PUBLIC_GRAPHQL_URI=$NEXT_PUBLIC_GRAPHQL_URI
 
+# An empty value produces a build that succeeds and a browser bundle that calls the
+# viewer's own localhost, which looks like a broken API rather than a missing build
+# argument. Failing here makes the mistake visible where it is made.
+RUN test -n "$NEXT_PUBLIC_GRAPHQL_URI" || (echo "NEXT_PUBLIC_GRAPHQL_URI build argument is required" >&2; exit 1)
+
 RUN npm run build --workspace=konflix
 
 # --- runtime --------------------------------------------------------------------
@@ -30,30 +42,28 @@ FROM node:22-bookworm-slim
 
 WORKDIR /app
 
-COPY package.json package-lock.json ./
-COPY anime-server/package.json ./anime-server/
-COPY konflix-frontend/package.json ./konflix-frontend/
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
 
-# The same --ignore-scripts reason as the API image: the workspace tree contains
-# node-datachannel (via webtorrent), whose install script always fails. Only the
-# frontend's own dependencies are needed here, and none of them have install scripts.
-RUN npm ci --workspace=konflix --omit=dev --ignore-scripts --no-audit --no-fund
-
-COPY --from=build /app/konflix-frontend/.next ./konflix-frontend/.next
+# The standalone output is rooted at the workspace directory, so it is unpacked into
+# the same relative path and run from there. server.js resolves its own files
+# relative to itself, which is why the nesting is preserved.
+COPY --from=build /app/konflix-frontend/.next/standalone ./
+COPY --from=build /app/konflix-frontend/.next/static ./konflix-frontend/.next/static
 COPY --from=build /app/konflix-frontend/public ./konflix-frontend/public
-COPY --from=build /app/konflix-frontend/next.config.js ./konflix-frontend/
-COPY --from=build /app/konflix-frontend/postcss.config.js ./konflix-frontend/
-COPY --from=build /app/konflix-frontend/tailwind.config.js ./konflix-frontend/
 
 WORKDIR /app/konflix-frontend
 
-ENV NODE_ENV=production
+# next/image writes optimised images to <distDir>/cache/images. COPY leaves those
+# directories owned by root, so a container running as `node` could not write to them
+# and every poster would fail to optimise. The cache directory is created and handed
+# over before privileges are dropped.
+RUN mkdir -p .next/cache && chown -R node:node .next
 
 # Nothing here needs to write to disk or to be root.
 USER node
 
 EXPOSE 3000
 
-# The host and port come from the package.json start script so there is one place
-# that defines them.
-CMD ["npm", "start"]
+CMD ["node", "server.js"]

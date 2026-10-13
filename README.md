@@ -5,12 +5,16 @@ Anime metadata and streaming, as two apps in one repository.
 | Directory | What it is | Port |
 | --- | --- | --- |
 | `anime-server/` | GraphQL API. Metadata from AniList or Kitsu, releases from torrent indexers, video streamed from a torrent swarm or a debrid CDN. | 9000 |
-| `konflix-frontend/` | Next.js app. Browse, search, and a player. | 3000 |
+| `konflix-frontend/` | Next.js app (App Router, TypeScript). Browse, search, and a player. | 3000 |
 
 The previous version of this project scraped a private site and a public API, both
 of which are gone. This version isolates every volatile upstream behind a
 replaceable module, so a broken source degrades the app instead of taking it down.
 Each app has its own README with the detail.
+
+The frontend's UI is derived from [Kitsune](https://github.com/Dovakiin0/Kitsune)
+(MIT); see [ATTRIBUTION.md](ATTRIBUTION.md) for exactly what was taken and what
+was deliberately left behind.
 
 ## Known limitations
 

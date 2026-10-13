@@ -40,13 +40,29 @@ RUN apt-get update \
 # afterwards, once the failing script is out of the way.
 RUN npm ci --workspace=konflix-api --omit=dev --ignore-scripts --no-audit --no-fund
 
+# npm hoists every dependency to the root node_modules when nothing conflicts, so the
+# workspace one is normally absent. It is created here so the runtime stage can copy
+# it unconditionally: an empty directory is a valid copy source, a missing one is not.
+RUN mkdir -p /app/anime-server/node_modules
+
 # Installs the prebuilt node-datachannel binary.
+#
+# The package directory is derived from `require.resolve` rather than assumed to be
+# under the workspace. npm hoists a dependency to the highest node_modules that can
+# hold it, and node-datachannel arrives transitively through webtorrent, so it lands
+# in the root node_modules - not anime-server/node_modules. Hardcoding the workspace
+# path made this step pass only while the layer stayed cached; the first dependency
+# change rebuilt it and the build failed on a missing package.json.
+#
+# `require.resolve("node-datachannel/package.json")` cannot be used because the
+# package's "exports" map does not expose it. The entry point is resolved instead and
+# walked up until the directory holding package.json is found.
 #
 # The asset name carries the architecture, and Debian's name for it differs from the
 # one the project uses, so it is mapped explicitly. `napi-v8` is the ABI tag used by
 # every Node 22 release, which is what this image pins.
 RUN set -eux; \
-    PKG=/app/anime-server/node_modules/node-datachannel; \
+    PKG="$(node -e 'const fs=require("fs"),path=require("path");let d=path.dirname(require.resolve("node-datachannel"));while(!fs.existsSync(path.join(d,"package.json"))){const up=path.dirname(d);if(up===d)throw new Error("node-datachannel package.json not found");d=up;}process.stdout.write(d)')"; \
     VERSION="$(node -p "require('$PKG/package.json').version")"; \
     case "$(dpkg --print-architecture)" in \
       amd64) ARCH=x64 ;; \
@@ -80,6 +96,11 @@ COPY package.json package-lock.json ./
 COPY anime-server/package.json ./anime-server/
 COPY konflix-frontend/package.json ./konflix-frontend/
 COPY --from=deps /app/node_modules ./node_modules
+# The workspace node_modules is usually absent, because npm hoists every dependency
+# to the root node_modules when nothing conflicts - which is the case for the whole
+# dependency tree here. The deps stage creates the directory empty so this copy is
+# valid either way, and so a dependency that could not be hoisted would still be
+# carried across instead of failing at runtime with MODULE_NOT_FOUND.
 COPY --from=deps /app/anime-server/node_modules ./anime-server/node_modules
 
 # Copied file by file rather than as the whole directory, so the test suite and any

@@ -12,6 +12,12 @@ import { provider } from '../providers/index.js'
 import { resolveStream } from '../stream/index.js'
 
 const Query = {
+  mediaList: (args) => provider.mediaList(args.input || {}),
+
+  mediaSearch: (args) => provider.mediaSearch({ ...(args.input || {}), term: args.term }),
+
+  mediaDetail: (args) => provider.mediaDetail(args.id),
+
   topAnime: (args) => provider.topAnime(args.page || 1),
 
   animeSearch: (args) => provider.animeSearch(args.id, args.page || 1),

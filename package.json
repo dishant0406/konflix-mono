@@ -17,5 +17,9 @@
     "build": "npm run build --workspace=konflix",
     "test": "npm test --workspace=konflix-api",
     "lint": "npm run lint --workspace=konflix"
+  },
+  "overrides": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1"
   }
 }

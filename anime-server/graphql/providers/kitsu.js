@@ -57,8 +57,299 @@ async function episodeTotal(id) {
   return data.meta?.count || 0
 }
 
+// --- full media shapes, rendered by the frontend ------------------------------
+//
+// Kitsu stores the same facts AniList does but spells them differently and
+// spreads them across `attributes`, `included` and `meta`. These helpers do that
+// translation so both providers produce one shape and the UI never branches on
+// which provider is configured.
+
+const MAX_PER_PAGE = 20 // Kitsu rejects page[limit] above 20 with a 400.
+
+// Kitsu's own status vocabulary, mapped to the values the rest of the app uses.
+// AniList and Kitsu do not share status names, and the frontend must not have to
+// know which provider answered.
+const STATUS_FROM_KITSU = {
+  current: 'RELEASING',
+  finished: 'FINISHED',
+  tba: 'NOT_YET_RELEASED',
+  unreleased: 'NOT_YET_RELEASED',
+  upcoming: 'NOT_YET_RELEASED',
+}
+
+const STATUS_TO_KITSU = {
+  'currently-airing': 'current',
+  'finished-airing': 'finished',
+  'not-yet-aired': 'tba',
+  cancelled: 'finished',
+  hiatus: 'current',
+}
+
+// Kitsu has no season column, so it is derived from the start month the way the
+// seasonal calendars divide the year.
+function seasonOf(isoDate) {
+  if (!isoDate) return null
+  const month = Number(isoDate.slice(5, 7))
+  if (!month) return null
+  if (month <= 3) return 'WINTER'
+  if (month <= 6) return 'SPRING'
+  if (month <= 9) return 'SUMMER'
+  return 'FALL'
+}
+
+function yearOf(isoDate) {
+  return isoDate ? Number(isoDate.slice(0, 4)) || null : null
+}
+
+function dateOf(isoDate) {
+  if (!isoDate) return { year: null, month: null, day: null }
+  return {
+    year: yearOf(isoDate),
+    month: Number(isoDate.slice(5, 7)) || null,
+    day: Number(isoDate.slice(8, 10)) || null,
+  }
+}
+
+function hostnameOf(url) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '')
+  } catch {
+    return 'link'
+  }
+}
+
+function ratingToScore(averageRating) {
+  const value = Number.parseFloat(averageRating)
+  return Number.isFinite(value) ? Math.round(value) : null
+}
+
+function toMediaList(entry, genres = []) {
+  const a = attributes(entry)
+  const image = a.posterImage || {}
+  return {
+    id: entry.id,
+    title: {
+      romaji: a.titles?.en_jp || a.canonicalTitle || null,
+      english: a.titles?.en || a.canonicalTitle || null,
+      native: a.titles?.ja_jp || null,
+    },
+    coverImage: { extraLarge: image.original || image.large || null, large: image.large || null, color: null },
+    bannerImage: a.coverImage?.large || null,
+    format: a.subtype ? a.subtype.toUpperCase() : null,
+    season: seasonOf(a.startDate),
+    seasonYear: yearOf(a.startDate),
+    episodes: a.episodeCount ?? null,
+    duration: a.episodeLength ?? null,
+    status: STATUS_FROM_KITSU[a.status] || (a.status ? a.status.toUpperCase() : null),
+    averageScore: ratingToScore(a.averageRating),
+    meanScore: null,
+    popularity: a.userCount ?? 0,
+    favourites: a.favoritesCount ?? 0,
+    genres,
+    source: null,
+    countryOfOrigin: 'JP',
+    isAdult: Boolean(a.nsfw),
+    // Kitsu exposes producers and studios through separate relationships that
+    // would cost another request per card; the UI hides the row when empty.
+    studios: { nodes: [] },
+    nextAiringEpisode: null,
+    startDate: dateOf(a.startDate),
+    endDate: dateOf(a.endDate),
+  }
+}
+
+function toMediaFull(entry, included) {
+  const a = attributes(entry)
+  const byType = (type) => (included || []).filter((item) => item.type === type)
+  const animeById = new Map(byType('anime').map((item) => [item.id, item]))
+  const genres = byType('categories').map((category) => category.attributes.title)
+
+  const relations = byType('mediaRelationships')
+    .map((relationship) => {
+      const destination = relationship.relationships?.destination?.data
+      const node = destination && animeById.get(destination.id)
+      if (!node) return null
+      const attrs = attributes(node)
+      const image = attrs.posterImage || {}
+      return {
+        relationType: relationship.attributes.role || null,
+        node: {
+          id: node.id,
+          type: 'ANIME',
+          format: attrs.subtype ? attrs.subtype.toUpperCase() : null,
+          status: attrs.status ? attrs.status.toUpperCase() : null,
+          episodes: attrs.episodeCount ?? null,
+          meanScore: ratingToScore(attrs.averageRating),
+          // AniList returns these on the same node shape, so Kitsu fills them from
+          // its own attributes rather than leaving the key absent.
+          averageScore: ratingToScore(attrs.averageRating),
+          popularity: attrs.userCount ?? 0,
+          genres: [],
+          title: {
+            romaji: attrs.titles?.en_jp || attrs.canonicalTitle || null,
+            english: attrs.titles?.en || attrs.canonicalTitle || null,
+            native: attrs.titles?.ja_jp || null,
+          },
+          coverImage: { extraLarge: image.original || image.large || null, large: image.large || null, color: null },
+          startDate: dateOf(attrs.startDate),
+        },
+      }
+    })
+    .filter(Boolean)
+
+  // Kitsu has no recommendations endpoint, so the relation list doubles as one.
+  // It is the closest honest equivalent and avoids a second round trip per page.
+  const recommendations = relations.slice(0, 12).map((edge) => ({
+    rating: null,
+    mediaRecommendation: edge.node,
+  }))
+
+  const characters = byType('characters').map((character) => {
+    const attrs = character.attributes || {}
+    const image = attrs.image || {}
+    return {
+      role: null,
+      node: {
+        id: character.id,
+        name: { full: attrs.canonicalName || attrs.name || null, native: attrs.names?.ja_jp || null },
+        image: { large: image.large || image.original || null },
+      },
+      // Kitsu stores castings separately from characters; an extra request per
+      // character is not worth it, and the UI hides the row when empty.
+      voiceActors: [],
+    }
+  })
+
+  return {
+    ...toMediaList(entry, genres),
+    idMal: null,
+    description: a.synopsis || a.description || null,
+    trailer: a.youtubeVideoId ? { id: a.youtubeVideoId, site: 'youtube' } : null,
+    relations: { edges: relations },
+    recommendations: { nodes: recommendations },
+    characters: { edges: characters },
+    externalLinks: byType('streamingLinks')
+      .filter((link) => link.attributes?.url)
+      .map((link) => ({
+        url: link.attributes.url,
+        // Kitsu puts the service name in the URL rather than in an attribute, and
+        // the UI shows this string as the link label.
+        site: hostnameOf(link.attributes.url),
+        type: 'STREAMING',
+      })),
+    streamingEpisodes: [],
+  }
+}
+
+async function toPage(data, page, perPage) {
+  const included = data.included || []
+  const categoryById = new Map(
+    included.filter((item) => item.type === 'categories').map((item) => [item.id, item.attributes?.title]),
+  )
+
+  const entries = data.data.filter((entry) => entry.attributes?.posterImage?.large)
+
+  // Kitsu reports `episodeCount: null` for every long-running show (verified live:
+  // One Piece, Detective Conan and Naruto Shippuuden all return null), so those
+  // rows would render with no episode list at all. The episodes collection knows
+  // the real total, so it is fetched for just the rows that need it.
+  const missing = entries.filter((entry) => !entry.attributes?.episodeCount)
+  const counts = new Map(
+    await Promise.all(
+      missing.map(async (entry) => [entry.id, await episodeTotal(entry.id).catch(() => 0)]),
+    ),
+  )
+
+  const results = entries.map((entry) => {
+    const genres = (entry.relationships?.categories?.data || [])
+      .map((reference) => categoryById.get(reference.id))
+      .filter(Boolean)
+    const media = toMediaList(entry, genres)
+    if (media.episodes === null) media.episodes = counts.get(entry.id) || null
+    return media
+  })
+
+  const total = data.meta?.count ?? results.length
+  return {
+    page,
+    perPage,
+    total,
+    hasNextPage: page * perPage < total,
+    results,
+  }
+}
+
 export default {
   name: 'kitsu',
+
+  // --- full media shapes, rendered by the frontend -----------------------------
+
+  async mediaList({ sort, genre, genres, format, status, season, year, page, perPage } = {}) {
+    const limit = Math.min(MAX_PER_PAGE, Math.max(1, Number(perPage) || 14))
+    const currentPage = Math.max(1, Number(page) || 1)
+    const params = {
+      'page[limit]': limit,
+      'page[offset]': (currentPage - 1) * limit,
+      include: 'categories',
+    }
+    if (sort === 'trending' || sort === 'popularity') params.sort = '-userCount'
+    else if (sort === 'score') params.sort = '-averageRating'
+    else if (sort === 'favourites') params.sort = '-favoritesCount'
+    else if (sort === 'recent') params.sort = '-startDate'
+    else if (sort === 'title') params.sort = 'canonicalTitle'
+    // Kitsu cannot OR several categories in one request, so only the first is
+    // applied. Returning fewer results is better than ignoring the filter.
+    if (genre) params['filter[categories]'] = genre
+    else if (genres?.length) params['filter[categories]'] = genres[0]
+    if (format) params['filter[subtype]'] = format.toLowerCase()
+    if (status) params['filter[status]'] = STATUS_TO_KITSU[status] || status
+    if (season) params['filter[season]'] = season.toLowerCase()
+    if (year) params['filter[year]'] = year
+
+    const data = await cached(`kitsu:mediaList:${JSON.stringify(params)}`, TTL_MS, () =>
+      get('/anime', params),
+    )
+    return toPage(data, currentPage, limit)
+  },
+
+  async mediaSearch({ term, format, status, season, year, genres, page, perPage } = {}) {
+    const limit = Math.min(MAX_PER_PAGE, Math.max(1, Number(perPage) || 14))
+    const currentPage = Math.max(1, Number(page) || 1)
+    if (!term) {
+      return { page: 1, perPage: limit, total: 0, hasNextPage: false, results: [] }
+    }
+    const params = {
+      'filter[text]': term,
+      'page[limit]': limit,
+      'page[offset]': (currentPage - 1) * limit,
+      include: 'categories',
+    }
+    if (format) params['filter[subtype]'] = format.toLowerCase()
+    if (status) params['filter[status]'] = STATUS_TO_KITSU[status] || status
+    if (season) params['filter[season]'] = season.toLowerCase()
+    if (year) params['filter[year]'] = year
+    if (genres?.length) params['filter[categories]'] = genres[0]
+
+    const data = await cached(`kitsu:mediaSearch:${JSON.stringify(params)}`, TTL_MS, () =>
+      get('/anime', params),
+    )
+    return toPage(data, currentPage, limit)
+  },
+
+  async mediaDetail(id) {
+    // The id reaches here straight from the client. Kitsu ids are numeric, and
+    // interpolating anything else into the path would let a caller reach a
+    // different endpoint. The AniList provider has the same guard.
+    if (!/^\d+$/.test(String(id ?? ''))) return null
+    const data = await cached(`kitsu:mediaDetail:${id}`, TTL_MS, () =>
+      get(`/anime/${id}`, {
+        include: 'categories,mediaRelationships.destination,characters.character,streamingLinks',
+      }),
+    )
+    return data.data ? toMediaFull(data.data, data.included) : null
+  },
+
+  // --- small shapes, used by the stream layer ----------------------------------
 
   async topAnime(page) {
     const data = await cached(`kitsu:top:${page}`, TTL_MS, () =>
