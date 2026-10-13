@@ -88,7 +88,7 @@ export const config = {
   // currently airing show. apibay answers 403 from a datacenter IP and reports
   // "ok" while returning nothing. Both files are kept so either can be re-enabled
   // with this one variable.
-  indexers: list('TORRENT_INDEXERS', 'subsplease,nyaa,knaben,yts,eztv'),
+  indexers: list('TORRENT_INDEXERS', 'subsplease,nyaa,knaben,torrents-csv,yts,eztv'),
 
   // How long one indexer request may take before it is abandoned.
   //
@@ -175,6 +175,11 @@ export const config = {
   knabenBaseUrl: text('KNABEN_BASE_URL', 'https://api.knaben.org/v1'),
   ytsBaseUrl: text('YTS_BASE_URL', 'https://movies-api.accel.li/api/v2'),
   eztvBaseUrl: text('EZTV_BASE_URL', 'https://eztv.wf/api'),
+
+  // torrents-csv is a single community instance (self-hostable, from Codeberg). It is
+  // configurable for the same reason the others are: one operator's service can move
+  // or disappear, and that should be an environment change rather than a rebuild.
+  torrentsCsvBaseUrl: text('TORRENTS_CSV_BASE_URL', 'https://torrents-csv.com'),
 
   // TVMaze is keyless. TMDB is not, and is optional: when its key is absent the
   // movie provider stays YTS, which needs no account.

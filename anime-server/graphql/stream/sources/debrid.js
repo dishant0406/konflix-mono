@@ -401,7 +401,7 @@ async resolve({ episodeNumber, season = null, ranked, deadlineMs }) {
     for (const release of usable.slice(0, config.maxCandidates)) {
       if (left() <= 0) break
       try {
-const link = await linkFor(release, episodeNumber, left(), season)
+        const link = await linkFor(release, episodeNumber, left(), season)
         if (link) return { ...link, release: release.title }
       } catch (error) {
         console.warn(`[stream:debrid] ${release.title}: ${redactToken(error.message)}`)

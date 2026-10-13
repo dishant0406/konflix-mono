@@ -50,6 +50,29 @@ test('pickVideoFile refuses a single file that names a different episode', () =>
   assert.equal(pickVideoFile(unnamed, 12).name, 'Show.mkv')
 })
 
+test('pickVideoFile refuses a file from a different season', () => {
+  // The season is part of the episode's identity, and a season pack is now a release
+  // this server will choose. Before this, "S02E01" satisfied a request for "S01E01":
+  // the season was only applied when it narrowed a multi-match list, so a file naming
+  // a season that no other file shared was returned as-is. Reproduced with a season-2
+  // pack, which served S02E01 for a season-1 request.
+  const otherSeason = [{ name: 'Show S02E01 1080p.mkv', length: 300 * 1024 * 1024 }]
+  assert.equal(pickVideoFile(otherSeason, 1, undefined, 1), null)
+  assert.equal(pickVideoFile(otherSeason, 1, undefined, 2).name, 'Show S02E01 1080p.mkv')
+
+  // A file naming no season is still a valid match, because plenty of releases omit it.
+  const noSeason = [{ name: 'Show - 01.mkv', length: 300 * 1024 * 1024 }]
+  assert.equal(pickVideoFile(noSeason, 1, undefined, 1).name, 'Show - 01.mkv')
+
+  // Several seasons inside one torrent: only the requested season is eligible.
+  const both = [
+    { name: 'Show S01E01 1080p.mkv', length: 300 * 1024 * 1024 },
+    { name: 'Show S02E01 1080p.mkv', length: 300 * 1024 * 1024 },
+  ]
+  assert.equal(pickVideoFile(both, 1, undefined, 2).name, 'Show S02E01 1080p.mkv')
+  assert.equal(pickVideoFile(both, 1, undefined, 1).name, 'Show S01E01 1080p.mkv')
+})
+
 test('pickVideoFile refuses a batch that does not name the episode', () => {
   const files = [
     { name: 'Show - 01.mkv', length: 300 * 1024 * 1024 },

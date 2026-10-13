@@ -20,9 +20,10 @@ import eztv from './eztv.js'
 import knaben from './knaben.js'
 import nyaa from './nyaa.js'
 import subsplease from './subsplease.js'
+import torrentsCsv from './torrents-csv.js'
 import yts from './yts.js'
 
-const indexers = { animetosho, apibay, eztv, knaben, nyaa, subsplease, yts }
+const indexers = { animetosho, apibay, eztv, knaben, nyaa, subsplease, 'torrents-csv': torrentsCsv, yts }
 
 // The indexers enabled for a content type, in configured order.
 //
@@ -56,14 +57,14 @@ export function indexerTypes() {
 // guard against a configuration with many more indexers or terms than this one.
 const MAX_CONCURRENT_REQUESTS = 24
 
-// The show title without the episode number: "Show 001" -> "Show". Used for indexers
-// that answer with every episode at once.
+// The show title without the episode or season token: "Show 001" -> "Show",
+// "Show S01" -> "Show". Used for indexers that answer with every episode at once.
 //
-// Only a token that actually looks like an episode number is stripped. Removing the
-// last word unconditionally ate a real word from any term that had no episode number
-// on the end, so "Attack on Titan" was searched as "Attack on".
+// Only a token that actually looks like an episode number or a season is stripped.
+// Removing the last word unconditionally ate a real word from any term that had no
+// episode number on the end, so "Attack on Titan" was searched as "Attack on".
 export function titleOf(term) {
-  return (term || '').replace(/\s+(?:S\d{1,2}E\d{1,4}|\d{1,4})$/, '').trim() || term
+  return (term || '').replace(/\s+(?:S\d{1,2}E\d{1,4}|S\d{1,2}|\d{1,4})$/, '').trim() || term
 }
 
 // A single slow indexer must not hold the whole search open. Every normal request

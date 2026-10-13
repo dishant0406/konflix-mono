@@ -175,6 +175,14 @@ test('every enabled indexer runs and returns rows of the documented shape', asyn
         { hash: HASH, filename: 'Stub.Show.S01E01.1080p.mkv', seeds: 0, size_bytes: 100 },
       ],
     },
+    // The row name has to carry the term this test searches with, because this
+    // indexer gates every row against it: it has no category field, so a row that
+    // does not name what was asked for cannot be trusted to be a result.
+    'https://torrents-csv.com/service/search': {
+      torrents: [
+        { infohash: HASH, name: 'Wiring Check torrents-csv Show 2020 1080p', size_bytes: 100, seeders: 5 },
+      ],
+    },
   }
 
   const originalGet = http.get

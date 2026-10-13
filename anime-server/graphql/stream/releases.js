@@ -40,8 +40,9 @@ export function parseAudio(title) {
 // Returns the episode number a release refers to, or null when the release is a
 // batch/season pack that does not identify a single episode.
 // Words that introduce a collection or a part number rather than an episode
-// number, for example "Season 01 Part 1 [1080p]".
-const PART_WORDS = /\b(?:part|vol\.?|volume|season|set|box|cour|movies?|films?)\s*$/i
+// number, for example "Season 01 Part 1 [1080p]". "Special" is included because
+// "Show S01 Special 1 1080p" is a special numbered 1, not episode 1.
+const PART_WORDS = /\b(?:part|vol\.?|volume|season|set|box|cour|movies?|films?|specials?)\s*$/i
 
 export function parseEpisode(title) {
   const patterns = [
@@ -82,8 +83,16 @@ export function parseEpisode(title) {
 // Series releases use "S01E05", and the season is part of the identity: "S02E05" is
 // a different episode from "S01E05". The anime path ignores the season because its
 // episode ids are a flat count, but the series path matches on both.
+//
+// A bare season token is matched as well as a full "SxxExx", because a season *pack*
+// names only the season ("Gyaarah Gyaarah S01 [1080p ...]"). Reading that as "no
+// season" is what let a season-2 pack satisfy a request for a season-1 episode.
+//
+// The digits are bounded so a resolution ("1080p") and a year ("S2020") are not read
+// as a season: "\b" fails after the "20" of "S2020" because the next character is
+// another digit, and "Season 1" is matched through its word.
 export function parseSeason(title) {
-  const match = /\bS(\d{1,2})E\d{1,4}\b/i.exec(words(title))
+  const match = /\bS(?:eason\s*)?(\d{1,2})(?:E\d{1,4})?\b/i.exec(words(title))
   return match ? Number.parseInt(match[1], 10) : null
 }
 
@@ -147,23 +156,11 @@ export function isBrowserPlayableFile(name) {
   return /\.(mp4|mkv)$/i.test(name || '')
 }
 
-// Ranks a release for a specific episode. Higher is better.
-//
-// Only releases that name the requested episode reach this point (see
-// rankReleases), so the episode match is not scored here.
-export function scoreRelease(release) {
-  const title = release.title
+// The quality signals a release carries, independent of whether it is the right shape
+// for the request. Shared by the episode scorer and the pack scorer so the two cannot
+// drift apart on what "better quality" means.
+function qualityScore(title) {
   let score = 0
-
-  const batch = isBatch(title)
-
-  // A release that names no episode is only acceptable as a single-file torrent,
-  // which openRelease verifies. A batch is a last resort, because picking the
-  // right file out of one is not reliable.
-  if (parseEpisode(title) === null) score += batch ? -10 : 0
-
-  if (batch) score -= 30
-  else score += 20
 
   // 1080p is the sweet spot for streaming: high quality without the very large
   // files of 2160p, which take much longer to buffer from a torrent.
@@ -181,7 +178,29 @@ export function scoreRelease(release) {
   if (audio === 'compressed') score += 10
   else if (audio === 'lossless') score -= 5 // needs an audio transcode
 
-if (/\b(web-?dl|web-?rip|bdrip|bluray)\b/i.test(title)) score += 5
+  if (/\b(web-?dl|web-?rip|bdrip|bluray)\b/i.test(title)) score += 5
+
+  return score
+}
+
+// Ranks a release for a specific episode. Higher is better.
+//
+// Reached by the `named` and `fallback` groups in rankReleases, so a release naming no
+// episode is scored too - which is what the batch and no-episode penalties below are
+// for. The season-pack group has its own scorer (see scorePacks).
+export function scoreRelease(release) {
+  const title = release.title
+  const batch = isBatch(title)
+
+  let score = qualityScore(title)
+
+  // A release that names no episode is only acceptable as a single-file torrent,
+  // which openRelease verifies. A batch is a last resort, because picking the
+  // right file out of one is not reliable.
+  if (parseEpisode(title) === null) score += batch ? -10 : 0
+
+  if (batch) score -= 30
+  else score += 20
 
   // Seeders only break ties, so a well-seeded 480p release never beats a 1080p one.
   score += Math.min(release.seeders || 0, 100) / 100
@@ -196,8 +215,6 @@ export function normalizeTitle(text) {
     .replace(/\s+/g, ' ')
     .trim()
 }
-
-
 
 // Release names usually begin with group and quality tags such as
 // "[SubsPlease]" or "[Group] ". Those are stripped before comparing titles.
@@ -416,6 +433,65 @@ export function matchesAnyTitle(releaseTitle, animeTitles) {
   return !wanted.some((title) => /[a-z]/.test(title))
 }
 
+// Whether a season pack holds the requested episode.
+//
+// A pack names the season instead of the episode, so it can only be used when its
+// season is the one being watched. Regional and Indian series are released almost
+// entirely as packs ("Gyaarah Gyaarah S01 [1080p ...]", "Panchayat S02 Complete ..."),
+// so without this a series that exists only as a pack reports "no torrent found" while
+// the indexers hold it with 71 seeders.
+//
+// A pack spanning several seasons is refused outright. It is many times the size of the
+// one being watched, and its file names restart at 01 for each season, so "S03E05.mkv"
+// is indistinguishable from "S01E05.mkv" by number alone. The anime path has no season
+// at all to disambiguate with, so a later season's pack could not be mapped onto it
+// either: "Shippuden S02" holds episodes 33-53 but names them 01-21, and reading file
+// "01" out of it would serve episode 33 as episode 1.
+function packSeasonMatches(title, season) {
+  // Both separators a range is written with: "S01-S05" and "S01 S05". Underscores and
+  // dots have already become spaces by this point, so "Show.S01.S05.Complete" arrives
+  // as "Show S01 S05 Complete" and has to be caught by the space form.
+  if (/S\d{1,2}(?:\s*[-~–—]\s*S?|\s+S)\d{1,2}\b/i.test(words(title))) return false
+
+  const releaseSeason = parseSeason(title)
+  if (releaseSeason === null) return false
+  // Only a first-season pack can be mapped onto the anime path, whose episode ids are a
+  // flat count starting where season 1 does.
+  if (season === null || season === undefined) return releaseSeason === 1
+  return releaseSeason === season
+}
+
+// Scores season packs for the last-resort group.
+//
+// Deliberately not scoreRelease: that scorer applies a -30 batch penalty, which is
+// right when a pack competes with a real episode but would drive a perfectly good pack
+// below zero and drop it from the list entirely - the exact bug this group exists to
+// fix. The group is already ordered last, so the batch penalty has nothing left to say.
+// What is scored here is the quality the pack actually carries, and the size is
+// subtracted so a pack covering a few episodes is preferred over one covering five
+// seasons.
+//
+// There is no positive floor and none is applied: the terse regional release names this
+// group exists for ("Show S01") carry no quality tag at all, and filtering on a positive
+// score would drop exactly those. Every release here already passed the title, codec and
+// season gates, so a low score means "no quality information", not "unusable".
+function scorePacks(packs) {
+  const SIZE_CAP = 64 * 1024 ** 3
+  return packs
+    .map((release) => ({
+      ...release,
+      score:
+        qualityScore(release.title) +
+        Math.min(release.seeders || 0, 100) / 100 -
+        Math.min(release.sizeBytes || 0, SIZE_CAP) / SIZE_CAP,
+    }))
+    .sort((a, b) => {
+      const tier = healthTier(a.seeders || 0) - healthTier(b.seeders || 0)
+      if (tier !== 0) return tier
+      return b.score - a.score
+    })
+}
+
 export function rankReleases(releases, episodeNumber, animeTitle, animeTitles, season) {
   const titles = animeTitles?.length ? animeTitles : [animeTitle]
 
@@ -435,7 +511,7 @@ export function rankReleases(releases, episodeNumber, animeTitle, animeTitles, s
   // a specific episode: they name no episode number, so they can never outrank one.
   const named = usable.filter((release) => parseEpisode(release.title) === episodeNumber)
 
-  // Fallbacks name no episode at all and are neither a movie/OVA nor a season pack.
+  // Fallbacks name no episode at all and are neither a movie/OVA nor a collection.
   // openRelease still has to confirm the torrent holds exactly one video file, so a
   // wrong pick is rejected there rather than played.
   const fallback = usable.filter(
@@ -446,7 +522,25 @@ export function rankReleases(releases, episodeNumber, animeTitle, animeTitles, s
       !isLikelyMovie(release.title),
   )
 
-  return [...scoreAll(named), ...scoreAll(fallback)]
+  // A season pack is a last resort, ordered after a release that names the episode and
+  // after a single-file fallback. It is admitted only when its season matches, which
+  // is what keeps a season-2 pack from satisfying a request for season 1 - the season
+  // gate in matchesEpisode already rejected a mismatched one, and this repeats the
+  // check because a pack is the one case where the wrong season is silently playable.
+  //
+  // Extras are excluded for the same reason the fallback group excludes them: a specials
+  // pack ("Show S01 Specials 1080p") names no episode, so it would otherwise be offered
+  // for a real episode of that season.
+  const packs = usable.filter(
+    (release) =>
+      !named.includes(release) &&
+      !fallback.includes(release) &&
+      !isExtra(release.title) &&
+      !isLikelyMovie(release.title) &&
+      packSeasonMatches(release.title, season),
+  )
+
+  return [...scoreAll(named), ...scoreAll(fallback), ...scorePacks(packs)]
 }
 
 // Builds the search terms used against the indexers.
@@ -461,9 +555,36 @@ export function rankReleases(releases, episodeNumber, animeTitle, animeTitles, s
 //   "Jujutsu Kaisen S01E05" -> more rows, 31 usable
 //
 // Searching every form is what turns "no playable source" into a real one, so the
-// terms are fanned out and the results merged. The list is capped because each term
-// costs one request per indexer.
+// terms are fanned out and the results merged.
 const MAX_TERMS = 8
+
+// Collects the terms for a set of titles, applying the cap per title variant.
+//
+// The cap is per variant rather than over the whole list, and for the current form
+// counts it does not bind: a series has at most 5 forms and an anime at most 4. It is
+// kept as a bound for a future form list rather than as the thing limiting the fan-out
+// today. What actually bounds the requests is the number of title variants a provider
+// supplies (AniList gives up to 3) multiplied by the form count, times the number of
+// indexers - which is why the fan-out is issued in bounded batches and the indexer
+// timeout exists.
+//
+// Capping the whole list instead is what this replaced: the first variant consumed the
+// budget and the rest lost their season and bare-title forms, which are the forms a
+// pack-only series is found by.
+function collectTerms(bases, formsFor) {
+  const terms = []
+  for (const base of bases) {
+    let added = 0
+    for (const form of formsFor()) {
+      const term = form ? `${base} ${form}` : base
+      if (terms.includes(term)) continue
+      terms.push(term)
+      added += 1
+      if (added >= MAX_TERMS) break
+    }
+  }
+  return terms
+}
 
 function episodeForms(episodeNumber) {
   const number = String(episodeNumber)
@@ -473,22 +594,8 @@ function episodeForms(episodeNumber) {
 }
 
 export function searchTerms(animeTitles, episodeNumber) {
-  const bases = (Array.isArray(animeTitles) ? animeTitles : [animeTitles])
-    // Unicode-aware so a CJK-only title survives instead of being stripped to
-    // nothing by an ASCII-only \w.
-    .map((title) => (title || '').replace(/[^\p{L}\p{N}\s-]/gu, ' ').replace(/\s+/g, ' ').trim())
-    .filter(Boolean)
-
-  const terms = []
-  for (const base of bases) {
-    const forms = episodeNumber ? episodeForms(episodeNumber) : ['']
-    for (const form of forms) {
-      const term = form ? `${base} ${form}` : base
-      if (!terms.includes(term)) terms.push(term)
-      if (terms.length >= MAX_TERMS) return terms
-    }
-  }
-  return terms
+  const bases = normalizeBases(animeTitles)
+return collectTerms(bases, () => (episodeNumber ? episodeForms(episodeNumber) : ['']))
 }
 
 // Series search terms.
@@ -497,27 +604,28 @@ export function searchTerms(animeTitles, episodeNumber) {
 // indexers match literally, so both forms are searched. The season is included
 // because series releases almost always carry it, and without it the search returns
 // every season of the show mixed together.
+//
+// The season alone and the bare title are searched last, and they are what make a
+// season-pack-only series findable. Regional and Indian series are released almost
+// entirely as packs ("Gyaarah Gyaarah S01 [1080p ...]", "Mirzapur S01 Hindi 1080p"),
+// and knaben requires every word of a term to match, so "Mirzapur S01E01" returns 0
+// hits where "Mirzapur S01" returns 15 and "Mirzapur" returns 100. They come last so
+// the episode-specific forms still decide the ordering whenever they return anything.
 export function seriesSearchTerms(titles, season, episodeNumber) {
   const bases = normalizeBases(titles)
   const seasonNumber = Number.parseInt(season, 10) || 1
   const episode = Number.parseInt(episodeNumber, 10)
   if (!Number.isFinite(episode)) return bases
 
-  const forms = [
-    `S${String(seasonNumber).padStart(2, '0')}E${String(episode).padStart(2, '0')}`,
+  const seasonTag = `S${String(seasonNumber).padStart(2, '0')}`
+
+  return collectTerms(bases, () => [
+    `${seasonTag}E${String(episode).padStart(2, '0')}`,
     String(episode).padStart(2, '0'),
     String(episode),
-  ]
-
-  const terms = []
-  for (const base of bases) {
-    for (const form of forms) {
-      const term = `${base} ${form}`
-      if (!terms.includes(term)) terms.push(term)
-      if (terms.length >= MAX_TERMS) return terms
-    }
-  }
-  return terms
+    seasonTag,
+    '',
+  ])
 }
 
 // Film search terms.
@@ -527,17 +635,13 @@ export function seriesSearchTerms(titles, season, episodeNumber) {
 // matches loosely, so a term without the year still finds the film.
 export function movieSearchTerms(titles, year) {
   const bases = normalizeBases(titles)
-  const terms = []
-  for (const base of bases) {
-    for (const term of year ? [`${base} ${year}`, base] : [base]) {
-      if (!terms.includes(term)) terms.push(term)
-      if (terms.length >= MAX_TERMS) return terms
-    }
-  }
-  return terms
+  return collectTerms(bases, () => (year ? [`${year}`, ''] : ['']))
 }
 
 // The comparable form of every title a work is known by.
+//
+// Unicode-aware (\p{L}\p{N}) so a CJK-only title survives instead of being stripped to
+// nothing by an ASCII-only \w.
 function normalizeBases(titles) {
   return (Array.isArray(titles) ? titles : [titles])
     .map((title) => (title || '').replace(/[^\p{L}\p{N}\s-]/gu, ' ').replace(/\s+/g, ' ').trim())

@@ -1,7 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { parseEpisode, isBatch, isExtra, isLikelyMovie, matchesAnyTitle, parseResolution, parseCodec, parseAudio, scoreRelease, rankReleases, searchTerms, isVideoFile, isRelevant, matchesEpisode } from '../graphql/stream/releases.js'
+import { parseEpisode, isBatch, isExtra, isLikelyMovie, matchesAnyTitle, parseResolution, parseCodec, parseAudio, scoreRelease, rankReleases, searchTerms, isVideoFile, isRelevant, matchesEpisode, parseSeason, seriesSearchTerms } from '../graphql/stream/releases.js'
+import { titleOf } from '../graphql/indexers/index.js'
 
 test('isVideoFile recognises video containers only', () => {
   assert.equal(isVideoFile('episode.mkv'), true)
@@ -432,4 +433,168 @@ test('a range release is penalised like the batch it is', () => {
     { title: '[SubsPlease] Bocchi the Rock! - 01 (1080p) [E04F4EFB].mkv', infoHash: 'b'.repeat(40), seeders: 12 },
   ]
   assert.equal(rankReleases(seeded, 1, titles[0], titles)[0].seeders, 56)
+})
+
+// --- season packs ------------------------------------------------------------
+//
+// Regional and Indian series are released almost entirely as season packs
+// ("Gyaarah Gyaarah S01 [1080p ...]", "Panchayat S02 Complete ..."), and a pack names
+// the season instead of the episode. Before this, every one of them was found by the
+// indexer and then discarded by the ranking, so a series that exists only as a pack
+// reported "no torrent found" while knaben and torrents-csv held it with 71 seeders.
+
+test('parseSeason reads a bare season token as well as SxxExx', () => {
+  // A pack names only the season, which is what made a season-2 pack look like it
+  // named no season at all - and therefore satisfy a request for season 1.
+  assert.equal(parseSeason('Gyaarah Gyaarah S01 [1080p WEB-DL x264]'), 1)
+  assert.equal(parseSeason('Panchayat S02 Complete Season 2 1080p'), 2)
+  assert.equal(parseSeason('Show.Season.3.1080p'), 3)
+
+  // The digits must not be read out of a resolution or a year.
+  assert.equal(parseSeason('Show 1080p WEB-DL'), null)
+  assert.equal(parseSeason('Show S2020 1080p'), null)
+  assert.equal(parseSeason('Show 05 1080p'), null)
+})
+
+test('a season pack is offered only for the season it covers', () => {
+  const titles = ['Panchayat']
+
+  const seasonOne = [{ title: 'Panchayat S01 1080p WEB-DL', infoHash: 'a'.repeat(40), seeders: 30 }]
+  assert.equal(rankReleases(seasonOne, 1, titles[0], titles, 1).length, 1, 'season 1 pack, season 1 request')
+
+  const seasonTwo = [{ title: 'Panchayat S02 Complete 1080p', infoHash: 'b'.repeat(40), seeders: 30 }]
+  assert.equal(rankReleases(seasonTwo, 1, titles[0], titles, 1).length, 0, 'season 2 pack must not satisfy season 1')
+
+  // The same pack is correct for its own season.
+  assert.equal(rankReleases(seasonTwo, 1, titles[0], titles, 2).length, 1)
+})
+
+test('a pack is ordered behind a release that names the episode', () => {
+  // A release naming the episode is always the better answer: it is the one episode
+  // rather than a whole season to reach it from.
+  const titles = ['Gyaarah Gyaarah']
+  const releases = [
+    { title: 'Gyaarah Gyaarah S01 [1080p WEB-DL x264 AAC Hindi]', infoHash: 'a'.repeat(40), seeders: 71 },
+    { title: 'Gyaarah Gyaarah S01E01 1080p WEB-DL', infoHash: 'b'.repeat(40), seeders: 2 },
+  ]
+
+  const ranked = rankReleases(releases, 1, titles[0], titles, 1)
+  assert.equal(ranked.length, 2)
+  assert.equal(ranked[0].infoHash, 'b'.repeat(40), 'the named episode wins despite far fewer seeders')
+  assert.equal(ranked[1].infoHash, 'a'.repeat(40))
+})
+
+test('a pack is a last resort, behind a single-file fallback too', () => {
+  const titles = ['Show']
+  const releases = [
+    { title: 'Show S01 1080p x264', infoHash: 'a'.repeat(40), seeders: 50 },
+    { title: 'Show 1080p WEB-DL x264', infoHash: 'b'.repeat(40), seeders: 50 },
+  ]
+
+  const ranked = rankReleases(releases, 1, titles[0], titles, 1)
+  assert.equal(ranked.length, 2)
+  assert.equal(ranked[0].infoHash, 'b'.repeat(40), 'the release naming no episode is not a pack and comes first')
+})
+
+test('the anime path admits only a first-season pack', () => {
+  // An anime episode id is a flat count with no season, so a later season's pack
+  // cannot be mapped onto it: Shippuden S02 holds episodes 33-53 but names its files
+  // 01-21, so reading file "01" out of it would serve episode 33 as episode 1.
+  const titles = ['Naruto Shippuden']
+  const first = [{ title: 'Naruto Shippuden S01 1080p', infoHash: 'a'.repeat(40), seeders: 20 }]
+  const second = [{ title: 'Naruto Shippuden S02 1080p', infoHash: 'b'.repeat(40), seeders: 20 }]
+
+  assert.equal(rankReleases(first, 1, titles[0], titles, null).length, 1)
+  assert.equal(rankReleases(second, 1, titles[0], titles, null).length, 0)
+})
+
+test('a series search asks for the season and the title, not only the episode', () => {
+  // knaben requires every word of a term to match, so an episode-bearing term finds
+  // nothing for a pack-only series. Measured: "Mirzapur S01E01" returns 0 hits where
+  // "Mirzapur S01" returns 15 and "Mirzapur" returns 100.
+  const terms = seriesSearchTerms(['Mirzapur'], 1, 1)
+  assert.ok(terms.includes('Mirzapur S01E01'), `got ${JSON.stringify(terms)}`)
+  assert.ok(terms.includes('Mirzapur S01'), `got ${JSON.stringify(terms)}`)
+  assert.ok(terms.includes('Mirzapur'), `got ${JSON.stringify(terms)}`)
+  // The episode-specific forms still come first, so they decide the ordering whenever
+  // they return anything.
+  assert.ok(terms.indexOf('Mirzapur S01E01') < terms.indexOf('Mirzapur S01'))
+})
+
+test('the title term is derived without eating a real word', () => {
+  assert.equal(titleOf('Show S01E01'), 'Show')
+  assert.equal(titleOf('Show S01'), 'Show')
+  assert.equal(titleOf('Show 001'), 'Show')
+  // No episode or season on the end, so nothing is stripped.
+  assert.equal(titleOf('Attack on Titan'), 'Attack on Titan')
+})
+
+test('a pack spanning several seasons is refused', () => {
+  // Its file names restart at 01 for each season, so "S03E05.mkv" is indistinguishable
+  // from "S01E05.mkv" by number alone, and for anime there is no season to check at all.
+  const titles = ['Show']
+  const spanning = [{ title: 'Show S01-S05 Complete 1080p x264', infoHash: 'a'.repeat(40), seeders: 50 }]
+  assert.equal(rankReleases(spanning, 5, titles[0], titles, 3).length, 0, 'series')
+  assert.equal(rankReleases(spanning, 5, titles[0], titles, null).length, 0, 'anime')
+  assert.equal(rankReleases(spanning, 1, titles[0], titles, 1).length, 0)
+})
+
+test('an extras pack is not offered as an episode', () => {
+  // A specials pack names no episode, so without this it lands in the pack group and is
+  // offered for a real episode of that season.
+  const titles = ['Show']
+  const specials = [{ title: 'Show S01 Specials 1080p x264', infoHash: 'a'.repeat(40), seeders: 50 }]
+  assert.equal(rankReleases(specials, 1, titles[0], titles, 1).length, 0)
+
+  const ovas = [{ title: 'Show S01 OVA 1080p', infoHash: 'b'.repeat(40), seeders: 50 }]
+  assert.equal(rankReleases(ovas, 1, titles[0], titles, 1).length, 0)
+})
+
+test('a pack with no quality tag is still offered', () => {
+  // The terse regional release names this group exists for carry no quality tag at all,
+  // so a pack must not be dropped for scoring low. It is the last resort, not an
+  // unusable release.
+  const titles = ['Show']
+  const bare = [{ title: 'Show S01', infoHash: 'a'.repeat(40), seeders: 0, sizeBytes: null }]
+  assert.equal(rankReleases(bare, 1, titles[0], titles, 1).length, 1)
+})
+
+test('every title variant keeps its season and title forms', () => {
+  // A show is known by several names and releases use them inconsistently. Capping the
+  // whole term list meant the first variant consumed the budget and the rest lost their
+  // season and bare-title forms - the forms a pack-only series is found by.
+  const terms = seriesSearchTerms(['Shingeki no Kyojin', 'Attack on Titan'], 1, 1)
+  assert.ok(terms.includes('Shingeki no Kyojin S01'), `got ${JSON.stringify(terms)}`)
+  assert.ok(terms.includes('Attack on Titan S01'), `got ${JSON.stringify(terms)}`)
+  assert.ok(terms.includes('Attack on Titan'), `got ${JSON.stringify(terms)}`)
+
+  // An anime has three variants from AniList, and the Japanese one is last.
+  const anime = searchTerms(['Attack on Titan', 'Shingeki no Kyojin', '進撃の巨人'], 1)
+  assert.ok(anime.some((term) => term.startsWith('進撃の巨人')), `got ${JSON.stringify(anime)}`)
+})
+
+test('a multi-season pack is refused in every form it is written', () => {
+  // Release names write a season range with a hyphen, a tilde, or a space, and
+  // underscores and dots have already become spaces by the time this runs. All of them
+  // mean the same thing: the file names inside restart at 01 for each season, so a file
+  // number alone cannot say which season it belongs to.
+  const titles = ['Show']
+  for (const title of [
+    'Show S01-S05 Complete 1080p x264',
+    'Show.S01.S05.Complete.1080p',
+    'Show S01 S05 1080p',
+    'Show S01~S05 Complete',
+  ]) {
+    const releases = [{ title, infoHash: 'a'.repeat(40), seeders: 50 }]
+    assert.equal(rankReleases(releases, 5, titles[0], titles, null).length, 0, `${title} (anime)`)
+    assert.equal(rankReleases(releases, 5, titles[0], titles, 3).length, 0, `${title} (series)`)
+  }
+})
+
+test('a special numbered 1 is not episode 1', () => {
+  // "Show S01 Special 1 1080p" parses to episode 1 and would otherwise land in the
+  // named group and outrank the real episode on seeders or resolution.
+  const titles = ['Show']
+  const special = [{ title: 'Show S01 Special 1 1080p x264', infoHash: 'a'.repeat(40), seeders: 99 }]
+  assert.equal(rankReleases(special, 1, titles[0], titles, 1).length, 0)
 })

@@ -128,6 +128,33 @@ has a torrent. The catalogue can list a title the indexers have nothing for, and
 watch page then says so honestly rather than showing a broken player. That is the
 ceiling of a torrent-based source layer, and no indexer change raises it.
 
+**Regional and Indian series are released as season packs, not episodes.** A pack names
+the season instead of the episode ("Gyaarah Gyaarah S01 [1080p ...]", "Panchayat S02
+Complete ..."), and three separate things had to be true before one could be served:
+
+- The search has to ask for it. knaben requires every word of a term to match, so
+  "Mirzapur S01E01" returns 0 hits where "Mirzapur S01" returns 15 and "Mirzapur"
+  returns 100. `seriesSearchTerms` therefore emits the season form and the bare title
+  after the episode forms, so the episode-specific terms still decide the ordering
+  whenever they return anything.
+- The ranking has to admit it. A pack is a *collection*, and `isBatch` correctly says
+  so, so packs are offered as a separate last-resort group behind both a release that
+  names the episode and a single-file fallback.
+- Its season has to be checked, and it was not. `parseSeason` only understood `SxxExx`,
+  so a pack's season read as `null` and `pickVideoFile` returned `S02E01.mkv` for a
+  request for `S01E01`. It now reads a bare `Sxx` and `Season N`, and a file naming a
+  different season is refused outright. For anime, whose episode ids are a flat count
+  with no season, only a first-season pack is admitted: "Shippuden S02" holds episodes
+  33-53 but names its files 01-21, so reading file 01 out of it would serve episode 33
+  as episode 1.
+
+`torrents-csv` is the indexer that makes these findable at all - it returned 4 rows
+(best 71 seeders) for "Gyaarah Gyaarah" where knaben, eztv, nyaa and subsplease each
+returned nothing. It is searched by title alone, because the endpoint matches a query as
+a whole phrase and has no episode syntax. It also has **no category field and no
+safe-search** - a query for "porn" returns adult rows - so its own term-relevance gate
+is the only filter, and it is deliberately stricter than the downstream one.
+
 **The Pirate Bay is reached through knaben, not directly.** knaben is a meta-search that
 aggregates The Pirate Bay, YTS, 1337x and Nyaa, and its rows carry the tracker they came
 from. Measured head-to-head on Indian films it returned a superset of a direct Pirate Bay

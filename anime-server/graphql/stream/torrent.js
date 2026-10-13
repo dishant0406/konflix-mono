@@ -98,8 +98,9 @@ function addTorrent(magnet, expectedInfoHash, timeoutMs = config.metadataTimeout
 // (samples, extras, a trailer) is smaller than it.
 //
 // `season` narrows the match for a series, where a single torrent can hold every
-// season. It is ignored when the torrent names no seasons at all, because plenty of
-// releases name only the episode.
+// season. A file naming a *different* season is rejected outright: the season is part
+// of the episode's identity, and a season pack is a case this server can now choose,
+// so "S02E01" must never satisfy a request for "S01E01".
 export function pickVideoFile(files, episodeNumber, minBytes = MIN_VIDEO_BYTES, season = null) {
   const videos = files.filter((file) => isVideoFile(file.name) && file.length >= minBytes)
   if (videos.length === 0) return null
@@ -109,18 +110,19 @@ export function pickVideoFile(files, episodeNumber, minBytes = MIN_VIDEO_BYTES, 
     return [...videos].sort((a, b) => b.length - a.length)[0]
   }
 
-  let matching = videos.filter((file) => parseEpisode(file.name) === episodeNumber)
-
-  // Several seasons of one show inside one torrent means the episode number alone is
-  // ambiguous. Only apply the season when it actually narrows the list: a release that
-  // names no season is still a valid match.
-  if (season !== null && season !== undefined && matching.length > 1) {
-    const inSeason = matching.filter((file) => {
-      const named = parseSeason(file.name)
-      return named === null || named === season
-    })
-    if (inSeason.length > 0) matching = inSeason
+  // A file that names a season other than the one requested is not this episode,
+  // whatever its number says. This is a hard filter rather than a narrowing one: it
+  // applies even when it would leave nothing, because serving the wrong season is
+  // worse than serving nothing.
+  const inSeason = (file) => {
+    if (season === null || season === undefined) return true
+    const named = parseSeason(file.name)
+    return named === null || named === season
   }
+
+  const matching = videos.filter(
+    (file) => parseEpisode(file.name) === episodeNumber && inSeason(file),
+  )
 
   if (matching.length > 0) {
     // Several files can match, for example an episode plus its preview or a v2
@@ -132,7 +134,7 @@ export function pickVideoFile(files, episodeNumber, minBytes = MIN_VIDEO_BYTES, 
   // one it must be the one requested. Holding exactly one file proves nothing
   // about which episode it is, and serving the wrong episode silently is worse
   // than serving nothing.
-  if (videos.length === 1) {
+  if (videos.length === 1 && inSeason(videos[0])) {
     return parseEpisode(videos[0].name) === null ? videos[0] : null
   }
 
@@ -265,7 +267,7 @@ async function openNewRelease(release, episodeNumber, timeoutMs, season = null) 
   // Otherwise it keeps holding sockets and disk, and because it was never added
   // to `active` the LRU eviction can never reclaim it.
   try {
-const file = pickVideoFile(torrent.files, episodeNumber, undefined, season)
+    const file = pickVideoFile(torrent.files, episodeNumber, undefined, season)
     if (!file) {
       throw new Error(`No playable video file in "${release.title}"`)
     }

@@ -90,14 +90,16 @@ export async function resolveFromSources(input) {
   const deadline = Date.now() + budget
 
   const fallbackReason = 'No stream source could serve this episode.'
-  let reason = fallbackReason
+  // Every source's reason is kept, not just the first. The first source is usually
+  // debrid, whose "nothing cached" says nothing about whether the relay then found a
+  // release but could not reach its peers - and that second case is the one worth
+  // showing, because it is a swarm problem rather than a missing release.
+  const reasons = []
 
   for (const source of active) {
     const remaining = deadline - Date.now()
     if (remaining <= 0) {
-      // Out of time before this source was even asked. Keep the more specific reason
-      // from the source that did run, if there is one.
-      if (reason === fallbackReason) reason = 'Timed out looking for a playable source.'
+      reasons.push('Timed out looking for a playable source.')
       break
     }
 
@@ -109,16 +111,19 @@ export async function resolveFromSources(input) {
       // rather than an expected failure. It must still not fail the request: the
       // next source may well have an answer.
       console.error(`[stream:${source.name}] threw: ${error?.message || error}`)
+      reasons.push(`The ${source.name} source failed.`)
       continue
     }
 
     if (result?.available) return { ...result, source: source.name }
-
-    // The first source is the most preferred one, so its reason describes the most
-    // relevant failure. Later sources are fallbacks and report something vaguer
-    // ("none could be played"), which is less useful to show than "nothing cached".
-    if (reason === fallbackReason && result?.reason) reason = result.reason
+    if (result?.reason) reasons.push(result.reason)
   }
 
+  if (reasons.length === 0) return { available: false, reason: fallbackReason }
+
+  // The last reason is the one from the source that got furthest: a source is only
+  // asked when the ones before it declined, so its answer is about the releases that
+  // actually survived. With one source this is simply its own reason.
+  const reason = reasons[reasons.length - 1]
   return { available: false, reason }
 }

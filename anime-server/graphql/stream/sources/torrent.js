@@ -39,7 +39,7 @@ export default {
       }
 
       try {
-const session = await openRelease(release, episodeNumber, remaining, season)
+        const session = await openRelease(release, episodeNumber, remaining, season)
         if (!isDirectlyPlayable(session.info) && !canRemux(session.info)) {
           failures.push(`${release.title}: unsupported ${session.info.videoCodec}`)
           continue
