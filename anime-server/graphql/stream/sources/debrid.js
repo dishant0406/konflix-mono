@@ -41,6 +41,8 @@ import { http } from '../../../lib/http.js'
 import { cached, forget } from '../../../lib/cache.js'
 import { toHexInfoHash, buildMagnet } from '../../../lib/magnet.js'
 import { isBrowserPlayableFile } from '../releases.js'
+import { containerFromBytes } from '../media.js'
+import { deliveryFor } from '../serve.js'
 import { pickVideoFile } from '../torrent.js'
 
 const API = 'https://api.torbox.app/v1/api/torrents'
@@ -209,7 +211,7 @@ const links = new Map()
 // A /dl token is a bearer credential: whoever holds it can watch the episode. It is
 // therefore generated from a CSPRNG rather than Math.random, which is not
 // cryptographically random and would make tokens guessable.
-export function registerDownload(torrentId, fileId) {
+export function registerDownload(torrentId, fileId, fileName, delivery) {
   // Expired entries are dropped first, so a burst of new links cannot evict a token
   // that someone is still watching with.
   const now = Date.now()
@@ -219,7 +221,7 @@ export function registerDownload(torrentId, fileId) {
   while (links.size >= MAX_LINKS) links.delete(links.keys().next().value)
 
   const token = randomBytes(24).toString('base64url')
-  links.set(token, { torrentId, fileId, expiresAt: now + LINK_TTL_MS })
+  links.set(token, { torrentId, fileId, fileName, delivery, expiresAt: now + LINK_TTL_MS })
   return token
 }
 
@@ -247,10 +249,74 @@ export function isAllowedDownloadUrl(value) {
   )
 }
 
+// How many bytes are needed to identify a container. Matroska puts its signature at
+// offset 0 and an ISO base media file puts `ftyp` at offset 4, so this is far more
+// than enough and still a single small range request.
+const SNIFF_BYTES = 64
+
 /**
- * Turns a /dl token into the CDN URL to fetch.
+ * How the bytes behind a CDN link should be delivered to the browser.
  *
- * @returns {Promise<string|null>} null when the token is unknown or expired.
+ * This reads the container signature rather than trusting the file name, because the
+ * name is not reliable: a live release was measured named `...mp4` whose bytes were
+ * Matroska. That file plays on a desktop and shows a dead play button on a phone, which
+ * is exactly the failure this decides against.
+ *
+ * Only the first bytes are fetched. The container is what determines whether a browser
+ * can open the file at all, and that is settled by the signature; codecs are not, so
+ * this does not try to answer them. An unsupported codec (HEVC, AV1) therefore still
+ * reaches the player and is reported by it.
+ *
+ * @returns {Promise<'file'|'remux'|null>} null when the container is unplayable, or when
+ *   the file could not be read - in which case nothing playable can be promised.
+ */
+async function sniffDelivery(url, fileName, timeoutMs) {
+  // The name is still used to reject what no container check would accept, and as the
+  // answer when the bytes cannot be read but the name is a playable one.
+  const byName = deliveryFor(fileName)
+
+  try {
+    const response = await http.get(url, {
+      headers: { range: `bytes=0-${SNIFF_BYTES - 1}` },
+      responseType: 'arraybuffer',
+      timeout: boundedTimeout(timeoutMs),
+      validateStatus: null,
+      maxRedirects: 0,
+    })
+
+    // A 3xx is not a body: there is nothing here to read a signature from, and the
+    // target is not followed because it has not been allowlisted. Falling back to the
+    // name is the right answer - the file is still playable, only its container is
+    // unconfirmed.
+    if (response.status >= 300 || !response.data) return byName
+
+    const container = containerFromBytes(Buffer.from(response.data))
+    if (container === 'mp4') return 'file'
+    // Matroska is not playable in a browser, so it must be remuxed. That is true even
+    // when the name says mp4, which is the case this exists for.
+    if (container === 'mkv') return 'remux'
+    // A recognised video whose bytes are neither container is still refused: the name
+    // was already checked, so this is the case where the two disagree and neither can
+    // be trusted.
+    return null
+  } catch (error) {
+    // A CDN that will not answer a range request is a reason to fall back to the name,
+    // not a reason to offer nothing: an unreadable header does not make a real file
+    // unplayable.
+    console.warn(`[stream:debrid] could not identify "${fileName}": ${redactToken(error.message)}`)
+    return byName
+  }
+}
+
+/**
+ * Turns a /dl token into the file to fetch.
+ *
+ * The file name is returned alongside the URL because it is what decides how the bytes
+ * are delivered: an MKV is remuxed on the way out, an MP4 is relayed as-is. That
+ * decision cannot be made from the URL, which is an opaque CDN path.
+ *
+ * @returns {Promise<{url: string, fileName: string}|null>} null when the token is
+ *   unknown or expired.
  */
 export async function resolveDownload(token) {
   const entry = links.get(token)
@@ -263,7 +329,7 @@ export async function resolveDownload(token) {
   try {
     // The link expires and the service asks that it not be stored, so it is resolved
     // per request and cached only briefly, well inside their own window.
-    return await cached(`torbox:dl:${entry.torrentId}:${entry.fileId}`, 60 * 1000, () =>
+    const url = await cached(`torbox:dl:${entry.torrentId}:${entry.fileId}`, 60 * 1000, () =>
       api('requestdl', {
         torrent_id: entry.torrentId,
         file_id: entry.fileId,
@@ -271,6 +337,7 @@ export async function resolveDownload(token) {
         token: config.torboxToken,
       }),
     )
+    return { url, fileName: entry.fileName, delivery: entry.delivery }
   } catch (error) {
     console.warn(`[stream:debrid] requestdl failed: ${redactToken(error.message)}`)
     return null
@@ -379,11 +446,26 @@ async function linkFor(release, episodeNumber, timeoutMs) {
   const file = pickVideoFile(playable, episodeNumber, 0)
   if (!file) return null
 
-  const dlToken = registerDownload(entry.torrentId, file.id)
+  // The extension cannot be trusted to say what the file is, so the container is read
+  // from the bytes. An MKV cannot be played by a mobile browser at all, and the relay
+  // already remuxes it; reporting the type honestly is what routes it through that path
+  // instead of handing the phone a container it will refuse.
+  const url = await cached(`torbox:url:${entry.torrentId}:${entry.fileId}`, 60 * 1000, () =>
+    api('requestdl', {
+      torrent_id: entry.torrentId,
+      file_id: entry.fileId,
+      // Required by this route in addition to the header. See api() above.
+      token: config.torboxToken,
+    }),
+  )
+
+  const delivery = await sniffDelivery(url, file.name, timeoutMs)
+  if (!delivery) return null
+
+  const dlToken = registerDownload(entry.torrentId, file.id, file.name, delivery)
   return {
     available: true,
     url: `${config.publicUrl}/dl/${dlToken}`,
-    // The browser plays the file directly, so it is a plain progressive source.
-    streamType: 'file',
+    streamType: delivery,
   }
 }

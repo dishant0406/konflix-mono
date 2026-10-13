@@ -5,8 +5,9 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
+import { Readable } from 'node:stream'
 
-import { parseRange, streamDirect } from '../graphql/stream/serve.js'
+import { parseRange, streamDirect, streamRemux } from '../graphql/stream/serve.js'
 import { pickVideoFile, overLimits } from '../graphql/stream/torrent.js'
 
 test('parseRange handles the range forms a browser sends', () => {
@@ -153,4 +154,70 @@ test('overLimits bounds disk as well as torrent count', () => {
   // Under the torrent count but over the byte budget: counting torrents alone does
   // not bound disk, because one episode can be larger than the whole budget.
   assert.equal(overLimits([entry(1000)], limits), true)
+})
+
+// The debrid path serves a remote file, so its remux input is an HTTP response body
+// rather than a torrent's download stream. That is the difference between the two
+// paths, and it is the one that was broken: an MKV was relayed as-is, which plays on a
+// desktop and shows a dead play button on a phone. This runs the whole thing for real -
+// a file on disk, served over HTTP, remuxed by the same function production calls.
+test('an mkv from a URL is remuxed into something a mobile browser can play', async (t) => {
+  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'konflix-serve-remux-'))
+  const mkvPath = path.join(workDir, 'episode.mkv')
+
+  execFileSync('ffmpeg', [
+    '-v', 'error', '-y',
+    '-f', 'lavfi', '-i', 'testsrc=size=160x120:rate=10',
+    '-f', 'lavfi', '-i', 'sine=frequency=440',
+    '-t', '2', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest',
+    mkvPath,
+  ])
+
+  // Stands in for the CDN: serves the file, and refuses anything else.
+  const cdn = http.createServer((req, res) => {
+    const body = fs.readFileSync(mkvPath)
+    res.writeHead(200, { 'Content-Type': 'application/octet-stream' })
+    res.end(body)
+  })
+  await new Promise((resolve) => cdn.listen(0, '127.0.0.1', resolve))
+
+  const app = http.createServer(async (req, res) => {
+    const upstream = await fetch(`http://127.0.0.1:${cdn.address().port}/`)
+    streamRemux(res, Readable.fromWeb(upstream.body))
+  })
+  await new Promise((resolve) => app.listen(0, '127.0.0.1', resolve))
+
+  t.after(async () => {
+    cdn.closeAllConnections()
+    app.closeAllConnections()
+    await new Promise((resolve) => cdn.close(resolve))
+    await new Promise((resolve) => app.close(resolve))
+    fs.rmSync(workDir, { recursive: true, force: true })
+  })
+
+  const response = await fetch(`http://127.0.0.1:${app.address().port}/`, {
+    headers: { Connection: 'close' },
+  })
+  assert.equal(response.status, 200)
+  // Always mp4, because that is what ffmpeg is producing. The old path forwarded the
+  // CDN's own content type, which is octet-stream for an mkv.
+  assert.equal(response.headers.get('content-type'), 'video/mp4')
+
+  const remuxed = Buffer.from(await response.arrayBuffer())
+  assert.ok(remuxed.length > 0, 'remux produced no bytes')
+
+  // The only check that matters: the bytes are a container and codecs a phone can play.
+  const outputPath = path.join(workDir, 'out.mp4')
+  fs.writeFileSync(outputPath, remuxed)
+  const probed = JSON.parse(
+    execFileSync('ffprobe', [
+      '-v', 'error',
+      '-show_entries', 'format=format_name:stream=codec_type,codec_name',
+      '-of', 'json',
+      outputPath,
+    ]).toString(),
+  )
+  assert.match(probed.format.format_name, /mp4/)
+  assert.equal(probed.streams.find((s) => s.codec_type === 'video').codec_name, 'h264')
+  assert.equal(probed.streams.find((s) => s.codec_type === 'audio').codec_name, 'aac')
 })

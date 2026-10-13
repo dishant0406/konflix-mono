@@ -17,6 +17,8 @@ import { http } from '../lib/http.js'
 import { config } from '../lib/config.js'
 import { toHexInfoHash } from '../lib/magnet.js'
 import { isBrowserPlayableFile } from '../graphql/stream/releases.js'
+import { deliveryFor } from '../graphql/stream/serve.js'
+import { containerFromBytes } from '../graphql/stream/media.js'
 import { pickVideoFile } from '../graphql/stream/torrent.js'
 import {
   resolveDownload,
@@ -88,10 +90,26 @@ test('a failing source does not fail the request, and its reason is reported', a
   assert.match(result.reason, /none could be played/i)
 })
 
+test('a debrid file is delivered the same way the relay would deliver it', () => {
+  // The relay remuxes MKV and relays MP4. The debrid path used to send everything as
+  // "file", which plays on a desktop (Chrome and Firefox have a Matroska demuxer,
+  // Chromium only from M145) and fails on every iOS browser and older Android ones -
+  // the player shows a play button and pressing it does nothing. This is the rule that
+  // keeps the two paths agreeing.
+  assert.equal(deliveryFor('Show - 01.mp4'), 'file')
+  assert.equal(deliveryFor('Show - 01.MP4'), 'file')
+  assert.equal(deliveryFor('Show - 01.mkv'), 'remux')
+  assert.equal(deliveryFor('Show - 01.MKV'), 'remux')
+  // A container no browser can open, with no remux that would help.
+  assert.equal(deliveryFor('Show - 01.avi'), null)
+  assert.equal(deliveryFor('Show - 01.txt'), null)
+  assert.equal(deliveryFor(''), null)
+  assert.equal(deliveryFor(undefined), null)
+})
+
 test('a debrid torrent is only offered as a browser-playable file', () => {
-  // MKV is accepted: it is not a web format, but it was verified playing directly in
-  // Chrome, H.264 and HEVC alike. A container the browser cannot open must still be
-  // rejected, because there is no remux on this path.
+  // Both extensions reach the picker, because both are playable once the delivery
+  // decision above has been applied. Anything else is rejected before it is offered.
   assert.equal(isBrowserPlayableFile('Show - 01.mp4'), true)
   assert.equal(isBrowserPlayableFile('Show - 01.MP4'), true)
   assert.equal(isBrowserPlayableFile('Show - 01.mkv'), true)
@@ -114,7 +132,7 @@ test('a file list with no sizes is still usable', () => {
 })
 
 test('the download token is opaque, and maps to the ids it was registered with', async (t) => {
-  const token = registerDownload(42, 7)
+  const token = registerDownload(42, 7, 'Show - 01.mkv')
   assert.match(token, /^[A-Za-z0-9_-]{32}$/)
 
   // An unknown token resolves to nothing rather than throwing, so a guessed token is
@@ -124,7 +142,11 @@ test('the download token is opaque, and maps to the ids it was registered with',
   // A registered token is exchanged for the CDN link, and the request must carry the
   // ids the token was registered with - not arbitrary ones.
   const calls = stubApi(t, { requestdl: { success: true, data: 'https://cdn.torbox.app/f.mp4' } })
-  assert.equal(await resolveDownload(token), 'https://cdn.torbox.app/f.mp4')
+  const download = await resolveDownload(token)
+  assert.equal(download.url, 'https://cdn.torbox.app/f.mp4')
+  // The file name travels with the link because it is what decides whether the bytes
+  // are relayed as-is or remuxed. Without it an MKV would be handed to the browser raw.
+  assert.equal(download.fileName, 'Show - 01.mkv')
   assert.equal(calls.length, 1)
   assert.equal(calls[0].params.torrent_id, 42)
   assert.equal(calls[0].params.file_id, 7)
@@ -142,7 +164,7 @@ test('requestdl sends the token as a query parameter, as that route requires', a
     config.torboxToken = previous
   })
 
-  const token = registerDownload(4242, 77)
+  const token = registerDownload(4242, 77, 'Show - 01.mp4')
   const calls = stubApi(t, { requestdl: { success: true, data: 'https://cdn.torbox.app/f.mp4' } })
   await resolveDownload(token)
 
@@ -385,4 +407,227 @@ test('a resolve whose budget is already spent does not call a source', async () 
   } finally {
     for (const [source, original] of originals) source.resolve = original
   }
+})
+
+test('an mkv release resolves as a remux, not as a directly playable file', async (t) => {
+  // The bug this pins: debrid reported every file as streamType "file", so an MKV was
+  // relayed untouched. That plays on a desktop and fails on a phone, where the player
+  // shows a play button that does nothing. The MKV must be reported as "remux" so the
+  // /dl handler runs it through ffmpeg, exactly as the torrent relay already does.
+  const previousToken = config.torboxToken
+  config.torboxToken = 'test-token'
+  const { forget } = await import('../lib/cache.js')
+  const debrid = (await import('../graphql/stream/sources/debrid.js')).default
+  forget('torbox:mylist')
+  forget(`torbox:checkcached:${HEX}`)
+
+  const mkvEntry = {
+    id: 42,
+    hash: HEX,
+    files: [{ id: 7, name: 'Show - 01.mkv', size: 1024 }],
+  }
+
+  const originalGet = http.get
+  http.get = async (url) => {
+    if (url.endsWith('checkcached')) {
+      return { data: { success: true, data: { [HEX]: { files: [{ name: 'Show - 01.mkv' }] } } } }
+    }
+    if (url.endsWith('mylist')) return { data: { success: true, data: [mkvEntry] } }
+    if (url.endsWith('requestdl')) {
+      return { data: { success: true, data: 'https://cdn.torbox.app/f.mkv' } }
+    }
+    throw new Error(`unstubbed request to ${url}`)
+  }
+
+  t.after(() => {
+    http.get = originalGet
+    config.torboxToken = previousToken
+    forget('torbox:mylist')
+    forget(`torbox:checkcached:${HEX}`)
+  })
+
+  const result = await debrid.resolve({
+    episodeNumber: 1,
+    ranked: [{ infoHash: HEX, title: 'Show - 01', magnet: `magnet:?xt=urn:btih:${HEX}` }],
+    deadlineMs: 5000,
+  })
+
+  assert.equal(result.available, true, result.reason)
+  assert.equal(result.streamType, 'remux')
+
+  // And the file name reaches the /dl handler, which is what actually applies the rule.
+  const token = result.url.split('/').pop()
+  const download = await resolveDownload(token)
+  assert.equal(download.fileName, 'Show - 01.mkv')
+})
+
+test('the container is read from the bytes, not from the file name', () => {
+  // A real release was measured named `...mp4` whose bytes were Matroska. Trusting the
+  // name relays it untouched, which plays on a desktop and shows a dead play button on
+  // a phone. This is the signature check that catches it.
+  const matroska = Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x42, 0x86, 0x81, 0x01])
+  const mp4 = Buffer.concat([Buffer.from([0, 0, 0, 0x1c]), Buffer.from('ftypiso5', 'latin1')])
+
+  assert.equal(containerFromBytes(matroska), 'mkv')
+  assert.equal(containerFromBytes(mp4), 'mp4')
+  // Not a container this server can serve.
+  assert.equal(containerFromBytes(Buffer.from('GIF89a', 'latin1')), null)
+  assert.equal(containerFromBytes(Buffer.alloc(0)), null)
+})
+
+test('a file named .mp4 whose bytes are matroska resolves as a remux', async (t) => {
+  // The whole point of sniffing: the name says mp4, the bytes say Matroska, and the
+  // bytes win. Without this the release is relayed raw and no mobile browser can play it.
+  const previousToken = config.torboxToken
+  config.torboxToken = 'test-token'
+  const { forget } = await import('../lib/cache.js')
+  const debrid = (await import('../graphql/stream/sources/debrid.js')).default
+  forget('torbox:mylist')
+  forget(`torbox:checkcached:${HEX}`)
+  forget('torbox:url:42:7')
+
+  // Named .mp4, but the bytes are an EBML header.
+  const lyingEntry = {
+    id: 42,
+    hash: HEX,
+    files: [{ id: 7, name: 'Show - 01.mp4', size: 1024 }],
+  }
+
+  const originalGet = http.get
+  http.get = async (url, options) => {
+    if (url.endsWith('checkcached')) {
+      return { data: { success: true, data: { [HEX]: { files: [{ name: 'Show - 01.mp4' }] } } } }
+    }
+    if (url.endsWith('mylist')) return { data: { success: true, data: [lyingEntry] } }
+    if (url.endsWith('requestdl')) {
+      return { data: { success: true, data: 'https://cdn.torbox.app/f.mp4' } }
+    }
+    // The container sniff. This is the request that decides the answer.
+    if (url === 'https://cdn.torbox.app/f.mp4') {
+      assert.match(options.headers.range, /^bytes=0-\d+$/, 'the sniff must ask for a range')
+      return {
+        status: 206,
+        data: Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x42, 0x86, 0x81, 0x01]),
+      }
+    }
+    throw new Error(`unstubbed request to ${url}`)
+  }
+
+  t.after(() => {
+    http.get = originalGet
+    config.torboxToken = previousToken
+    forget('torbox:mylist')
+    forget(`torbox:checkcached:${HEX}`)
+    forget('torbox:url:42:7')
+  })
+
+  const result = await debrid.resolve({
+    episodeNumber: 1,
+    ranked: [{ infoHash: HEX, title: 'Show - 01', magnet: `magnet:?xt=urn:btih:${HEX}` }],
+    deadlineMs: 5000,
+  })
+
+  assert.equal(result.available, true, result.reason)
+  assert.equal(result.streamType, 'remux', 'matroska bytes must win over an mp4 name')
+
+  // The decision travels on the token, so /dl does not have to sniff again per request.
+  const token = result.url.split('/').pop()
+  const download = await resolveDownload(token)
+  assert.equal(download.delivery, 'remux')
+})
+
+test('a genuine mp4 is relayed rather than remuxed', async (t) => {
+  // The other half of the rule: sniffing must not send everything through ffmpeg, which
+  // would cost a stream copy and break seeking for files that were already playable.
+  const previousToken = config.torboxToken
+  config.torboxToken = 'test-token'
+  const { forget } = await import('../lib/cache.js')
+  const debrid = (await import('../graphql/stream/sources/debrid.js')).default
+  forget('torbox:mylist')
+  forget(`torbox:checkcached:${OTHER}`)
+  forget('torbox:url:99:8')
+
+  const entry = { id: 99, hash: OTHER, files: [{ id: 8, name: 'Show - 01.mp4', size: 1024 }] }
+  const originalGet = http.get
+  http.get = async (url) => {
+    if (url.endsWith('checkcached')) {
+      return { data: { success: true, data: { [OTHER]: { files: [{ name: 'Show - 01.mp4' }] } } } }
+    }
+    if (url.endsWith('mylist')) return { data: { success: true, data: [entry] } }
+    if (url.endsWith('requestdl')) {
+      return { data: { success: true, data: 'https://cdn.torbox.app/real.mp4' } }
+    }
+    if (url === 'https://cdn.torbox.app/real.mp4') {
+      return {
+        status: 206,
+        data: Buffer.concat([Buffer.from([0, 0, 0, 0x1c]), Buffer.from('ftypiso5', 'latin1')]),
+      }
+    }
+    throw new Error(`unstubbed request to ${url}`)
+  }
+
+  t.after(() => {
+    http.get = originalGet
+    config.torboxToken = previousToken
+    forget('torbox:mylist')
+    forget(`torbox:checkcached:${OTHER}`)
+    forget('torbox:url:99:8')
+  })
+
+  const result = await debrid.resolve({
+    episodeNumber: 1,
+    ranked: [{ infoHash: OTHER, title: 'Show - 01', magnet: `magnet:?xt=urn:btih:${OTHER}` }],
+    deadlineMs: 5000,
+  })
+
+  assert.equal(result.available, true, result.reason)
+  assert.equal(result.streamType, 'file')
+})
+
+test('a redirect on the container sniff falls back to the file name', async (t) => {
+  // A CDN answering the sniff with a 3xx sends no body to read a signature from. That
+  // is a missing answer, not a bad file: the name was already checked, so the release
+  // must still be offered rather than dropped. Treating the 3xx as "unknown container"
+  // returned null, which silently removed every release behind a redirecting CDN.
+  const previousToken = config.torboxToken
+  config.torboxToken = 'test-token-redirect'
+  const { forget } = await import('../lib/cache.js')
+  const debrid = (await import('../graphql/stream/sources/debrid.js')).default
+  forget('torbox:mylist')
+  forget(`torbox:checkcached:${OTHER}`)
+  forget('torbox:url:99:8')
+
+  const entry = { id: 99, hash: OTHER, files: [{ id: 8, name: 'Show - 01.mp4', size: 1024 }] }
+  const originalGet = http.get
+  http.get = async (url) => {
+    if (url.endsWith('checkcached')) {
+      return { data: { success: true, data: { [OTHER]: { files: [{ name: 'Show - 01.mp4' }] } } } }
+    }
+    if (url.endsWith('mylist')) return { data: { success: true, data: [entry] } }
+    if (url.endsWith('requestdl')) {
+      return { data: { success: true, data: 'https://cdn.torbox.app/redirect.mp4' } }
+    }
+    if (url === 'https://cdn.torbox.app/redirect.mp4') {
+      return { status: 302, data: Buffer.alloc(0) }
+    }
+    throw new Error(`unstubbed request to ${url}`)
+  }
+
+  t.after(() => {
+    http.get = originalGet
+    config.torboxToken = previousToken
+    forget('torbox:mylist')
+    forget(`torbox:checkcached:${OTHER}`)
+    forget('torbox:url:99:8')
+  })
+
+  const result = await debrid.resolve({
+    episodeNumber: 1,
+    ranked: [{ infoHash: OTHER, title: 'Show - 01', magnet: `magnet:?xt=urn:btih:${OTHER}` }],
+    deadlineMs: 5000,
+  })
+
+  assert.equal(result.available, true, result.reason)
+  // The name says mp4 and nothing contradicted it, so it is relayed.
+  assert.equal(result.streamType, 'file')
 })

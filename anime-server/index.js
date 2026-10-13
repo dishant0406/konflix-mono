@@ -17,7 +17,7 @@ import { http } from './lib/http.js'
 import { prepareCacheDir } from './lib/cacheDir.js'
 import { provider, providerNames } from './graphql/providers/index.js'
 import { enabledIndexers, indexerNames, indexerStatus } from './graphql/indexers/index.js'
-import { serveStream } from './graphql/stream/serve.js'
+import { serveStream, streamRemux, deliveryFor } from './graphql/stream/serve.js'
 import { sessionCount, cacheSizeBytes, closeAll } from './graphql/stream/torrent.js'
 import { activeSources, sourceNames, sourceStatus } from './graphql/stream/sources/index.js'
 import { resolveDownload, isAllowedDownloadUrl } from './graphql/stream/sources/debrid.js'
@@ -107,20 +107,20 @@ app.get('/dl/:token', async (req, res, next) => {
   }
 
   try {
-    const url = await resolveDownload(token)
+    const entry = await resolveDownload(token)
     // Unknown and expired tokens are the same answer, so a token cannot be probed.
-    if (!url) {
+    if (!entry) {
       res.status(404).json({ error: 'This download link has expired. Reload the episode.' })
       return
     }
 
-    if (!isAllowedDownloadUrl(url)) {
+    if (!isAllowedDownloadUrl(entry.url)) {
       // The hostname is logged because the provider rotates its CDN domain, and this
       // is the only place the new one becomes visible. The URL itself is not logged:
       // it carries the API key in its query string.
       let host = 'unparseable'
       try {
-        host = new URL(url).hostname
+        host = new URL(entry.url).hostname
       } catch {
         // Leave the placeholder; the link was malformed, which the check already
         // treats as a refusal.
@@ -133,6 +133,29 @@ app.get('/dl/:token', async (req, res, next) => {
       return
     }
 
+    // How this file reaches the browser was decided when the link was minted, by reading
+    // the container signature from the file's first bytes. The extension is not trusted:
+    // a live release was named `.mp4` while its bytes were Matroska, which plays on a
+    // desktop and shows a dead play button on a phone. The decision is carried on the
+    // token so it is made once, at resolve time, rather than on every range request.
+    const delivery = entry.delivery || deliveryFor(entry.fileName)
+    if (!delivery) {
+      res.status(415).json({ error: 'This release is not a format a browser can play.' })
+      return
+    }
+
+    if (delivery === 'remux') {
+      const remuxResponse = await fetchDownload(entry.url, {})
+      if (typeof remuxResponse === 'number') {
+        console.warn(`[dl] the download service answered ${remuxResponse}`)
+        res.status(502).json({ error: 'The download service could not serve this file.' })
+        return
+      }
+      // fetchDownload returns the response; the stream is its body.
+      streamRemux(res, remuxResponse.data)
+      return
+    }
+
     // Range and conditional headers are forwarded so the viewer's player can seek and
     // resume. Everything else is dropped: this is a fetch of a known URL, not an open
     // proxy, and forwarding arbitrary headers would leak the viewer's cookies.
@@ -141,40 +164,30 @@ app.get('/dl/:token', async (req, res, next) => {
       if (req.headers[name]) headers[name] = req.headers[name]
     }
 
-    const upstream = await http.get(url, {
-      headers,
-      responseType: 'stream',
-      // No timeout on the body. axios applies its timeout to the whole response,
-      // including the stream, so a fixed value would abort an episode partway
-      // through. The request only has to reach the CDN, which the connect timeout
-      // below bounds.
-      timeout: 0,
-      validateStatus: null,
-    })
-
-    // A 3xx would otherwise be followed silently into a host we did not allowlist.
-    if (upstream.status >= 300 && upstream.status < 400) {
-      upstream.data.destroy()
-      res.status(502).json({ error: 'The download service returned a redirect.' })
-      return
-    }
-
-    // An error from the CDN is its own HTML page, which would be handed to the video
-    // element as a body it cannot play. Report it as an error instead.
-    if (upstream.status >= 400) {
-      upstream.data.destroy()
-      console.warn(`[dl] the download service answered ${upstream.status}`)
+    const upstream = await fetchDownload(entry.url, headers)
+    if (typeof upstream === 'number') {
+      console.warn(`[dl] the download service answered ${upstream}`)
       res.status(502).json({ error: 'The download service could not serve this file.' })
       return
     }
 
-    const passthrough = ['content-length', 'content-range', 'accept-ranges', 'content-type']
+    const passthrough = ['content-length', 'content-range', 'accept-ranges']
     for (const name of passthrough) {
       const value = upstream.headers[name]
       if (value) res.setHeader(name, value)
     }
     // Seeking depends on this being advertised, and the CDN does not always send it.
     if (!upstream.headers['accept-ranges']) res.setHeader('Accept-Ranges', 'bytes')
+    // A remuxed stream is always video/mp4; a relayed one keeps the CDN's own type,
+    // which is not reliable (`application/octet-stream` is common). A video type is
+    // therefore sent whenever the CDN does not name one. Media elements treat
+    // octet-stream as "no type given" and sniff the container, so this is for players
+    // and tooling that trust the header rather than a fix for playback.
+    const upstreamType = upstream.headers['content-type']
+    res.setHeader(
+      'Content-Type',
+      upstreamType && !upstreamType.includes('octet-stream') ? upstreamType : 'video/mp4',
+    )
     res.setHeader('Cache-Control', 'private, max-age=3600')
 
     res.writeHead(upstream.status)
@@ -185,6 +198,33 @@ app.get('/dl/:token', async (req, res, next) => {
     next(error)
   }
 })
+
+// Fetches an allowlisted CDN link and returns its response, or the status code when
+// the CDN refused. Returning a number rather than throwing keeps the "the service
+// said no" case separate from "the request failed", which are reported differently.
+//
+// A 3xx is refused rather than followed, because following one would leave the
+// allowlist behind.
+async function fetchDownload(url, headers) {
+  const upstream = await http.get(url, {
+    headers,
+    responseType: 'stream',
+    // No timeout on the body. axios applies its timeout to the whole response,
+    // including the stream, so a fixed value would abort an episode partway through.
+    // The request only has to reach the CDN, which the connect timeout bounds.
+    timeout: 0,
+    validateStatus: null,
+    maxRedirects: 0,
+  })
+
+  // A redirect, or an error page from the CDN, is not a body a video element can play.
+  if (upstream.status >= 300) {
+    upstream.data.destroy()
+    return upstream.status
+  }
+
+  return upstream
+}
 
 // Reports what is actually reachable right now, so a broken indexer, a missing
 // ffmpeg or an unconfigured stream source is visible before a user hits it.

@@ -156,7 +156,11 @@ const Watch = () => {
         ? {
             type: 'video',
             title: stream.animeNameWithEP || 'Episode',
-            sources: [{ src: stream.url, type: 'video/mp4' }],
+            // No `type` on the source. The API remuxes MKV into a fragmented MP4 but
+            // relays MP4 as-is, and the same extension can carry different codecs, so
+            // any declared MIME type here would be a guess. The browser sniffs the
+            // container either way, and a wrong type can only mislead it.
+            sources: [{ src: stream.url }],
           }
         : null,
     [stream?.url, stream?.animeNameWithEP],
@@ -251,16 +255,22 @@ const Watch = () => {
                   ref={playerRef}
                   options={PLYR_OPTIONS}
                   source={playerSource}
-                  // The source is resolved server-side and can point at a third
-                  // party (the debrid CDN) or at this API (the torrent relay). A
-                  // browser refusing to play it is reported instead of leaving a
-                  // blank player, which is otherwise indistinguishable from a
-                  // stream that is merely slow to buffer.
-                  onError={() =>
+                  // The source is resolved server-side and points at this API, which
+                  // either relays the file or remuxes it. A browser refusing to play it
+                  // is reported instead of leaving a blank player, which is otherwise
+                  // indistinguishable from a stream that is merely slow to buffer.
+                  //
+                  // The event is inspected rather than assumed: the common real failure
+                  // is a codec the browser lacks, and reporting "could not play" with no
+                  // detail is what makes that look like a broken site.
+                  onError={(event) => {
+                    const mediaError = event?.target?.error || event?.currentTarget?.error
                     setPlaybackError(
-                      'Your browser could not play this file. The release may use a codec it does not support.',
+                      mediaError?.code === 4
+                        ? 'Your browser cannot play this file. The release uses a codec it does not support.'
+                        : 'Playback failed. The stream may have expired - reload the episode to try again.',
                     )
-                  }
+                  }}
                 />
               </div>
               {playbackError && (

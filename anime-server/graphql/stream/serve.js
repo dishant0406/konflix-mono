@@ -20,6 +20,41 @@ import { isDirectlyPlayable, canRemux, startRemux, pipeInto } from './media.js'
 // Plain Node response helpers. Using res.writeHead/res.end rather than Express
 // helpers keeps this module usable from any HTTP server, which is also what makes
 // it testable without spinning up Express.
+// Directly playable in a browser, by file name alone.
+//
+// The container decides this, and the container is visible in the extension, so this
+// needs no probe: an MP4 is played as-is and an MKV is remuxed. That matters because
+// the alternative - probing the file - costs a fetch of up to the probe size, which
+// was measured at 1.5-3.3s per episode against the debrid CDN.
+//
+// Codec is deliberately not checked here. Every mainstream release is H.264, and the
+// codecs are not visible in the name, so a probe would be the only way to find the
+// exception. An unsupported codec (HEVC, AV1) therefore reaches the player and is
+// reported by it rather than being caught here. The torrent relay makes the same
+// trade-off, and its probe is a side effect of having the bytes locally anyway.
+export function isDirectlyPlayableFile(name) {
+  return /\.mp4$/i.test(name || '')
+}
+
+// How the bytes for a file should be sent to a browser.
+//
+//   "file"  the browser can play it as it is, so the bytes are relayed with range
+//           support and seeking works.
+//   "remux" the container is not one a browser can play (MKV), so ffmpeg stream-copies
+//           it into a fragmented MP4 on the way out.
+//   null    nothing can play it.
+//
+// The reason this exists in one place is that getting it wrong is invisible on a
+// desktop and fatal on a phone. An MKV served as-is plays in Chrome and Firefox, which
+// have a Matroska demuxer (Chromium only from M145), and fails on every iOS browser and
+// on older Android ones - the player shows a play button and pressing it does nothing.
+// The debrid source used to send every file as "file", which is exactly that bug.
+export function deliveryFor(name) {
+  if (isDirectlyPlayableFile(name)) return 'file'
+  if (/\.mkv$/i.test(name || '')) return 'remux'
+  return null
+}
+
 function sendError(res, status, message) {
   const body = JSON.stringify({ error: message })
   res.writeHead(status, {
@@ -97,7 +132,12 @@ export function streamDirect(req, res, session) {
   pipeRange(res, session, range)
 }
 
-export function streamRemux(res, session) {
+// Remuxes an MKV into a fragmented MP4 and pipes it to the response.
+//
+// `source` is whatever the bytes come from - the torrent's download stream, or the
+// debrid CDN's response body - because the reason to remux is the container, not the
+// origin. The relay and the debrid path both end up here for MKV releases.
+export function streamRemux(res, source) {
   res.setHeader('Content-Type', 'video/mp4')
   // ffmpeg writes a fragmented MP4 as it goes, so there is no total length to
   // advertise and no way to seek backwards. A player must therefore start from the
@@ -107,9 +147,6 @@ export function streamRemux(res, session) {
 
   const ffmpeg = startRemux()
 
-  // Bytes are pulled from the torrent as ffmpeg consumes them, so the source is the
-  // download stream rather than a path on disk.
-  const source = session.file.createReadStream()
   source.on('error', () => res.destroy())
   pipeInto(source, ffmpeg.stdin)
 
@@ -151,7 +188,9 @@ export function serveStream(req, res, infoHash) {
   }
 
   if (canRemux(session.info)) {
-    streamRemux(res, session)
+    // Bytes are pulled from the torrent as ffmpeg consumes them, so the source is the
+    // download stream rather than a path on disk.
+    streamRemux(res, session.file.createReadStream())
     return
   }
 

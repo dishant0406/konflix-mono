@@ -14,11 +14,22 @@
 // the tool consumes it.
 
 import { execFile, spawn } from 'node:child_process'
+
 import { config } from '../../lib/config.js'
 
 // Enough header for any real release, while still bounded: a header is read once per
 // candidate, and an unbounded read would download an entire episode to probe it.
 const PROBE_SIZE_BYTES = 20 * 1024 * 1024
+
+// Reads only what is needed to identify the streams, from stdin.
+const PROBE_ARGS = [
+  '-v', 'error',
+  '-show_entries', 'format=format_name,duration:stream=codec_type,codec_name',
+  '-of', 'json',
+  // Bounded so ffprobe cannot download most of a file just to identify it.
+  '-probesize', String(PROBE_SIZE_BYTES),
+  '-i', 'pipe:0',
+]
 
 // Streams the torrent's bytes into a child process's stdin.
 //
@@ -60,18 +71,7 @@ function collect(process) {  return new Promise((resolve, reject) => {
 
 // Runs ffprobe against a torrent file, reading it through the download stream.
 export async function probeFile(file, timeoutMs = config.probeTimeoutMs) {
-  const ffprobe = spawn(
-    'ffprobe',
-    [
-      '-v', 'error',
-      '-show_entries', 'format=format_name,duration:stream=codec_type,codec_name',
-      '-of', 'json',
-      // Bounded so ffprobe cannot download most of a file just to identify it.
-      '-probesize', String(PROBE_SIZE_BYTES),
-      '-i', 'pipe:0',
-    ],
-    { stdio: ['pipe', 'pipe', 'pipe'] },
-  )
+  const ffprobe = spawn('ffprobe', PROBE_ARGS, { stdio: ['pipe', 'pipe', 'pipe'] })
 
   const source = file.createReadStream()
   source.on('error', () => ffprobe.kill('SIGKILL'))
@@ -115,6 +115,25 @@ export function isDirectlyPlayable(info) {
   if (!containers.includes('mp4')) return false
   if (info.videoCodec !== 'h264') return false
   return ['aac', 'mp3', null].includes(info.audioCodec)
+}
+
+// The container a file really is, read from its first bytes.
+//
+// The file name cannot be trusted for this. A real release was measured naming its file
+// `.mp4` while the bytes were Matroska, which is precisely the case that plays on a
+// desktop and fails on a phone. The container signature is in the first few bytes, so
+// sniffing costs one small range request rather than the whole file.
+//
+//   EBML (1A 45 DF A3)   Matroska / WebM
+//   "ftyp" at offset 4   ISO base media (MP4 and relatives)
+//
+// @returns {'mp4'|'mkv'|null} null when the bytes are not a recognised container.
+export function containerFromBytes(buffer) {
+  if (buffer.length >= 4 && buffer[0] === 0x1a && buffer[1] === 0x45 && buffer[2] === 0xdf && buffer[3] === 0xa3) {
+    return 'mkv'
+  }
+  if (buffer.length >= 8 && buffer.toString('latin1', 4, 8) === 'ftyp') return 'mp4'
+  return null
 }
 
 // A remux (stream copy) is cheap and keeps the original quality. It can fix the
