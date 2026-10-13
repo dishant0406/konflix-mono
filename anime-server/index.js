@@ -237,7 +237,7 @@ app.get('/dl/:token', async (req, res, next) => {
 app.get('/dl/:token/:segment', async (req, res, next) => {
   const { segment } = req.params
   // An untrusted path segment, so the shape is validated before it is used as a key.
-  const token = [REDACTED]
+  const token = req.params.token
   if (!/^[A-Za-z0-9_-]{32}$/.test(token)) {
     res.status(400).json({ error: 'Invalid download token.' })
     return

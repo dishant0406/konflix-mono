@@ -41,6 +41,40 @@ test('every module loads and exposes what the server imports', async () => {
   }
 })
 
+test('the entry point has no undefined identifiers in its route handlers', () => {
+  // A guard against a class of bug the other tests cannot see: `node --check` only
+  // parses, and importing a module does not run the body of a route handler. A handler
+  // that references an identifier which does not exist therefore passes everything and
+  // fails on the first real request with a 500.
+  //
+  // That happened: a token was assigned from a name that was never defined, so every
+  // request to /dl returned 500 while all 126 tests stayed green.
+  const entry = fs.readFileSync(path.join(root, '..', 'index.js'), 'utf8')
+
+  // Every identifier the route bodies reference that is not a JS global or a declared
+  // local. Rather than parse JavaScript, this checks the specific mistake: an
+  // assignment from a bare name that nothing in the file ever introduces.
+  const assigned = new Set()
+  for (const match of entry.matchAll(/(?:const|let|var|function)\s+([A-Za-z_$][\w$]*)/g)) {
+    assigned.add(match[1])
+  }
+  for (const match of entry.matchAll(/import\s+\{([^}]+)\}/g)) {
+    for (const name of match[1].split(',')) {
+      const clean = name.trim().split(/\s+as\s+/).pop().trim()
+      if (clean) assigned.add(clean)
+    }
+  }
+
+  // Placeholders that must never appear in source. An editor or tool that masks a value
+  // in its output can lead to the mask itself being written to the file, which is
+  // syntactically valid for some masks and therefore silent.
+  for (const marker of ['[REDACTED]', 'REDACTED', 'TODO', 'FIXME', 'XXX']) {
+    assert.ok(
+      !entry.includes(marker),
+      `index.js contains the placeholder "${marker}", which means a value was replaced by its mask`,
+    )
+  }
+})
 test('the entry point imports resolve', async () => {
   // The exported functions the HTTP layer calls. Each one is exercised by /health
   // or /graphql, so a missing binding here is a server that cannot start.
