@@ -357,6 +357,43 @@ jobs:
               ;;
           esac
 
+          # A series episode, which is the path that broke silently: "Gyaarah Gyaarah"
+          # reported "no playable source" because its only releases are season packs,
+          # and nothing here exercised the series route at all. The title is regional
+          # and pack-only on purpose - a western series resolves through the same
+          # episode-named releases the anime check already covers, so it would not have
+          # caught this.
+          echo "Checking a series episode resolves from a season pack"
+          series=$(curl -sS -X POST "$PUBLIC_URL/graphql" \
+            -H 'Content-Type: application/json' \
+            -d '{"query":"{ streamLinkDetails(id:\"series-tt26915338-s1e1\"){ available release reason } }"}')
+          case "$series" in
+            *'"available":true'*) echo "series resolved: $(printf '%s' "$series" | sed -n 's/.*"release":"\([^"]*\)".*/\1/p')" ;;
+            *)
+              echo "the series episode did not resolve: $series" >&2
+              exit 1
+              ;;
+          esac
+
+          # The season gate. A season pack's files restart at 01 for each season, so a
+          # pack covering the wrong season must never be offered: "S02E01.mkv" is not
+          # episode 1 of season 1. This is checked through the API rather than in a unit
+          # test because it is the ranking, the file pick and the term fan-out together
+          # that decide it.
+          echo "Checking a later season does not resolve to the wrong season"
+          # The show is a single season, so asking for season 9 must not fall back to
+          # season 1's pack.
+          season9=$(curl -sS -X POST "$PUBLIC_URL/graphql" \
+            -H 'Content-Type: application/json' \
+            -d '{"query":"{ streamLinkDetails(id:\"series-tt26915338-s9e1\"){ available release } }"}')
+          case "$season9" in
+            *'"available":false'*) echo "season 9 correctly found nothing" ;;
+            *)
+              echo "season 9 resolved to $(printf '%s' "$season9" | sed -n 's/.*"release":"\([^"]*\)".*/\1/p')" >&2
+              exit 1
+              ;;
+          esac
+
       - name: Report failure
         if: failure()
         run: |
