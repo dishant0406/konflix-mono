@@ -198,3 +198,98 @@ test('a term with no episode number is not mangled by the fan-out', () => {
   assert.equal(titleOf('Attack on Titan'), 'Attack on Titan')
   assert.equal(titleOf('進撃の巨人'), '進撃の巨人')
 })
+
+// ---------------------------------------------------------------------------
+// Torrentio. It is the only indexer here searched by IMDb id rather than by text,
+// and it is what finds "India's Got Latent" - a title every text search answers with
+// nothing, because it is named three different ways in the wild.
+// ---------------------------------------------------------------------------
+
+test('torrentio reads the release name out of its display title', async () => {
+  const { streamNames, streamSeeders, streamSizeBytes, toTorrentioId } =
+    await import('../graphql/indexers/torrentio.js')
+
+  // Captured from the live API. Two shapes: a show name followed by a file name, and a
+  // single release name with no separate file name.
+  const twoLine = {
+    title: "India's Got Latent\nIGL_EP_01_ft_RaftaarMusic.mp4\n👤 47 💾 473.25 MB ⚙️ ThePirateBay",
+    behaviorHints: { filename: 'IGL_EP_01_ft_RaftaarMusic.mp4' },
+  }
+  const oneLine = {
+    title: 'Indias Got Latent (2026)-MovieLinkHub.com-S02 Bouns E01-E01\n👤 3 💾 1.41 GB ⚙️ EXT',
+  }
+
+  assert.deepEqual(streamNames(twoLine), {
+    showName: "India's Got Latent",
+    filename: 'IGL_EP_01_ft_RaftaarMusic.mp4',
+  })
+  // The trailing line is always the seeder/size summary, never a name. Reading it as a
+  // file name is what made this row look like it had a file called "👤 3 💾 1.41 GB".
+  assert.deepEqual(streamNames(oneLine), {
+    showName: '',
+    filename: 'Indias Got Latent (2026)-MovieLinkHub.com-S02 Bouns E01-E01',
+  })
+
+  assert.equal(streamSeeders(twoLine), 47)
+  assert.equal(streamSeeders(oneLine), 3)
+  assert.equal(streamSizeBytes(twoLine), 496238592)
+  assert.equal(streamSizeBytes(oneLine), 1513975972)
+  // An unreadable size is null rather than 0, so it cannot rank as "tiny file".
+  assert.equal(streamSizeBytes({ title: 'no numbers here' }), null)
+
+  // The id must be the "tt" form; EZTV wants the digits alone and Torrentio does not.
+  assert.equal(toTorrentioId('tt33094114'), 'tt33094114')
+  assert.equal(toTorrentioId('TT33094114'), 'tt33094114')
+  assert.equal(toTorrentioId('0903747'), null)
+  assert.equal(toTorrentioId('notanid'), null)
+})
+
+test('torrentio keeps one row per hash and prefers a real episode over a bonus', async () => {
+  const { parseSearchResponse } = await import('../graphql/indexers/torrentio.js')
+
+  // Captured from the live API for "India's Got Latent" S1E1. Torrentio emits one row
+  // per file of the pack, all sharing an infoHash, and the bonus comes first. Keeping
+  // the first row made the bonus the release title, which then failed the episode gate
+  // and discarded the whole torrent - a torrent holding every real episode at 47 seeders.
+  const body = {
+    streams: [
+      {
+        title: "India's Got Latent\nIGL_Bonus_EP_1_ft. Arpit Bala.mp4\n👤 47 💾 366.23 MB ⚙️ ThePirateBay",
+        infoHash: '1fb077d1660144985c11e998bd91baac494ecf26',
+        behaviorHints: { filename: 'IGL_Bonus_EP_1_ft. Arpit Bala.mp4' },
+      },
+      {
+        title: "India's Got Latent\nIGL_EP_01_ft_RaftaarMusic.mp4\n👤 47 💾 473.25 MB ⚙️ ThePirateBay",
+        infoHash: '1fb077d1660144985c11e998bd91baac494ecf26',
+        behaviorHints: { filename: 'IGL_EP_01_ft_RaftaarMusic.mp4' },
+      },
+    ],
+  }
+
+  const rows = parseSearchResponse(body)
+  assert.equal(rows.length, 1, 'sibling rows must collapse to one per info hash')
+  assert.match(rows[0].title, /IGL_EP_01/, 'the episode must win over the bonus')
+  assert.equal(rows[0].seeders, 47)
+  assert.equal(rows[0].source, 'torrentio')
+  // The row title has to carry the show name, because that is what the relevance gate
+  // compares against. A file name alone ranked zero candidates.
+  assert.match(rows[0].title, /Got Latent/)
+})
+
+test('a release naming a season and an episode is not a season pack', async () => {
+  const { isBatch } = await import('../graphql/stream/releases.js')
+
+  // "S02E01" contains a bare "S02", which the pack pattern matched. Treating a single
+  // episode as a pack subtracted 30 from its score, dropped it below zero, and discarded
+  // it - so this release ranked nothing despite passing every other gate.
+  assert.equal(isBatch('Show S01E05 1080p'), false)
+  assert.equal(isBatch('Indias Got Latent (2026)-MovieLinkHub.com-S02 Bouns E01-E01'), false)
+  assert.equal(isBatch('Show S01 WEB-DL EP 05 1080p'), false)
+
+  // A real pack still reads as one.
+  assert.equal(isBatch('Show S01 [1080p WEB-DL]'), true)
+  assert.equal(isBatch('Gyaarah Gyaarah S01 [1080p WEB-DL x264 AAC Hindi]'), true)
+  assert.equal(isBatch('Show 1-162 Complete'), true)
+  assert.equal(isBatch('Show S01-S02 Complete'), true)
+  assert.equal(isBatch('Show Season 2 1080p'), true)
+})

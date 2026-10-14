@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import {
   downloadUrl,
   identifiesEpisode,
+  isEpisodeLength,
   matchesTitle,
   pickFile,
   playableFiles,
@@ -261,4 +262,101 @@ test('resolve() returns without searching when it has no title', async () => {
   })
   assert.equal(result.available, false)
   assert.match(result.reason, /no title/i)
+})
+
+// ---------------------------------------------------------------------------
+// Selection defects, each reproduced against real archive.org data before it was
+// fixed. All three were found by resolving episodes of "India's Got Latent" through
+// the live API, and each is a case of serving the wrong bytes.
+// ---------------------------------------------------------------------------
+
+// A real item, and the reason a "first match wins" loop was wrong. archive.org lists
+// this one before the genuine upload, both name episode 6, and this file is a
+// 74-second, 6MB clip rather than the 23-minute episode.
+const clipItem = { title: 'INDIAS GOT LATENT S2 EP6 ft. Varun Dhawan Medha Shankar', identifier: 'igl-s2-06' }
+const clipMetadata = {
+  files: [
+    { name: 'INDIAS GOT LATENT S2 EP6 ft. Varun Dhawan [s2-06].ia.mp4', format: 'h.264 IA', size: '6099924', length: '74.13' },
+  ],
+}
+
+// The real upload for the same episode: 259MB, 52 minutes.
+const fullItem = { title: 'INDIA S GOT LATENT S 2 EP 6 Ft. Rakhi Sawant Ashneer Grover', identifier: 'india-s-got-latent-s-2-ep-6-ft.-rakhi' }
+const fullMetadata = {
+  files: [
+    { name: 'INDIA_S GOT LATENT S2 EP6 ft. Rakhi(720P_HD).ia.mp4', format: 'h.264 IA', size: '272061938', length: '3146.05' },
+  ],
+}
+
+test('a clip is not long enough to be an episode', () => {
+  const [clip] = playableFiles(clipMetadata)
+  const [episode] = playableFiles(fullMetadata)
+
+  assert.equal(isEpisodeLength(clip), false, 'a 74-second clip must not count as an episode')
+  assert.equal(isEpisodeLength(episode), true, 'a 52-minute episode must count as one')
+})
+
+// The defect this guards: episode 6 was served as a 6MB clip because the clip's item
+// appeared first in the search results and the resolve loop returned immediately.
+test('the real episode is chosen over a clip that names the same episode', () => {
+  const clip = { item: clipItem, file: playableFiles(clipMetadata)[0] }
+  const full = { item: fullItem, file: playableFiles(fullMetadata)[0] }
+
+  const candidates = [clip, full]
+  const eligible = candidates.filter((candidate) => isEpisodeLength(candidate.file))
+
+  assert.equal(eligible.length, 1, 'only the full episode is long enough')
+  assert.equal(eligible[0].item.identifier, fullItem.identifier)
+})
+
+test('a file with no reported duration falls back to its size', () => {
+  // archive.org omits `length` for some items, so size is the only signal left.
+  const noDuration = { name: 'x.ia.mp4', format: 'h.264 IA', size: '6099924' }
+  const bigNoDuration = { name: 'y.ia.mp4', format: 'h.264 IA', size: '197190368' }
+  assert.equal(isEpisodeLength(noDuration), false)
+  assert.equal(isEpisodeLength(bigNoDuration), true)
+})
+
+test('a bonus is not the episode it is numbered as', async () => {
+  const { isBonus, matchesEpisode } = await import('../graphql/stream/releases.js')
+
+  // The real item: "Indias Got Latent ( 2026) S 02 Bonus Ep 04". It parses as episode 4
+  // and names season 2, so every other gate accepted it and it was served as the real
+  // episode 4 - which does not exist in that upload.
+  assert.equal(isBonus('Indias Got Latent ( 2026) S 02 Bonus Ep 04 Hindi Tv Shows 480p Web DL'), true)
+  assert.equal(matchesEpisode('Indias Got Latent ( 2026) S 02 Bonus Ep 04', 4, 2), false)
+
+  // A real episode of the same shape is still accepted.
+  assert.equal(matchesEpisode('Indias Got Latent S02E04 WEB-DL 1080p', 4, 2), true)
+})
+
+test('pickFile refuses a bonus item and a bonus file', () => {
+  const bonusItem = { title: 'Indias Got Latent ( 2026) S 02 Bonus Ep 04', identifier: 'bonus' }
+  const bonusFiles = [{ name: 'Bonus_Ep_04.mp4', size: 197190368, seconds: 2053 }]
+  assert.equal(pickFile(bonusItem, bonusFiles, 4, 2), null, 'a bonus must never satisfy ep 4')
+
+  // A season pack names bonuses per file, so the file name has to be checked too.
+  const packItem = { title: 'India s Got Latent S01', identifier: 'pack' }
+  const packFiles = [
+    { name: 'IGL/IGL_Bonus_EP_1_ft. Arpit Bala.mp4', size: 384015735, seconds: 900 },
+    { name: 'IGL/IGL_EP_01_ft_RaftaarMusic.mp4', size: 496238592, seconds: 1500 },
+  ]
+  const picked = pickFile(packItem, packFiles, 1, 1)
+  assert.ok(picked, 'the real episode must still be found')
+  assert.match(picked.name, /IGL_EP_01/, 'the bonus must not be preferred over the episode')
+})
+
+test('parseEpisode reads the underscore-separated names a season pack uses', async () => {
+  const { parseEpisode } = await import('../graphql/stream/releases.js')
+
+  // The 47-seeder Season 1 pack names its files this way. Before the fix these parsed
+  // as "no episode number", so the whole pack was unusable and the show reported
+  // "no source" while a copy of every episode sat in the indexers.
+  assert.equal(parseEpisode('IGL/IGL_EP_01_ft_RaftaarMusic.mp4'), 1)
+  assert.equal(parseEpisode('IGL/IGL_EP_05_ft_KunalKamra_AtulKhatri.mp4'), 5)
+  assert.equal(parseEpisode('IGL/IGL_EP_12_ft_Rakhi Sawant.mp4'), 12)
+
+  // A dot must not be rewritten, because it is what keeps a decimal together.
+  assert.equal(parseEpisode('Show 5.1 (Dual Audio) [1080p]'), null)
+  assert.equal(parseEpisode('NARUTO.S01.1080p.CR.WEB-DL.AAC2.0.H.264-Kitsune'), null)
 })

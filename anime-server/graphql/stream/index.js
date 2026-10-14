@@ -44,9 +44,11 @@ const CANDIDATES = 10
 async function findReleases(parsed, details) {
   const titles = details.titleVariants?.length ? details.titleVariants : [details.name]
   const { contentType, episodeNumber, season } = parsed
-  // EZTV can only be searched by IMDb id, which the provider supplies. It is passed
-  // on every search and simply ignored by the indexers that do not need it.
-  const options = { contentType, imdbId: details.imdbId }
+  // EZTV and Torrentio are searched by IMDb id rather than by text, which the provider
+  // supplies. Both are passed on every search and simply ignored by the indexers that do
+  // not need them. The season and episode travel too, because Torrentio takes them in
+  // its path: "series/tt33094114:2:5" is the request that returns episode 5.
+  const options = { contentType, imdbId: details.imdbId, season, episodeNumber }
 
   if (contentType === 'movie') {
     const terms = movieSearchTerms(titles, details.year)

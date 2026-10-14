@@ -668,3 +668,27 @@ test('a spaced-season file is rejected for the wrong season', () => {
   assert.equal(rankReleases(pack, 1, titles[0], titles, 1).length, 0)
   assert.equal(rankReleases(pack, 5, titles[0], titles, 2).length, 1)
 })
+
+test('pickVideoFile prefers a real episode over a bonus of the same number', async () => {
+  const { pickVideoFile } = await import('../graphql/stream/torrent.js')
+
+  // The real Season 1 pack of "India's Got Latent". "IGL_Bonus_EP_1" and "IGL_EP_01"
+  // both parse as episode 1, and the bonus is listed first - so the bonus was served in
+  // place of the episode. The pack holds every real episode at 47 seeders.
+  const pack = [
+    'IGL/IGL_Bonus_EP_1_ft. Arpit Bala.mp4',
+    'IGL/IGL_EP_01_ft_RaftaarMusic.mp4',
+    'IGL/IGL_EP_02_ft_GamerFleet_JokeSingh.mp4',
+    'IGL/IGL_EP_05_ft_KunalKamra_AtulKhatri.mp4',
+    'IGL/IGL_BONUS_EP_Discarded_1_ft_Aakash_Gupta.mp4',
+  ].map((name) => ({ name, length: 500 * 1024 ** 2 }))
+
+  assert.match(pickVideoFile(pack, 1, 0, 1).name, /IGL_EP_01/, 'the episode must win over the bonus')
+  assert.match(pickVideoFile(pack, 2, 0, 1).name, /IGL_EP_02/)
+  assert.match(pickVideoFile(pack, 5, 0, 1).name, /IGL_EP_05/)
+
+  // A pack holding only a bonus still serves it, because there is nothing else it
+  // could be - refusing outright would turn a playable file into no source at all.
+  const bonusOnly = [{ name: 'IGL/IGL_Bonus_EP_1_ft. Arpit Bala.mp4', length: 500 * 1024 ** 2 }]
+  assert.match(pickVideoFile(bonusOnly, 1, 0, 1).name, /Bonus_EP_1/)
+})

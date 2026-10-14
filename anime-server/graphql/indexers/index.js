@@ -20,10 +20,21 @@ import eztv from './eztv.js'
 import knaben from './knaben.js'
 import nyaa from './nyaa.js'
 import subsplease from './subsplease.js'
+import torrentio from './torrentio.js'
 import torrentsCsv from './torrents-csv.js'
 import yts from './yts.js'
 
-const indexers = { animetosho, apibay, eztv, knaben, nyaa, subsplease, 'torrents-csv': torrentsCsv, yts }
+const indexers = {
+  animetosho,
+  apibay,
+  eztv,
+  knaben,
+  nyaa,
+  subsplease,
+  torrentio,
+  'torrents-csv': torrentsCsv,
+  yts,
+}
 
 // The indexers enabled for a content type, in configured order.
 //
@@ -99,11 +110,14 @@ export async function searchAll(terms, options = {}) {
   // searched, because a show is known by several names and releases use them
   // inconsistently - searching only the first would miss the romaji form of a show
   // whose releases are named in romaji.
-  const pairs = active.flatMap((indexer) =>
-    indexer.titleOnly
-      ? [...new Set(queries.map(titleOf))].map((term) => ({ indexer, term }))
-      : queries.map((term) => ({ indexer, term })),
-  )
+  //
+  // An indexer searched by id (Torrentio) is asked exactly once: the term plays no part
+  // in its request, so every additional pair would be the same call repeated.
+  const pairs = active.flatMap((indexer) => {
+    if (indexer.byId) return [{ indexer, term: queries[0] }]
+    if (indexer.titleOnly) return [...new Set(queries.map(titleOf))].map((term) => ({ indexer, term }))
+    return queries.map((term) => ({ indexer, term }))
+  })
 
   const results = await inBatches(pairs, MAX_CONCURRENT_REQUESTS, async ({ indexer, term }) => {
     try {

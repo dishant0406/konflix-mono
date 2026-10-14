@@ -257,6 +257,19 @@ jobs:
               ;;
           esac
 
+          # torrentio is the only indexer searched by IMDb id, and it is what finds
+          # titles no text search can - a show named three different ways in the wild
+          # matches nothing when an indexer requires every word of the query. Omitting
+          # it from TORRENT_INDEXERS is silent: the app keeps working and simply reports
+          # "no source" for those titles.
+          case "$health" in
+            *'"torrentio"'*) ;;
+            *)
+              echo "/health does not report torrentio as a torrent indexer" >&2
+              exit 1
+              ;;
+          esac
+
           echo "Checking $FRONTEND_URL"
           curl -fsS --retry 5 --retry-delay 5 --retry-all-errors -o /dev/null -w 'HTTP %{http_code}\n' "$FRONTEND_URL"
 
@@ -383,6 +396,26 @@ jobs:
             *'"available":true'*) echo "series resolved: $(printf '%s' "$series" | sed -n 's/.*"release":"\([^"]*\)".*/\1/p')" ;;
             *)
               echo "the series episode did not resolve: $series" >&2
+              exit 1
+              ;;
+          esac
+
+          # A title every text-search indexer answers with nothing, and the reason the
+          # id-searched indexer exists. "India's Got Latent" is named three ways in the
+          # wild ("India's", "Indias", "INDIA S"), and knaben requires every word of a
+          # query to match, so no spelling finds it. It resolves only through torrentio,
+          # which is searched by IMDb id with the season and episode in the path.
+          #
+          # Nothing else here covers this: the other checks all resolve through
+          # episode-named releases that a text search does find.
+          echo "Checking a title that only the id-searched indexer can find"
+          igl=$(curl -sS -X POST "$PUBLIC_URL/graphql" \
+            -H 'Content-Type: application/json' \
+            -d '{"query":"{ streamLinkDetails(id:\"series-tt33094114-s1e1\"){ available release reason } }"}')
+          case "$igl" in
+            *'"available":true'*) echo "id-searched title resolved: $(printf '%s' "$igl" | sed -n 's/.*"release":"\([^"]*\)".*/\1/p')" ;;
+            *)
+              echo "the id-searched title did not resolve: $igl" >&2
               exit 1
               ;;
           esac

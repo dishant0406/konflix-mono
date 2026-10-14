@@ -45,6 +45,19 @@ export function parseAudio(title) {
 const PART_WORDS = /\b(?:part|vol\.?|volume|season|set|box|cour|movies?|films?|specials?)\s*$/i
 
 export function parseEpisode(title) {
+  // Release names and file names both separate words with underscores, and a word
+  // boundary does not exist around an underscore because it is a regex word character.
+  // Without this, "IGL_EP_01_ft_RaftaarMusic.mp4" parsed as *no* episode number, so a
+  // torrent holding the right episode looked like one that named none - which made the
+  // whole Season 1 pack unusable and is why this show reported "no source" while a
+  // 47-seeder copy of every episode sat in the indexers.
+  //
+  // Only the underscore is replaced. Dots must be left alone, because they are what
+  // keeps a decimal together: rewriting them to spaces turns "AAC2.0" into "AAC2 0" and
+  // "5.1" into "5 1", and the bare-number pattern below then reads that trailing digit
+  // as an episode number. parseSeason and isBatch normalise both separators through
+  // words(), which is safe for them because neither has a bare-number pattern.
+  title = (title || '').replace(/_+/g, ' ')
   const patterns = [
     // SxxExx, the standard naming for WEB-DL releases. Must come first, because
     // "S01E1158" has no word boundary before the E for the pattern below.
@@ -110,15 +123,34 @@ function words(title) {
 }
 
 export function isBatch(title) {
+  const text = words(title)
+
   // An episode range ("Show 1-162", "[1-79]") is a batch just as much as the word
   // "batch" is, and picking one episode out of a range is not reliable.
   //
   // Every separator release groups actually use is included, not just the hyphen:
   // "[Erai-raws] Show - 01 ~ 12 [1080p]" is a 12-episode batch, and reading it as
   // episode 1 meant a whole season was offered as a single episode.
-  return /\b(batch|complete|season\s*\d+|box\s*\d+|set\s*\d+|\bs\d{2}\b|\[s\d+\]|\d{1,4}\s*[-~–—]\s*\d{1,4}\b)/i.test(
-    words(title),
-  )
+  const range = /\d{1,4}\s*[-~–—]\s*\d{1,4}\b/
+
+  // A bare season token ("Show S01 [1080p]") is how a season *pack* is named. It is
+  // only a pack signal when the name does not also name an episode, though: "S02E01"
+  // contains "S02" but is a single episode, and treating it as a pack subtracted 30
+  // from its score, which dropped it below zero and discarded it. That is what made
+  // "Indias Got Latent (2026)-MovieLinkHub.com-S02 Bouns E01-E01" rank no candidates
+  // at all, even though every other gate accepted it.
+  //
+  // "Also names an episode" is tested loosely - a season token followed by an episode
+  // token anywhere later in the name - because real release names insert words between
+  // them ("S02 Bouns E01-E01", "S01 WEB-DL EP 05"). Requiring them to be adjacent
+  // missed those, and the season token was then read as a pack.
+  const seasonToken = /\bs\d{1,2}\b|\[s\d+\]/i
+  const namesAnEpisode = /\bs\d{1,2}\b[\s\S]*\b(?:e|ep|episode)\s?\d{1,4}\b/i.test(text)
+
+  const words_ = /\b(batch|complete|season\s*\d+|box\s*\d+|set\s*\d+)\b/i
+
+  if (words_.test(text) || range.test(text)) return true
+  return seasonToken.test(text) && !namesAnEpisode
 }
 
 // A release that is part of the franchise but not the series itself: a movie, an
@@ -131,6 +163,20 @@ export function isExtra(title) {
   return /\b(movies?|films?|ovas?|onas?|specials?|recaps?|extras?|trailers?|promos?|previews?|compilations?|nced|ncop|openings?|endings?)\b/i.test(
     words(title),
   )
+}
+
+// Whether a release is a bonus/extra rather than the numbered episode it claims.
+//
+// "Bonus" is deliberately not part of isExtra above, because the two cases are not the
+// same. A release titled "Indias Got Latent ( 2026) S 02 Bonus Ep 04" parses as episode
+// 4 and names season 2, so every existing gate accepted it and it was served as the
+// real episode 4 - an episode that does not exist in that upload. A bonus is separate
+// content that happens to be numbered, so it must never satisfy a request for the
+// episode with that number.
+//
+// "Discarded" and "Deleted" are the same shape: extras numbered like episodes.
+export function isBonus(title) {
+  return /\b(bonus|discarded|deleted|behind\s*the\s*scenes|bloopers?|outtakes?)\b/i.test(words(title))
 }
 
 // A film is often named without the word "movie" ("One Piece - Film Red 2022",
@@ -419,7 +465,11 @@ export function rankMovieReleases(releases, year, title, titles) {
 // Serving the wrong episode silently is worse than serving nothing, so this is a
 // hard filter rather than a score penalty. For a series the season is part of the
 // episode's identity: "S02E05" must not satisfy a request for "S01E05".
+//
+// A bonus is rejected for the same reason and by the same rule. It is numbered like an
+// episode and often names the season too, so nothing else here would catch it.
 export function matchesEpisode(releaseTitle, episodeNumber, season) {
+  if (isBonus(releaseTitle)) return false
   const episode = parseEpisode(releaseTitle)
   if (episode !== null && episode !== episodeNumber) return false
   if (season === undefined || season === null) return true

@@ -14,7 +14,7 @@ import WebTorrent from 'webtorrent'
 
 import { config } from '../../lib/config.js'
 import { cacheDir } from '../../lib/cacheDir.js'
-import { isVideoFile, parseEpisode, parseSeason } from './releases.js'
+import { isBonus, isVideoFile, parseEpisode, parseSeason } from './releases.js'
 import { probeFile } from './media.js'
 
 // The webtorrent client is created on first use rather than at import time.
@@ -125,9 +125,13 @@ export function pickVideoFile(files, episodeNumber, minBytes = MIN_VIDEO_BYTES, 
   )
 
   if (matching.length > 0) {
-    // Several files can match, for example an episode plus its preview or a v2
-    // repack. The first match wins so that naming order is preserved.
-    return matching[0]
+    // A bonus is numbered like an episode and so matches the same way, but it is
+    // separate content. In the "India's Got Latent" Season 1 pack, "IGL_Bonus_EP_1" and
+    // "IGL_EP_01" both parse as episode 1, and the bonus was listed first - so it was
+    // served in place of the episode. A real episode is preferred, and the bonus is
+    // only used when the pack genuinely holds nothing else for that number.
+    const real = matching.filter((file) => !isBonus(file.name))
+    return (real.length > 0 ? real : matching)[0]
   }
 
   // A single-file torrent does not have to name its episode, but if it does name

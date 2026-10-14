@@ -88,7 +88,7 @@ export const config = {
   // currently airing show. apibay answers 403 from a datacenter IP and reports
   // "ok" while returning nothing. Both files are kept so either can be re-enabled
   // with this one variable.
-  indexers: list('TORRENT_INDEXERS', 'subsplease,nyaa,knaben,torrents-csv,yts,eztv'),
+  indexers: list('TORRENT_INDEXERS', 'subsplease,nyaa,knaben,torrents-csv,torrentio,yts,eztv'),
 
   // How long one indexer request may take before it is abandoned.
   //
@@ -180,6 +180,13 @@ export const config = {
   // configurable for the same reason the others are: one operator's service can move
   // or disappear, and that should be an environment change rather than a rebuild.
   torrentsCsvBaseUrl: text('TORRENTS_CSV_BASE_URL', 'https://torrents-csv.com'),
+
+  // Torrentio is the public Stremio indexer. It is the only source here that can be
+  // searched by IMDb id with a season and episode, which is how it answers titles that
+  // every text search misses. It is one operator's instance with no published rate
+  // limit, so it is configurable and can be disabled by leaving it out of
+  // TORRENT_INDEXERS.
+  torrentioBaseUrl: text('TORRENTIO_BASE_URL', 'https://torrentio.strem.fun'),
 
   // TVMaze is keyless. TMDB is not, and is optional: when its key is absent the
   // movie provider stays YTS, which needs no account.

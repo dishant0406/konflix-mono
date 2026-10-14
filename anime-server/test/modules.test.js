@@ -183,6 +183,20 @@ test('every enabled indexer runs and returns rows of the documented shape', asyn
         { infohash: HASH, name: 'Wiring Check torrents-csv Show 2020 1080p', size_bytes: 100, seeders: 5 },
       ],
     },
+    // Searched by IMDb id with the season and episode in the path, so the URL is what
+    // identifies the request rather than the term. The response is the Stremio addon
+    // shape: the release name and the numbers are embedded in the display title.
+    'https://torrentio.strem.fun/stream/series/tt0903747:1:1.json': {
+      streams: [
+        {
+          name: 'Torrentio',
+          title: 'Stub Show\nStub.Show.S01E01.1080p.mkv\n👤 5 💾 100 MB ⚙️ ThePirateBay',
+          infoHash: HASH,
+          fileIdx: 0,
+          behaviorHints: { filename: 'Stub.Show.S01E01.1080p.mkv' },
+        },
+      ],
+    },
   }
 
   const originalGet = http.get
@@ -207,7 +221,9 @@ test('every enabled indexer runs and returns rows of the documented shape', asyn
   const TYPES = ['anime', 'series', 'movie']
   const options = {
     anime: { contentType: 'anime' },
-    series: { contentType: 'series', imdbId: 'tt0903747' },
+    // The season and episode are part of what an id-searched indexer asks for, so they
+    // are supplied here as the real caller supplies them.
+    series: { contentType: 'series', imdbId: 'tt0903747', season: 1, episodeNumber: 1 },
     movie: { contentType: 'movie' },
   }
 

@@ -29,7 +29,7 @@
 import { config } from '../../../lib/config.js'
 import { http } from '../../../lib/http.js'
 import { cached, ttlFor } from '../../../lib/cache.js'
-import { parseEpisode, parseSeason, titleVariants } from '../releases.js'
+import { parseEpisode, parseSeason, isBonus, titleVariants } from '../releases.js'
 
 const TTL_MS = 30 * 60 * 1000
 
@@ -111,7 +111,12 @@ export function playableFiles(metadata) {
     const size = Number(file?.size)
     if (!name || !Number.isFinite(size) || size <= 0) continue
     if (!PLAYABLE_FORMATS.includes(format)) continue
-    candidates.push({ name, size, format })
+    // Duration in seconds, which archive.org reports as a string and sometimes not at
+    // all. It is the signal that separates a real episode from a clip, because size
+    // alone cannot: a 74-second clip is 6MB and a 23-minute episode is 400MB, but a
+    // long clip and a short episode could overlap.
+    const seconds = Number(file?.length)
+    candidates.push({ name, size, format, seconds: Number.isFinite(seconds) ? seconds : null })
   }
 
   // Best format first, then largest: an item often carries both a 480p and a 720p
@@ -121,6 +126,30 @@ export function playableFiles(metadata) {
     if (rank !== 0) return rank
     return b.size - a.size
   })
+}
+
+// The shortest a file can be and still be an episode rather than a clip.
+//
+// Measured on the items this source actually returns for "India's Got Latent": the
+// three real episodes are 2053s, 3146s and 3238s, and the one clip is 74s. There is no
+// overlap, so five minutes separates them with room to spare on both sides.
+const MIN_EPISODE_SECONDS = 300
+
+// The fallback when an item reports no duration. The clip is 6MB and the smallest real
+// episode here is 188MB, so this only has to exclude trailers and promos.
+const MIN_EPISODE_BYTES = 20 * 1024 * 1024
+
+/**
+ * Whether a file is long enough to be an episode.
+ *
+ * Duration is preferred and size is the fallback, because a duration is only reported
+ * for some items and an item without one is not evidence of a clip.
+ *
+ * @param {{ size: number, seconds: number|null }} file
+ */
+export function isEpisodeLength(file) {
+  if (file.seconds !== null && file.seconds !== undefined) return file.seconds >= MIN_EPISODE_SECONDS
+  return file.size >= MIN_EPISODE_BYTES
 }
 
 /**
@@ -184,8 +213,16 @@ export function identifiesEpisode(name, episodeNumber, season) {
 export function pickFile(item, files, episodeNumber, season) {
   if (files.length === 0) return null
 
+  // A bonus is not the episode it is numbered as. This is checked on the item title and
+  // on each file name, because either can carry it: "Indias Got Latent (2026) S 02
+  // Bonus Ep 04" names it in the title, while a season pack names it per file
+  // ("IGL_Bonus_EP_1_ft. Arpit Bala.mp4").
+  if (isBonus(item?.title || '')) return null
+
   // A film has no episode number, so nothing can be checked and the best file wins.
   if (episodeNumber === null || episodeNumber === undefined) return files[0]
+
+  const usable = files.filter((file) => !isBonus(file.name))
 
   const itemVerdict = identifiesEpisode(item?.title || '', episodeNumber, season)
   if (itemVerdict === false) return null
@@ -194,11 +231,11 @@ export function pickFile(item, files, episodeNumber, season) {
     // mislabelled extra and is skipped. When every file names a different episode the
     // item is inconsistent with itself, and serving the first one anyway would be
     // serving a known-wrong episode - so nothing is returned.
-    return files.find((file) => identifiesEpisode(file.name, episodeNumber, season) !== false) || null
+    return usable.find((file) => identifiesEpisode(file.name, episodeNumber, season) !== false) || null
   }
 
   // The item title names no episode, so the file name is the only remaining identity.
-  return files.find((file) => identifiesEpisode(file.name, episodeNumber, season) === true) || null
+  return usable.find((file) => identifiesEpisode(file.name, episodeNumber, season) === true) || null
 }
 
 /**
@@ -298,11 +335,14 @@ export default {
     }
 
     const failures = []
+    // Every (item, file) pair that identifies the requested episode, gathered across
+    // all queries so the best one can be chosen instead of the first one found.
+    const found = []
 
     for (const query of queries) {
       if (left() <= 0) break
 
-let docs
+      let docs
       try {
         docs = await cached(`archive-org:search:${query}`, (value) => ttlFor(value, TTL_MS), () =>
           searchItems(query, Math.max(left(), 1)),
@@ -312,9 +352,11 @@ let docs
         continue
       }
 
-      // One search returns many items; each is checked until one holds the episode.
-      // The search is cached, so the per-item lookups below are the only work a repeat
-      // view pays for, and those are cached too.
+      // One search returns many items, and every one of them is checked. Returning on
+      // the first item that matched is what served a 74-second clip for episode 6: the
+      // search lists "igl-s2-06" before the real upload, both name episode 6, and the
+      // first was accepted without the second ever being looked at. The search and the
+      // per-item metadata are both cached, so a repeat view pays for none of this.
       for (const doc of docs.slice(0, MAX_ITEMS)) {
         if (left() <= 0) {
           failures.push('deadline reached')
@@ -322,7 +364,7 @@ let docs
         }
         if (!matchesTitle(doc.title, [query])) continue
 
-let metadata
+        let metadata
         try {
           metadata = await cached(`archive-org:item:${doc.identifier}`, (value) => ttlFor(value, TTL_MS), () =>
             itemMetadata(doc.identifier, Math.max(left(), 1)),
@@ -340,14 +382,40 @@ let metadata
         const match = pickFile(doc, files, episodeNumber, season)
         if (!match) continue
 
-        return {
-          available: true,
-          url: downloadUrl(doc.identifier, match.name),
-          // Always a file: archive.org serves an MP4 derivative with real range
-          // support, so there is nothing to convert and no playlist to build.
-          streamType: 'file',
-          release: doc.title,
-        }
+        // Collected rather than returned, so the best candidate wins instead of the
+        // first one the search happened to list. Returning immediately is what served a
+        // 74-second clip for episode 6: the search lists "igl-s2-06" before the real
+        // upload, both name episode 6, and the first one was accepted without ever
+        // looking at the second.
+        found.push({ identifier: doc.identifier, title: doc.title, file: match })
+      }
+
+      // Stop as soon as a real episode has been found, rather than searching every
+      // remaining spelling. A full-length candidate is what this source exists to
+      // return, and the queries are ordered so the one that finds the episodes comes
+      // first; continuing would spend the deadline re-finding the same items.
+      //
+      // A clip does not stop the search. That is the whole point of collecting: a
+      // 74-second file is not an answer, so the next spelling is still tried.
+      if (found.some((candidate) => isEpisodeLength(candidate.file))) break
+    }
+
+    // A file too short to be an episode is a clip, a trailer or a preview, so it is
+    // only used when nothing longer exists. This is the check that stops a 6MB,
+    // 74-second clip being served as a 23-minute episode.
+    const full = found.filter((candidate) => isEpisodeLength(candidate.file))
+    const chosen = (full.length > 0 ? full : found).sort(
+      (a, b) => (b.file.seconds ?? 0) - (a.file.seconds ?? 0) || b.file.size - a.file.size,
+    )[0]
+
+    if (chosen) {
+      return {
+        available: true,
+        url: downloadUrl(chosen.identifier, chosen.file.name),
+        // Always a file: archive.org serves an MP4 derivative with real range
+        // support, so there is nothing to convert and no playlist to build.
+        streamType: 'file',
+        release: chosen.title,
       }
     }
 
