@@ -245,6 +245,18 @@ jobs:
             esac
           done
 
+          # The stream sources must be the configured ones. The list is a repository
+          # variable, and a variable that omits archive-org silently disables the
+          # fallback that exists for the case no torrent indexer can cover - the app
+          # keeps working and just reports "no source" for those titles.
+          case "$health" in
+            *'"archive-org"'*) ;;
+            *)
+              echo "/health does not report archive-org as a stream source" >&2
+              exit 1
+              ;;
+          esac
+
           echo "Checking $FRONTEND_URL"
           curl -fsS --retry 5 --retry-delay 5 --retry-all-errors -o /dev/null -w 'HTTP %{http_code}\n' "$FRONTEND_URL"
 
