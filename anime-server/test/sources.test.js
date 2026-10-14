@@ -77,9 +77,10 @@ function stubApi(t, routes) {
 
 test('only sources that are ready are used', async () => {
   const { activeSources, sourceNames } = await import('../graphql/stream/sources/index.js')
-  assert.deepEqual(sourceNames().sort(), ['debrid', 'torrent'])
-  // The debrid source needs an API key, so it drops out when none is configured.
-  // The suite runs without TORBOX_API_KEY set, which is what the next test pins.
+  assert.deepEqual(sourceNames().sort(), ['archive-org', 'debrid', 'torrent'])
+  // Only the configured sources are active. The suite runs with the default
+  // STREAM_SOURCES, which is the relay alone, so neither the keyless archive-org nor
+  // the key-requiring debrid appears. The deployment sets a longer list.
   assert.deepEqual(activeSources().map((source) => source.name), ['torrent'])
 })
 

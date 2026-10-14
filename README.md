@@ -71,6 +71,11 @@ Each entry declares the content types it serves (`types: ['anime']`, `['movie']`
 `['series']`, or several), so a film search never queries an anime feed.
 `GET /health` reports every configured entry and which types it covers.
 
+A stream source is the last map: where the video bytes come from. `debrid` serves from a
+CDN cache, `torrent` joins a swarm and relays, and `archive-org` returns a direct HTTPS
+URL. They are tried in the order `STREAM_SOURCES` lists them, and a source that is not
+usable - `debrid` without an API key - is skipped rather than failing the request.
+
 **A type may name several providers, most-preferred first.** They are separated by
 `+` within one `PROVIDERS` entry, and the next answers when the first returns nothing
 or throws - so an outage degrades a row instead of emptying it:
@@ -165,6 +170,32 @@ challenge. A proxy does not fix that, because the challenge follows the IP rathe
 the request, and neither does a headless browser, which costs a Chrome process per
 request on a box that is also running `ffmpeg`. It works from a residential IP, so
 re-enabling it is one env var.
+
+## A title with an apostrophe, and the Internet Archive fallback
+
+Two independent problems made a title like "India's Got Latent" unfindable, and either
+one alone was enough to produce "no source found".
+
+**The apostrophe was destroyed before the search.** `normalizeTitle` rewrites every
+non-alphanumeric character to a space, so the title became "india s got latent" - a
+string that matches nothing, because real releases are named "Indias Got Latent". The
+damage was two-sided: the same normalisation rejected correct releases at the relevance
+gate, so even a release that *was* found was thrown away. Titles are now matched in all
+three spellings, and all three are searched. Measured against archive.org, each spelling
+returns a *different* set of items, so the union is what finds the episodes.
+
+**No torrent indexer held the title at all.** knaben, torrents-csv, eztv, nyaa and
+subsplease each returned nothing. `archive-org` was added as a last-resort stream source
+for exactly this case. It is not a torrent index and not a debrid service: the Internet
+Archive stores the file and serves its own browser-playable h264 MP4 derivative over
+plain HTTPS with real byte-range support, so the bytes go straight from archive.org to
+the viewer. It reports zero seeders, so it can never outrank a real torrent, and it is
+listed last in `STREAM_SOURCES`.
+
+Its gate refuses to guess. A search for a show also returns news clips and reviews about
+it, and a clip holds exactly one video file naming no episode - so "the item has one
+video, so it must be the episode" served a 650MB news package as S2E5. An item is now
+served only when its title or its file name actually names the requested episode.
 
 **A converted stream starts after a short wait.** A release whose container a phone
 cannot play (an MKV) is re-packaged as HLS: `ffmpeg` writes six-second segments plus a

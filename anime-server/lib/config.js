@@ -191,6 +191,12 @@ export const config = {
   // Configurable because it has moved before, as YTS and knaben have.
   cinemetaBaseUrl: text('CINEMETA_BASE_URL', 'https://v3-cinemeta.strem.io'),
 
+  // The Internet Archive, used as a last-resort stream source. It is the only place a
+  // regional series can be found when every torrent indexer has nothing, and it serves
+  // its own h264 derivative over HTTPS with range support rather than a swarm.
+  // Configurable for the same reason the others are.
+  archiveOrgBaseUrl: text('ARCHIVE_ORG_BASE_URL', 'https://archive.org'),
+
   // Where the video bytes come from, in order of preference. See
   // graphql/stream/sources/index.js for the available keys.
   //

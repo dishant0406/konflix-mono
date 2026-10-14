@@ -6,9 +6,13 @@
 //   name                          key used in STREAM_SOURCES
 //   ready()                       -> boolean, false when the source is not usable
 //                                    (missing credentials, for example)
-//   resolve({ episodeNumber, ranked, deadlineMs })
+//   resolve({ episodeNumber, season, titles, terms, ranked, deadlineMs })
 //                                 -> { available: false, reason }
 //                                 -> { available: true, url, streamType, release }
+//
+// `ranked` is the candidate release list, best first, and is empty when no indexer
+// found anything - a source that looks a title up directly rather than consuming the
+// release list must still work in that case, so it is given `titles` and `terms` too.
 //
 // resolve() must never throw. Sources go down and get blocked; a failing source
 // should reduce what is playable, not fail the request. `ranked` is the candidate
@@ -16,10 +20,11 @@
 // resolve.
 
 import { config } from '../../../lib/config.js'
+import archiveOrg from './archive-org.js'
 import torrent from './torrent.js'
 import debrid from './debrid.js'
 
-const sources = { torrent, debrid }
+const sources = { 'archive-org': archiveOrg, torrent, debrid }
 
 export function sourceNames() {
   return Object.keys(sources)

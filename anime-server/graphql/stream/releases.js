@@ -91,8 +91,14 @@ export function parseEpisode(title) {
 // The digits are bounded so a resolution ("1080p") and a year ("S2020") are not read
 // as a season: "\b" fails after the "20" of "S2020" because the next character is
 // another digit, and "Season 1" is matched through its word.
+//
+// Spaces are allowed around every part of the token, because archive.org writes the
+// season out longhand and with gaps: "INDIA S GOT LATENT S 2 EP 6", "Panchayat S 03 E 1 8",
+// "Mirzapur. S 01. E 01". Reading those as "no season" is not a cosmetic problem - a
+// release whose season cannot be read passes the season gate vacuously, so a season-2
+// file would satisfy a request for a season-1 episode.
 export function parseSeason(title) {
-  const match = /\bS(?:eason\s*)?(\d{1,2})(?:E\d{1,4})?\b/i.exec(words(title))
+  const match = /\bS(?:eason\s*)?\s*(\d{1,2})(?:\s*(?:EP|E|Episode)\s*\d{1,4})?\b/i.exec(words(title))
   return match ? Number.parseInt(match[1], 10) : null
 }
 
@@ -216,6 +222,33 @@ export function normalizeTitle(text) {
     .trim()
 }
 
+// Every spelling of a title that a release name might use.
+//
+// An apostrophe is written three different ways in practice and the variants do not
+// match each other:
+//
+//   "India's Got Latent"   the catalogue spelling
+//   "Indias Got Latent"    scene naming, which drops the apostrophe entirely
+//   "India s Got Latent"   what normalizeTitle produces, because it turns every
+//                          non-alphanumeric character into a space
+//
+// Only the last form was ever compared, so the first two - the ones real releases
+// actually use - were rejected by the relevance gate, and the search terms built from
+// them ("India s Got Latent S02E01") matched nothing at any indexer. A title with an
+// apostrophe was therefore unusable end to end: "no torrent found" while releases with
+// the correct name sat in the indexers.
+//
+// Titles without an apostrophe have exactly one variant, so nothing changes for them.
+export function titleVariants(text) {
+  const raw = text || ''
+  const forms = new Set([normalizeTitle(raw)])
+  if (/['\u2019]/.test(raw)) {
+    forms.add(normalizeTitle(raw.replace(/['\u2019]/g, '')))
+    forms.add(normalizeTitle(raw.replace(/['\u2019]/g, ' ')))
+  }
+  return [...forms].filter(Boolean)
+}
+
 // Release names usually begin with group and quality tags such as
 // "[SubsPlease]" or "[Group] ". Those are stripped before comparing titles.
 // This runs on the raw title, because normalizing removes the brackets.
@@ -233,18 +266,23 @@ function stripLeadingTags(release) {
 //
 // Single-word titles are additionally allowed to appear inside a bracketed group
 // tag, because some groups prefix the show name: "[Naruto] Episode 1".
+//
+// Every spelling of the title is tried, because a release that drops an apostrophe
+// ("Indias Got Latent") is the correct release for "India's Got Latent" and would
+// otherwise be rejected here.
 export function isRelevant(releaseTitle, animeTitle) {
-  const wanted = normalizeTitle(animeTitle)
-  if (!wanted) return true
+  const wanted = titleVariants(animeTitle)
+  if (wanted.length === 0) return true
 
   const raw = releaseTitle || ''
   const release = normalizeTitle(stripLeadingTags(raw))
-  if (release === wanted || release.startsWith(`${wanted} `)) return true
 
-  // Group-prefixed naming, for example "[Naruto] Episode 1".
-  if (!wanted.includes(' ') && new RegExp(`\\[${wanted}\\]`, 'i').test(raw)) return true
-
-  return false
+  return wanted.some((title) => {
+    if (release === title || release.startsWith(`${title} `)) return true
+    // Group-prefixed naming, for example "[Naruto] Episode 1".
+    if (!title.includes(' ') && new RegExp(`\\[${title}\\]`, 'i').test(raw)) return true
+    return false
+  })
 }
 
 // A release that names an episode must never be served as a film. Every series
@@ -424,7 +462,7 @@ function scoreAll(releases) {
 // characters (a CJK-only name against ASCII release names) cannot gate anything,
 // so it is ignored and the episode number alone decides.
 export function matchesAnyTitle(releaseTitle, animeTitles) {
-  const wanted = (animeTitles || []).map(normalizeTitle).filter(Boolean)
+  const wanted = (animeTitles || []).flatMap(titleVariants)
   if (wanted.length === 0) return true
 
   if (wanted.some((title) => isRelevant(releaseTitle, title))) return true
@@ -642,8 +680,26 @@ export function movieSearchTerms(titles, year) {
 //
 // Unicode-aware (\p{L}\p{N}) so a CJK-only title survives instead of being stripped to
 // nothing by an ASCII-only \w.
+//
+// An apostrophe is emitted in all three spellings, because both the indexers and
+// archive.org match a query literally. Measured against archive.org, each spelling of
+// one show returns a different set and the union is what finds the episodes:
+//
+//   "Indias Got Latent"      -> the bonus episode and one S2 episode
+//   "India's Got Latent"     -> a news clip and a collection
+//   "India s Got Latent"     -> the two S2 episodes that actually play
+//
+// Searching one spelling only is what made an apostrophe title unfindable. Every other
+// character is treated exactly as before.
 function normalizeBases(titles) {
-  return (Array.isArray(titles) ? titles : [titles])
-    .map((title) => (title || '').replace(/[^\p{L}\p{N}\s-]/gu, ' ').replace(/\s+/g, ' ').trim())
-    .filter(Boolean)
+  const bases = []
+  for (const title of Array.isArray(titles) ? titles : [titles]) {
+    const raw = (title || '').replace(/[^\p{L}\p{N}\s'-]/gu, ' ').replace(/\s+/g, ' ').trim()
+    if (!raw) continue
+    for (const form of [raw.replace(/'/g, ''), raw, raw.replace(/'/g, ' ')]) {
+      const base = form.replace(/\s+/g, ' ').trim()
+      if (base && !bases.includes(base)) bases.push(base)
+    }
+  }
+  return bases
 }

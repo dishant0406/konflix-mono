@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { parseEpisode, isBatch, isExtra, isLikelyMovie, matchesAnyTitle, parseResolution, parseCodec, parseAudio, scoreRelease, rankReleases, searchTerms, isVideoFile, isRelevant, matchesEpisode, parseSeason, seriesSearchTerms } from '../graphql/stream/releases.js'
+import { parseEpisode, isBatch, isExtra, isLikelyMovie, matchesAnyTitle, parseResolution, parseCodec, parseAudio, scoreRelease, rankReleases, searchTerms, isVideoFile, isRelevant, matchesEpisode, parseSeason, seriesSearchTerms, titleVariants } from '../graphql/stream/releases.js'
 import { titleOf } from '../graphql/indexers/index.js'
 
 test('isVideoFile recognises video containers only', () => {
@@ -597,4 +597,74 @@ test('a special numbered 1 is not episode 1', () => {
   const titles = ['Show']
   const special = [{ title: 'Show S01 Special 1 1080p x264', infoHash: 'a'.repeat(40), seeders: 99 }]
   assert.equal(rankReleases(special, 1, titles[0], titles, 1).length, 0)
+})
+
+// A title with an apostrophe is written three ways and the variants do not match each
+// other: the catalogue spelling ("India's Got Latent"), the scene spelling that drops
+// the apostrophe ("Indias Got Latent"), and the spaced form that normalizeTitle
+// produces ("India s Got Latent"). Only the last was ever compared, so real releases
+// were rejected by the relevance gate and the search terms matched nothing anywhere.
+
+test('an apostrophe title matches every spelling a release uses', () => {
+  const titles = ["India's Got Latent"]
+  for (const release of [
+    'INDIA S GOT LATENT S 2 EP 5 Ft. Orry Archana Puran Singh',
+    'INDIA S GOT LATENT S 2 EP 6 Ft. Rakhi Sawant',
+    'Indias Got Latent S02E01 1080p',
+    'Indias.Got.Latent.S02E01.1080p.WEB-DL',
+    "India's Got Latent S02E01 1080p",
+  ]) {
+    assert.equal(matchesAnyTitle(release, titles), true, release)
+  }
+})
+
+test('the apostrophe variants do not make the gate permissive', () => {
+  const titles = ["India's Got Latent"]
+  // A different show that shares every word except the first must still be rejected.
+  assert.equal(matchesAnyTitle('Britain s Got Latent Problems', titles), false)
+  assert.equal(matchesAnyTitle("Britain's Got Latent", titles), false)
+  assert.equal(matchesAnyTitle('Got Latent', titles), false)
+})
+
+test('an apostrophe title is searched in every spelling', () => {
+  const terms = seriesSearchTerms(["India's Got Latent"], 2, 1)
+  // The apostrophe is dropped in the spelling real releases use, so a term without it
+  // must exist; without this every indexer returned zero rows for the show.
+  assert.ok(terms.includes('Indias Got Latent S02E01'), terms.join(' | '))
+  assert.ok(terms.includes('Indias Got Latent'), terms.join(' | '))
+  // The spaced form is kept too: archive.org names its items that way.
+  assert.ok(terms.includes('India s Got Latent'), terms.join(' | '))
+})
+
+test('a title without an apostrophe is unaffected', () => {
+  assert.deepEqual(titleVariants('Panchayat'), ['panchayat'])
+  assert.deepEqual(titleVariants('Bocchi the Rock!'), ['bocchi the rock'])
+})
+
+// archive.org writes the season out longhand and with gaps: "INDIA S GOT LATENT S 2 EP 6",
+// "Panchayat S 03 E 1 8", "Mirzapur. S 01. E 01". A release whose season cannot be read
+// passes the season gate vacuously, so a season-2 file would satisfy a season-1 request.
+
+test('parseSeason reads the spaced season form archive.org uses', () => {
+  assert.equal(parseSeason('INDIA S GOT LATENT S 2 EP 5 Ft. Orry'), 2)
+  assert.equal(parseSeason('Panchayat S 03 E 1 8'), 3)
+  assert.equal(parseSeason('Mirzapur. S 01. E 01.720p. HEVC'), 1)
+  assert.equal(parseSeason('Gyaarah. Gyaarah. S 01 E 01. Episode. 1.1080p'), 1)
+})
+
+test('the spaced season form still refuses a resolution and a year', () => {
+  // The widening must not turn "1080p" or "S2020" into a season.
+  assert.equal(parseSeason('Show 1080p WEB-DL'), null)
+  assert.equal(parseSeason('Show S2020 1080p'), null)
+  assert.equal(parseSeason('Show S1 1080p'), 1, 'a bare S1 is still a season')
+})
+
+test('a spaced-season file is rejected for the wrong season', () => {
+  const titles = ['India s Got Latent']
+  const pack = [{ title: 'INDIA S GOT LATENT S 2 EP 5 Ft. Orry', infoHash: 'a'.repeat(40), seeders: 3 }]
+  // The release names episode 5 of season 2, so it is not episode 1 of season 1.
+  assert.equal(matchesEpisode(pack[0].title, 1, 1), false)
+  assert.equal(matchesEpisode(pack[0].title, 5, 2), true)
+  assert.equal(rankReleases(pack, 1, titles[0], titles, 1).length, 0)
+  assert.equal(rankReleases(pack, 5, titles[0], titles, 2).length, 1)
 })

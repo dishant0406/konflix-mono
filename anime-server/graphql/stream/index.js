@@ -114,21 +114,35 @@ export async function resolveStream(id) {
   const { terms, ranked: allRanked } = await findReleases(parsed, details)
   const ranked = allRanked.slice(0, Math.max(config.maxCandidates, CANDIDATES))
 
-  if (ranked.length === 0) {
-    return { available: false, reason: `No torrent found for "${terms[0]}".`, details }
-  }
-
+  // Sources are asked even when no indexer found anything. A source is not necessarily
+  // an indexer-driven one: archive.org answers by title, and the case it exists for is
+  // precisely the one where every torrent indexer has nothing. Returning early here
+  // would make that source unreachable exactly when it is needed.
   const result = await resolveFromSources({
     episodeNumber: parsed.episodeNumber,
     // The season matters when choosing a file out of a torrent that holds a whole
     // show: "S02E05" is a different episode from "S01E05". Ranking already uses it;
     // this carries it into the file pick.
     season: parsed.season,
+    // Every name the work is known by, plus the search terms, because a source that
+    // looks a title up directly (archive.org) has nothing else to go on when the
+    // indexers returned nothing.
+    titles: details.titleVariants?.length ? details.titleVariants : [details.name],
+    terms,
     ranked,
     deadlineMs: config.resolveDeadlineMs,
   })
 
   if (!result.available) console.warn(`[stream] ${id} (${parsed.contentType}): ${result.reason}`)
+
+  // When no indexer found anything at all, say so. The sources then report their own
+  // "nothing here" reasons, which are true but misleading on their own: they describe
+  // the fallbacks rather than the actual problem, which is that the release could not
+  // be found anywhere. The reason still names the first term, because that is what a
+  // person would search for by hand to check.
+  if (!result.available && ranked.length === 0) {
+    return { ...result, reason: `No torrent found for "${terms[0]}".`, details }
+  }
 
   return { ...result, details }
 }
