@@ -167,7 +167,7 @@ jobs:
           # empty value.
           PUBLIC_URL="${PUBLIC_URL:-https://api.konflix.live}"
           NEXT_PUBLIC_GRAPHQL_URI="${NEXT_PUBLIC_GRAPHQL_URI:-$PUBLIC_URL/graphql}"
-STREAM_SOURCES="${STREAM_SOURCES:-debrid,torrent,archive-org}"
+          STREAM_SOURCES="${STREAM_SOURCES:-debrid,torrent,archive-org}"
           MAX_CACHE_BYTES="${MAX_CACHE_BYTES:-12884901888}"
 
           umask 077
@@ -180,9 +180,10 @@ STREAM_SOURCES="${STREAM_SOURCES:-debrid,torrent,archive-org}"
           TORBOX_API_KEY=$TORBOX_API_KEY
           EOF
 
-# Only the shape is reported; the file holds the tunnel token and the
+          # Only the shape is reported; the file holds the tunnel token and the
           # debrid key and must never be echoed.
           echo "Rendered .env.deploy with $(wc -l < .env.deploy) lines."
+
       - name: Upload the code
         # --delete keeps the server tree an exact copy of the commit, so a deleted
         # file does not linger and get built. .git travels with the code because the
