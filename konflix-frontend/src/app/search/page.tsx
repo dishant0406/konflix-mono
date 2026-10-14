@@ -113,9 +113,9 @@ const searchQuery = useMediaSearchAcross(term, {
 
   return (
     <Container className="flex flex-col gap-8 py-8">
-      <div className="flex flex-col gap-5 rounded-lg border border-white/10 bg-white/5 p-5">
+      <div className="flex flex-col gap-5 rounded-lg border border-border bg-card p-5">
         <div className="flex items-center justify-between">
-          <h1 className="text-lg font-semibold text-white">Filters</h1>
+          <h1 className="text-lg font-semibold text-foreground">Filters</h1>
           <Button
             variant="ghost"
             size="sm"
@@ -179,7 +179,7 @@ const searchQuery = useMediaSearchAcross(term, {
         </div>
 
         <div>
-          <p className="mb-3 text-sm font-semibold text-white">Genres</p>
+          <p className="mb-3 text-sm font-semibold text-foreground">Genres</p>
           <ToggleGroup
             type="multiple"
             className="flex flex-wrap justify-start gap-2"
@@ -192,8 +192,8 @@ const searchQuery = useMediaSearchAcross(term, {
                 value={genre}
                 size="sm"
                 className={cn(
-                  "border border-slate-700 text-slate-300 hover:border-[#e9376b] hover:bg-transparent hover:text-[#e9376b]",
-                  "data-[state=on]:border-[#e9376b] data-[state=on]:bg-[#e9376b] data-[state=on]:text-white",
+                  "border border-border text-muted-foreground hover:border-primary hover:bg-transparent hover:text-primary",
+                  "data-[state=on]:border-primary data-[state=on]:bg-primary data-[state=on]:text-primary-foreground",
                 )}
               >
                 {genre}
@@ -203,7 +203,7 @@ const searchQuery = useMediaSearchAcross(term, {
         </div>
       </div>
 
-      <h2 className="text-xl font-semibold text-white">
+      <h2 className="text-xl font-semibold text-foreground">
         {hasTerm ? (
           <>
             Results for <span className="font-extrabold">&ldquo;{term}&rdquo;</span>
@@ -218,16 +218,16 @@ const searchQuery = useMediaSearchAcross(term, {
           {Array.from({ length: 14 }).map((_, index) => (
             <div
               key={index}
-              className="h-[15.625rem] min-w-[10.625rem] max-w-[12.625rem] animate-pulse rounded-xl bg-slate-800 md:h-[18.75rem] md:max-w-[12.5rem]"
+              className="h-[15.625rem] min-w-[10.625rem] max-w-[12.625rem] animate-pulse rounded-xl bg-placeholder md:h-[18.75rem] md:max-w-[12.5rem]"
             />
           ))}
         </div>
       ) : active.isError ? (
-        <p className="py-16 text-center text-sm text-gray-400">
+        <p className="py-16 text-center text-sm text-muted-foreground">
           Could not load results. The Konflix API may be unreachable.
         </p>
       ) : results.length === 0 ? (
-        <p className="py-16 text-center text-sm text-gray-400">
+        <p className="py-16 text-center text-sm text-muted-foreground">
           {hasTerm
             ? `Nothing matched “${term}” with those filters.`
             : `No ${SITE.itemLabelPlural} matched those filters.`}
@@ -249,7 +249,7 @@ const searchQuery = useMediaSearchAcross(term, {
         <Button variant="secondary" disabled={page <= 1} onClick={() => goToPage(page - 1)}>
           Previous
         </Button>
-        <span className="text-sm text-gray-400">Page {page}</span>
+        <span className="text-sm text-muted-foreground">Page {page}</span>
         <Button variant="secondary" disabled={!hasNextPage} onClick={() => goToPage(page + 1)}>
           Next
         </Button>

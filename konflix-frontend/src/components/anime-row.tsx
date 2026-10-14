@@ -58,7 +58,7 @@ export default function AnimeRow({ title, media, hrefFor, loading = false, episo
   return (
     <Container className="flex flex-col gap-5 py-8">
       <div className="flex items-center justify-between gap-4">
-        <h2 className="text-xl font-bold text-white md:text-2xl">{title}</h2>
+        <h2 className="text-xl font-bold text-foreground md:text-2xl">{title}</h2>
         <div className="hidden items-center gap-3 sm:flex">
           <Button
             variant="outline"
@@ -66,9 +66,9 @@ export default function AnimeRow({ title, media, hrefFor, loading = false, episo
             aria-label={`Scroll ${title} backwards`}
             disabled={!canScrollLeft}
             onClick={() => scrollBy(-1)}
-            className="h-9 w-9 rounded-full border-white/30 bg-transparent hover:bg-white/10"
+            className="h-9 w-9 rounded-full border-input bg-transparent hover:bg-secondary"
           >
-            <ArrowLeft className="h-4 w-4 text-white" />
+            <ArrowLeft className="h-4 w-4 text-foreground" />
           </Button>
           <Button
             variant="outline"
@@ -76,9 +76,9 @@ export default function AnimeRow({ title, media, hrefFor, loading = false, episo
             aria-label={`Scroll ${title} forwards`}
             disabled={!canScrollRight}
             onClick={() => scrollBy(1)}
-            className="h-9 w-9 rounded-full border-white/30 bg-transparent hover:bg-white/10"
+            className="h-9 w-9 rounded-full border-input bg-transparent hover:bg-secondary"
           >
-            <ArrowRight className="h-4 w-4 text-white" />
+            <ArrowRight className="h-4 w-4 text-foreground" />
           </Button>
         </div>
       </div>
@@ -105,12 +105,12 @@ export default function AnimeRow({ title, media, hrefFor, loading = false, episo
 function RowSkeleton({ title }: { title: string }) {
   return (
     <Container className="flex flex-col gap-5 py-8">
-      <h2 className="text-xl font-bold text-white md:text-2xl">{title}</h2>
+      <h2 className="text-xl font-bold text-foreground md:text-2xl">{title}</h2>
       <div className="flex gap-4 overflow-hidden">
         {Array.from({ length: 7 }).map((_, index) => (
           <div
             key={index}
-            className="h-[16.625rem] w-[11rem] shrink-0 animate-pulse rounded-xl bg-slate-800"
+            className="h-[16.625rem] w-[11rem] shrink-0 animate-pulse rounded-xl bg-placeholder"
           />
         ))}
       </div>

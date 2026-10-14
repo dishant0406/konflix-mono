@@ -262,7 +262,7 @@ export default function VideoPlayer({ src, streamType, title, onError, poster }:
       tabIndex={0}
       role="region"
       aria-label={`Video player: ${title}`}
-      className="group relative aspect-video w-full overflow-hidden rounded-lg bg-black focus:outline-none"
+      className="group relative aspect-video w-full overflow-hidden rounded-lg bg-sunk focus:outline-none"
     >
       <video
         ref={videoRef}
@@ -310,9 +310,9 @@ export default function VideoPlayer({ src, streamType, title, onError, poster }:
       />
 
       {!ready && (
-        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/60">
-          <Loader2 className="h-9 w-9 animate-spin text-white" />
-          <p className="px-6 text-center text-sm text-white/70">
+        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 bg-sunk/60">
+          <Loader2 className="h-9 w-9 animate-spin text-foreground" />
+          <p className="px-6 text-center text-sm text-muted-foreground">
             {isHls ? "Converting this release for your browser..." : "Buffering..."}
           </p>
         </div>
@@ -320,13 +320,13 @@ export default function VideoPlayer({ src, streamType, title, onError, poster }:
 
       <div
         className={cn(
-          "absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 to-transparent px-3 pb-2 pt-8 transition-opacity",
+          "absolute inset-x-0 bottom-0 bg-gradient-to-t from-background/95 to-transparent px-3 pb-2 pt-8 transition-opacity",
           controlsVisible || !playing ? "opacity-100" : "pointer-events-none opacity-0",
         )}
       >
-        <div className="relative mb-2 h-1.5 w-full cursor-pointer rounded-full bg-white/25">
-          <div className="absolute inset-y-0 left-0 rounded-full bg-white/40" style={{ width: `${bufferedPercent}%` }} />
-          <div className="absolute inset-y-0 left-0 rounded-full bg-[#e9376b]" style={{ width: `${progressPercent}%` }} />
+        <div className="relative mb-2 h-1.5 w-full cursor-pointer rounded-full bg-foreground/25">
+          <div className="absolute inset-y-0 left-0 rounded-full bg-foreground/40" style={{ width: `${bufferedPercent}%` }} />
+          <div className="absolute inset-y-0 left-0 rounded-full bg-primary" style={{ width: `${progressPercent}%` }} />
           <input
             type="range"
             min={0}
@@ -342,12 +342,12 @@ export default function VideoPlayer({ src, streamType, title, onError, poster }:
           />
         </div>
 
-        <div className="flex items-center gap-3 text-white">
-          <button type="button" onClick={togglePlay} aria-label={playing ? "Pause" : "Play"} className="hover:text-[#e9376b]">
+        <div className="flex items-center gap-3 text-foreground">
+          <button type="button" onClick={togglePlay} aria-label={playing ? "Pause" : "Play"} className="hover:text-primary">
             {playing ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5" />}
           </button>
 
-          <button type="button" onClick={() => seekBy(-10)} aria-label="Rewind 10 seconds" className="hover:text-[#e9376b]">
+          <button type="button" onClick={() => seekBy(-10)} aria-label="Rewind 10 seconds" className="hover:text-primary">
             <RotateCcw className="h-4 w-4" />
           </button>
 
@@ -359,7 +359,7 @@ export default function VideoPlayer({ src, streamType, title, onError, poster }:
             type="button"
             onClick={() => setMuted((value) => !value)}
             aria-label={muted ? "Unmute" : "Mute"}
-            className="hover:text-[#e9376b]"
+            className="hover:text-primary"
           >
             {muted || volume === 0 ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
           </button>
@@ -375,14 +375,14 @@ export default function VideoPlayer({ src, streamType, title, onError, poster }:
               setVolume(Number(event.target.value));
               setMuted(false);
             }}
-            className="hidden h-1 w-20 cursor-pointer accent-[#e9376b] sm:block"
+            className="hidden h-1 w-20 cursor-pointer accent-primary sm:block"
           />
 
           <select
             value={speed}
             aria-label="Playback speed"
             onChange={(event) => setSpeed(Number(event.target.value))}
-            className="ml-auto cursor-pointer rounded bg-black/50 px-1 py-0.5 text-xs text-white"
+            className="ml-auto cursor-pointer rounded bg-sunk/60 px-1 py-0.5 text-xs text-foreground"
           >
             {SPEEDS.map((value) => (
               <option key={value} value={value}>
@@ -391,7 +391,7 @@ export default function VideoPlayer({ src, streamType, title, onError, poster }:
             ))}
           </select>
 
-          <button type="button" onClick={toggleFullscreen} aria-label="Toggle fullscreen" className="hover:text-[#e9376b]">
+          <button type="button" onClick={toggleFullscreen} aria-label="Toggle fullscreen" className="hover:text-primary">
             {fullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
           </button>
         </div>

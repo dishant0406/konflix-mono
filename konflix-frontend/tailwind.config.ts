@@ -43,12 +43,13 @@ const config: Config = {
 				border: 'hsl(var(--border))',
 				input: 'hsl(var(--input))',
 				ring: 'hsl(var(--ring))',
-				chart: {
-					'1': 'hsl(var(--chart-1))',
-					'2': 'hsl(var(--chart-2))',
-					'3': 'hsl(var(--chart-3))',
-					'4': 'hsl(var(--chart-4))',
-					'5': 'hsl(var(--chart-5))'
+				placeholder: 'hsl(var(--placeholder))',
+				sunk: 'hsl(var(--sunk))',
+				/* The Ayu syntax palette. Names are Tailwind-ish because that is
+				   where they are used, not because they are ours. */
+				ayu: {
+					yellow: 'hsl(var(--ayu-yellow))',
+					special: 'hsl(var(--ayu-special))'
 				}
 			},
 			borderRadius: {

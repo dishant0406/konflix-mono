@@ -110,7 +110,7 @@ export default function EpisodeList({
 
   if (totalEpisodes <= 0 && !episodeList?.length) {
     return (
-      <div className="rounded-lg border border-white/10 bg-black/30 p-6 text-sm text-gray-400">
+      <div className="rounded-lg border border-border bg-secondary/50 p-6 text-sm text-muted-foreground">
         This title has no episode list yet. Episodes appear once the season is announced.
       </div>
     );
@@ -119,8 +119,8 @@ export default function EpisodeList({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h3 className="text-lg font-semibold text-white">
-          Episodes <span className="text-sm font-normal text-gray-400">({numbered.length})</span>
+        <h3 className="text-lg font-semibold text-foreground">
+          Episodes <span className="text-sm font-normal text-muted-foreground">({numbered.length})</span>
         </h3>
         <div className="flex items-center gap-2">
           {seasons.length > 1 && (
@@ -152,7 +152,7 @@ export default function EpisodeList({
             </Select>
           )}
           <div className="relative">
-            <Search className="pointer-events-none absolute inset-y-0 left-2 my-auto h-4 w-4 text-gray-400" />
+            <Search className="pointer-events-none absolute inset-y-0 left-2 my-auto h-4 w-4 text-muted-foreground" />
             <Input
               value={filter}
               onChange={(event) => setFilter(event.target.value)}
@@ -165,7 +165,7 @@ export default function EpisodeList({
       </div>
 
       {visible.length === 0 ? (
-        <p className="rounded-md bg-black/30 px-4 py-6 text-center text-sm text-gray-400">
+        <p className="rounded-md bg-secondary/50 px-4 py-6 text-center text-sm text-muted-foreground">
           No episodes match &ldquo;{filter}&rdquo;.
         </p>
       ) : (
@@ -186,8 +186,8 @@ export default function EpisodeList({
                 className={cn(
                   "flex h-[4.5rem] items-center justify-center gap-1.5 rounded-lg px-1 text-sm font-semibold transition-colors",
                   isCurrent
-                    ? "bg-[#e9376b] text-white"
-                    : "bg-secondary text-gray-300 hover:bg-secondary/70 hover:text-white",
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-secondary text-muted-foreground hover:bg-secondary/70 hover:text-foreground",
                 )}
               >
                 <span>{episode.number}</span>

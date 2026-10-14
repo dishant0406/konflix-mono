@@ -28,7 +28,7 @@ export default function FeaturedCollection({
 
   return (
     <Container className="flex flex-col items-center gap-5 py-5 lg:items-start">
-      <h2 className="text-xl font-bold text-white md:text-2xl">Featured Collection</h2>
+      <h2 className="text-xl font-bold text-foreground md:text-2xl">Featured Collection</h2>
       <div className="grid w-full grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
         {usable.map((category) => (
           <FeaturedCard key={category.title} category={category} />
@@ -46,8 +46,8 @@ function FeaturedCard({ category }: { category: FeaturedCategory }) {
   ];
 
   return (
-    <div className="flex h-[18.5rem] w-full flex-col items-center gap-2 overflow-hidden rounded-lg bg-[#212121]">
-      <h3 className="pt-5 text-center text-lg font-semibold text-white">{category.title}</h3>
+    <div className="flex h-[18.5rem] w-full flex-col items-center gap-2 overflow-hidden rounded-lg bg-card">
+      <h3 className="pt-5 text-center text-lg font-semibold text-foreground">{category.title}</h3>
       <div className="relative flex w-full grow">
         {category.media.slice(0, 3).map((item, index) => {
           const poster = mediaPoster(item.coverImage);
@@ -57,7 +57,7 @@ function FeaturedCard({ category }: { category: FeaturedCategory }) {
               key={`${item.id}-${index}`}
               href={titlePath(item.id)}
               aria-label={mediaTitle(item.title)}
-              className={`absolute w-[9.375rem] overflow-hidden rounded-md border-[0.5rem] border-[#212121] transition-transform duration-300 hover:z-10 hover:scale-105 ${positions[index]}`}
+              className={`absolute w-[9.375rem] overflow-hidden rounded-md border-[0.5rem] border-card transition-transform duration-300 hover:z-10 hover:scale-105 ${positions[index]}`}
             >
               <Image
                 src={poster}
@@ -77,10 +77,10 @@ function FeaturedCard({ category }: { category: FeaturedCategory }) {
 function CollectionSkeleton() {
   return (
     <Container className="flex flex-col items-center gap-5 py-10 lg:items-start">
-      <div className="h-10 w-[15.625rem] animate-pulse bg-slate-800" />
+      <div className="h-10 w-[15.625rem] animate-pulse bg-placeholder" />
       <div className="grid w-full grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
         {[0, 1, 2].map((index) => (
-          <div key={index} className="h-[15.625rem] w-full animate-pulse rounded-xl bg-slate-800 md:h-[18.75rem]" />
+          <div key={index} className="h-[15.625rem] w-full animate-pulse rounded-xl bg-placeholder md:h-[18.75rem]" />
         ))}
       </div>
     </Container>

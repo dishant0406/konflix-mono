@@ -14,8 +14,8 @@ export default function Error({ error, reset }: { error: Error; reset: () => voi
 
   return (
     <div className="flex h-[70vh] flex-col items-center justify-center gap-4 px-6 text-center">
-      <h1 className="text-2xl font-bold text-white">Something went wrong</h1>
-      <p className="max-w-md text-sm text-gray-400">
+      <h1 className="text-2xl font-bold text-foreground">Something went wrong</h1>
+      <p className="max-w-md text-sm text-muted-foreground">
         The page could not be loaded. This is usually temporary.
       </p>
       <div className="flex gap-3">

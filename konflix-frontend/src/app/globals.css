@@ -2,28 +2,67 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Ayu Dark.
+ *
+ * Values are the canonical ones from ayu-theme/ayu-colors (the `ayu` package),
+ * not approximations. Two of them are deliberately not the literal ayu values,
+ * both for readability rather than taste:
+ *
+ *   --muted-foreground  ayu's gray.l5 (#667381) is 3.93:1 on our base, which
+ *                       fails AA for body text, so this is a step lighter.
+ *   --input             ayu's ui.line (#1b1f29) is 1.15:1, far below the 3:1
+ *                       WCAG asks of a form control's boundary.
+ *
+ * Every value is stored as bare HSL channels because that is what Tailwind's
+ * `hsl(var(--token))` expects, and it is what lets the /alpha modifiers work.
+ */
 @layer base {
   :root {
-    --background: 200 71% 7%;
-    --foreground: 0 0% 98%;
-    --card: 240 4% 12%;
-    --card-foreground: 0 0% 98%;
-    --popover: 240 4% 12%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 339 80% 57%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 240 4% 16%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 240 4% 16%;
-    --muted-foreground: 240 5% 65%;
-    --accent: 240 4% 18%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 63% 40%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 240 4% 20%;
-    --input: 240 4% 20%;
-    --ring: 339 80% 57%;
+    /* Surfaces, darkest first. */
+    --background: 222 28% 7%; /* #0d1017 — ayu editor.bg */
+    --foreground: 47 7% 73%; /* #bfbdb6 — ayu editor.fg */
+
+    --card: 220 27% 9%; /* #10141c — ayu surface.lift */
+    --card-foreground: 47 7% 73%;
+
+    --popover: 220 27% 9%;
+    --popover-foreground: 47 7% 73%;
+
+    /* Amber, the single accent. Nothing on this site is pink or blue. */
+    --primary: 40 75% 61%; /* #e6b450 — ayu common.accent.tint */
+    /* Must be the dark base: white on this amber is 1.91:1 and unreadable. */
+    --primary-foreground: 222 28% 7%;
+
+    --secondary: 223 21% 13%; /* #1b1f29 — ayu ui.line */
+    --secondary-foreground: 47 7% 73%;
+
+    --muted: 223 21% 13%;
+    --muted-foreground: 213 15% 53%; /* #73819a — 4.83:1, passes AA */
+
+    --accent: 223 21% 13%;
+    --accent-foreground: 47 7% 73%;
+
+    --destructive: 0 63% 60%; /* #d95757 — ayu common.error */
+    --destructive-foreground: 222 28% 7%;
+
+    /* Borders stay subtle, as they are in ayu's own editor. */
+    --border: 212 14% 23%; /* #333b44 — ayu gray.l1 */
+    --input: 211 12% 40%; /* #5a6673 — a visible control boundary */
+    --ring: 40 75% 61%;
+
+    /* Poster and banner placeholders, and skeletons. */
+    --placeholder: 223 21% 13%;
+
+    /* The darkest surface: video letterboxing, trailer backing, overlays.
+       ayu surface.sunk, not pure black. */
+    --sunk: 240 33% 1%; /* #010102 */
+
     --radius: 0.5rem;
+
+    /* Syntax palette. Only the two the UI actually renders: the score badge
+       and the playback-error notice. */
+    --ayu-yellow: 34 100% 66%; /* #ffb454 */
+    --ayu-special: 35 65% 72%; /* #e6c08a */
   }
 }
 
@@ -69,14 +108,14 @@
 }
 
 ::-webkit-scrollbar-track {
-  background: #0b1116;
+  background: #0d1017;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #3a3f45;
+  background: #333b44;
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #555;
+  background: #4d5763;
 }

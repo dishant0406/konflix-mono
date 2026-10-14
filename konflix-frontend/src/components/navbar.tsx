@@ -27,19 +27,19 @@ export default function Navbar() {
     <header
       className={cn(
         "fixed inset-x-0 top-0 z-[100] transition-colors duration-300",
-        solid ? "bg-black/80 backdrop-blur-md" : "bg-gradient-to-b from-black/80 to-transparent",
+        solid ? "bg-background/85 backdrop-blur-md" : "bg-gradient-to-b from-background to-transparent",
       )}
     >
       <Container className="flex items-center justify-between gap-6 py-3">
         <Link href={ROUTES.HOME} className="shrink-0" aria-label={`${SITE.appName} home`}>
-          <span className="bg-gradient-to-r from-gray-100 to-[#e9376b] bg-clip-text text-xl font-black tracking-widest text-transparent">
+          <span className="bg-gradient-to-r from-foreground to-primary bg-clip-text text-xl font-black tracking-widest text-transparent">
             KONFLIX
           </span>
         </Link>
 
         <nav className="ml-6 hidden items-center gap-8 lg:flex">
           {LINKS.map((link) => (
-            <Link key={link.title} href={link.href} className="text-sm text-gray-300 hover:text-white">
+            <Link key={link.title} href={link.href} className="text-sm text-muted-foreground hover:text-foreground">
               {link.title}
             </Link>
           ))}
@@ -51,7 +51,7 @@ export default function Navbar() {
 
         <div className="lg:hidden">
           <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
-            <SheetTrigger aria-label="Open menu" className="text-white">
+            <SheetTrigger aria-label="Open menu" className="text-foreground">
               <MenuIcon />
             </SheetTrigger>
             <SheetContent
@@ -60,7 +60,7 @@ export default function Navbar() {
               onOpenAutoFocus={(event) => event.preventDefault()}
             >
               <div className="relative h-full w-full">
-                <SheetClose className="absolute right-0 top-0 text-white" aria-label="Close menu">
+                <SheetClose className="absolute right-0 top-0 text-foreground" aria-label="Close menu">
                   <X />
                 </SheetClose>
                 <div className="mt-10 flex flex-col gap-5">
@@ -69,7 +69,7 @@ export default function Navbar() {
                       key={link.title}
                       href={link.href}
                       onClick={() => setMenuOpen(false)}
-                      className="text-gray-200"
+                      className="text-foreground"
                     >
                       {link.title}
                     </Link>

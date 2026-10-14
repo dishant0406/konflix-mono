@@ -62,8 +62,8 @@ export default function TitleDetailPage() {
   if (isError) {
     return (
       <Container className="py-24 text-center">
-        <h1 className="text-2xl font-bold text-white">Could not load this {SITE.itemLabel}</h1>
-        <p className="mt-2 text-sm text-gray-400">
+        <h1 className="text-2xl font-bold text-foreground">Could not load this {SITE.itemLabel}</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
           The Konflix API did not respond. This is usually temporary.
         </p>
         <Button className="mt-6" onClick={() => refetch()}>
@@ -76,8 +76,8 @@ export default function TitleDetailPage() {
   if (!media) {
     return (
       <Container className="py-24 text-center">
-        <h1 className="text-2xl font-bold text-white">Not found</h1>
-        <p className="mt-2 text-sm text-gray-400">That title is not in the catalogue.</p>
+        <h1 className="text-2xl font-bold text-foreground">Not found</h1>
+        <p className="mt-2 text-sm text-muted-foreground">That title is not in the catalogue.</p>
         <Button asChild className="mt-6">
           <Link href={ROUTES.HOME}>Back to home</Link>
         </Button>
@@ -132,38 +132,38 @@ export default function TitleDetailPage() {
 
       <Container className="pb-20">
         <div className="flex flex-col gap-8 md:flex-row md:items-end md:gap-16">
-          <div className="relative -mt-24 h-[18rem] w-[12.5rem] shrink-0 overflow-hidden rounded-xl border border-white/10 bg-slate-900 shadow-2xl md:-mt-32 md:h-[25rem] md:w-[17rem]">
+          <div className="relative -mt-24 h-[18rem] w-[12.5rem] shrink-0 overflow-hidden rounded-xl border border-border bg-card shadow-2xl md:-mt-32 md:h-[25rem] md:w-[17rem]">
             {poster && <Image src={poster} alt={title} fill sizes="280px" priority className="object-cover" />}
           </div>
 
           <div className="flex flex-col gap-4 pb-4">
-            <h1 className="text-2xl font-extrabold text-white md:text-5xl">{title}</h1>
+            <h1 className="text-2xl font-extrabold text-foreground md:text-5xl">{title}</h1>
 
             <div className="flex flex-wrap items-center gap-2 text-xs">
-              {media.format && <Badge className="bg-[#e9376b] text-white">{media.format}</Badge>}
+              {media.format && <Badge className="bg-primary text-primary-foreground">{media.format}</Badge>}
               {media.status && (
-                <Badge variant="outline" className="border-gray-600 text-gray-300">
+                <Badge variant="outline" className="border-border text-muted-foreground">
                   {media.status.replace(/_/g, " ")}
                 </Badge>
               )}
               {media.seasonYear && (
-                <Badge variant="outline" className="border-gray-600 text-gray-300">
+                <Badge variant="outline" className="border-border text-muted-foreground">
                   {media.season ? `${media.season} ` : ""}
                   {media.seasonYear}
                 </Badge>
               )}
               {!!media.averageScore && (
-                <Badge className="border border-yellow-500/40 bg-yellow-500/20 text-yellow-300">
+                <Badge className="border border-ayu-yellow/40 bg-ayu-yellow/15 text-ayu-yellow">
                   ★ {media.averageScore}%
                 </Badge>
               )}
               {!isFilm && totalEpisodes > 0 && (
-                <Badge variant="outline" className="border-gray-600 text-gray-300">
+                <Badge variant="outline" className="border-border text-muted-foreground">
                   {totalEpisodes} episodes
                 </Badge>
               )}
               {isFilm && media.duration ? (
-                <Badge variant="outline" className="border-gray-600 text-gray-300">
+                <Badge variant="outline" className="border-border text-muted-foreground">
                   {media.duration} min
                 </Badge>
               ) : null}
@@ -171,7 +171,7 @@ export default function TitleDetailPage() {
 
             <div className="flex flex-wrap items-center gap-3">
               {playTarget && (
-                <Button asChild className="bg-[#e9376b] text-white hover:bg-[#d32a5d]">
+                <Button asChild className="bg-primary text-primary-foreground hover:bg-primary/90">
                   <Link href={playTarget}>
                     <CirclePlay className="mr-2 h-4 w-4" />
                     {playLabel}
@@ -207,35 +207,35 @@ export default function TitleDetailPage() {
 
           <TabsContent value="overview" className="mt-8 grid w-full grid-cols-1 gap-x-16 gap-y-6 md:grid-cols-5">
             <div className="col-span-1 flex flex-col gap-4">
-              <h2 className="text-lg font-semibold text-white">Details</h2>
+              <h2 className="text-lg font-semibold text-foreground">Details</h2>
               <dl className="grid grid-cols-[7rem_1fr] gap-y-2 text-sm">
-                <dt className="text-gray-400">Format</dt>
-                <dd className="text-gray-200">{media.format ?? "—"}</dd>
-                <dt className="text-gray-400">Status</dt>
-                <dd className="text-gray-200">{media.status?.replace(/_/g, " ") ?? "—"}</dd>
+                <dt className="text-muted-foreground">Format</dt>
+                <dd className="text-foreground">{media.format ?? "—"}</dd>
+                <dt className="text-muted-foreground">Status</dt>
+                <dd className="text-foreground">{media.status?.replace(/_/g, " ") ?? "—"}</dd>
                 {!isFilm && (
                   <>
-                    <dt className="text-gray-400">Episodes</dt>
-                    <dd className="text-gray-200">{totalEpisodes || "—"}</dd>
+                    <dt className="text-muted-foreground">Episodes</dt>
+                    <dd className="text-foreground">{totalEpisodes || "—"}</dd>
                   </>
                 )}
-                <dt className="text-gray-400">Duration</dt>
-                <dd className="text-gray-200">{media.duration ? `${media.duration} min` : "—"}</dd>
-                <dt className="text-gray-400">Studio</dt>
-                <dd className="text-gray-200">{studios.join(", ") || "—"}</dd>
-                <dt className="text-gray-400">Genres</dt>
-                <dd className="text-gray-200">{(media.genres ?? []).join(", ") || "—"}</dd>
+                <dt className="text-muted-foreground">Duration</dt>
+                <dd className="text-foreground">{media.duration ? `${media.duration} min` : "—"}</dd>
+                <dt className="text-muted-foreground">Studio</dt>
+                <dd className="text-foreground">{studios.join(", ") || "—"}</dd>
+                <dt className="text-muted-foreground">Genres</dt>
+                <dd className="text-foreground">{(media.genres ?? []).join(", ") || "—"}</dd>
               </dl>
             </div>
 
             <div className="col-span-1 flex flex-col gap-4 md:col-span-4">
-              <h2 className="text-lg font-semibold text-white">Synopsis</h2>
-              <p className="whitespace-pre-line text-sm leading-6 text-gray-300">
+              <h2 className="text-lg font-semibold text-foreground">Synopsis</h2>
+              <p className="whitespace-pre-line text-sm leading-6 text-muted-foreground">
                 {media.description || "No synopsis is available for this title."}
               </p>
               {externalLinks.length > 0 && (
                 <>
-                  <h2 className="mt-4 text-lg font-semibold text-white">Links</h2>
+                  <h2 className="mt-4 text-lg font-semibold text-foreground">Links</h2>
                   <div className="flex flex-wrap gap-2">
                     {externalLinks.slice(0, 8).map((link) => (
                       <a
@@ -243,7 +243,7 @@ export default function TitleDetailPage() {
                         href={link.url ?? "#"}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="rounded-md border border-white/15 px-3 py-1 text-xs text-gray-300 hover:border-white/40 hover:text-white"
+                        className="rounded-md border border-border px-3 py-1 text-xs text-muted-foreground hover:border-input hover:text-foreground"
                       >
                         {link.site || "Link"}
                       </a>
@@ -270,13 +270,13 @@ export default function TitleDetailPage() {
               <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
                 {characters.map((edge, index) => (
                   <div key={`${edge.node?.id}-${index}`} className="flex flex-col items-center gap-2 text-center">
-                    <div className="relative h-24 w-24 overflow-hidden rounded-full bg-slate-800">
+                    <div className="relative h-24 w-24 overflow-hidden rounded-full bg-placeholder">
                       {edge.node?.image?.large && (
                         <Image src={edge.node.image.large} alt="" fill sizes="96px" className="object-cover" />
                       )}
                     </div>
-                    <p className="text-xs font-semibold text-white">{edge.node?.name?.full}</p>
-                    {edge.role && <p className="text-[11px] text-gray-400">{edge.role}</p>}
+                    <p className="text-xs font-semibold text-foreground">{edge.node?.name?.full}</p>
+                    {edge.role && <p className="text-[11px] text-muted-foreground">{edge.role}</p>}
                   </div>
                 ))}
               </div>
@@ -307,13 +307,13 @@ export default function TitleDetailPage() {
 
       {trailerOpen && trailerUrl && (
         <div
-          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 p-4"
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-sunk/80 p-4"
           role="dialog"
           aria-modal="true"
           aria-label={`${title} trailer`}
           onClick={() => setTrailerOpen(false)}
         >
-          <div className="aspect-video w-full max-w-4xl overflow-hidden rounded-lg bg-black">
+          <div className="aspect-video w-full max-w-4xl overflow-hidden rounded-lg bg-sunk">
             <iframe
               src={trailerUrl}
               title={`${title} trailer`}

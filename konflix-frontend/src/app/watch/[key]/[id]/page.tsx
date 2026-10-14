@@ -87,10 +87,10 @@ export default function WatchPage() {
       <div className="flex flex-col gap-4">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="min-w-0">
-            <Link href={backHref} className="text-xs text-gray-400 hover:text-white">
+            <Link href={backHref} className="text-xs text-muted-foreground hover:text-foreground">
               {title || "Loading..."}
             </Link>
-            <h1 className="truncate text-lg font-bold text-white md:text-2xl">{heading}</h1>
+            <h1 className="truncate text-lg font-bold text-foreground md:text-2xl">{heading}</h1>
           </div>
 
           {!isFilm && (
@@ -116,18 +116,18 @@ export default function WatchPage() {
         </div>
 
         {stream.isLoading && (
-          <div className="flex aspect-video w-full flex-col items-center justify-center gap-3 rounded-lg bg-black px-6">
-            <div className="h-9 w-9 animate-spin rounded-full border-2 border-white/20 border-t-white" />
-            <p className="text-center text-sm text-white/60">
+          <div className="flex aspect-video w-full flex-col items-center justify-center gap-3 rounded-lg bg-background px-6">
+            <div className="h-9 w-9 animate-spin rounded-full border-2 border-border border-t-primary" />
+            <p className="text-center text-sm text-muted-foreground">
               Searching for a playable source. This can take up to a minute.
             </p>
           </div>
         )}
 
         {!stream.isLoading && stream.isError && (
-          <div className="flex aspect-video w-full flex-col items-center justify-center gap-2 rounded-lg bg-black px-6 text-center">
-            <p className="font-bold text-white">Could not load this {isFilm ? "film" : "episode"}</p>
-            <p className="max-w-lg text-sm text-white/60">
+          <div className="flex aspect-video w-full flex-col items-center justify-center gap-2 rounded-lg bg-background px-6 text-center">
+            <p className="font-bold text-foreground">Could not load this {isFilm ? "film" : "episode"}</p>
+            <p className="max-w-lg text-sm text-muted-foreground">
               {stream.error instanceof Error ? stream.error.message : "The API did not respond."}
             </p>
             <Button className="mt-2" onClick={() => stream.refetch()}>
@@ -145,9 +145,9 @@ export default function WatchPage() {
               poster={poster}
               onError={handleError}
             />
-            {playbackError && <p className="text-sm text-amber-300/80">{playbackError}</p>}
+            {playbackError && <p className="text-sm text-ayu-special/80">{playbackError}</p>}
             {link.release && (
-              <p className="break-all text-xs text-white/50">
+              <p className="break-all text-xs text-muted-foreground/80">
                 Source: {link.release}
                 {sourceHost ? ` · via ${sourceHost}` : ""}
                 {link.streamType === "hls" ? " · converted for browser playback" : ""}
@@ -157,12 +157,12 @@ export default function WatchPage() {
         )}
 
         {!stream.isLoading && !stream.isError && !link?.available && (
-          <div className="flex aspect-video w-full flex-col items-center justify-center gap-3 rounded-lg bg-black px-6 text-center">
-            <p className="text-lg font-bold text-white">No playable source found</p>
-            <p className="max-w-[40rem] text-sm text-white/60">
+          <div className="flex aspect-video w-full flex-col items-center justify-center gap-3 rounded-lg bg-background px-6 text-center">
+            <p className="text-lg font-bold text-foreground">No playable source found</p>
+            <p className="max-w-[40rem] text-sm text-muted-foreground">
               {link?.reason || "The API returned no stream for this title."}
             </p>
-            <p className="max-w-[40rem] text-xs text-white/40">
+            <p className="max-w-[40rem] text-xs text-muted-foreground/70">
               Playback depends on public sources, which do not have every release.
             </p>
             {!isFilm && (
@@ -198,18 +198,18 @@ export default function WatchPage() {
           )}
 
           <aside className="flex flex-col gap-4">
-            <div className="relative aspect-[2/3] w-full overflow-hidden rounded-lg bg-slate-900">
+            <div className="relative aspect-[2/3] w-full overflow-hidden rounded-lg bg-card">
               {poster && <Image src={poster} alt={title} fill sizes="300px" className="object-cover" />}
             </div>
             <div>
-              <h2 className="text-base font-semibold text-white">{title}</h2>
-              <p className="mt-1 text-xs text-gray-400">
+              <h2 className="text-base font-semibold text-foreground">{title}</h2>
+              <p className="mt-1 text-xs text-muted-foreground">
                 {[media.format, media.status?.replace(/_/g, " "), media.seasonYear]
                   .filter(Boolean)
                   .join(" · ")}
               </p>
             </div>
-            <p className="line-clamp-6 whitespace-pre-line text-xs leading-5 text-gray-400">
+            <p className="line-clamp-6 whitespace-pre-line text-xs leading-5 text-muted-foreground">
               {media.description}
             </p>
             <Button variant="secondary" asChild>
@@ -220,15 +220,15 @@ export default function WatchPage() {
       )}
 
       {metadata.isError && (
-        <p className="py-10 text-center text-sm text-gray-400">
+        <p className="py-10 text-center text-sm text-muted-foreground">
           Could not load this {SITE.itemLabel}. The Konflix API may be unreachable.
         </p>
       )}
 
       {!metadata.isLoading && !metadata.isError && !media && (
-        <p className="py-10 text-center text-sm text-gray-400">
+        <p className="py-10 text-center text-sm text-muted-foreground">
           That {SITE.itemLabel} could not be found.{" "}
-          <Link href={ROUTES.HOME} className="text-[#e9376b] hover:underline">
+          <Link href={ROUTES.HOME} className="text-primary hover:underline">
             Back to home
           </Link>
         </p>

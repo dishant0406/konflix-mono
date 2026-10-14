@@ -41,18 +41,18 @@ export default function HeroSection({ media, loading }: { media: MediaList[]; lo
           size="icon"
           aria-label="Previous featured title"
           onClick={() => api?.scrollPrev()}
-          className="h-10 w-10 rounded-full border-white/40 bg-black/30 backdrop-blur hover:bg-white/20"
+          className="h-10 w-10 rounded-full border-input bg-background/60 backdrop-blur hover:bg-secondary"
         >
-          <ArrowLeft className="h-4 w-4 text-white" />
+          <ArrowLeft className="h-4 w-4 text-foreground" />
         </Button>
         <Button
           variant="outline"
           size="icon"
           aria-label="Next featured title"
           onClick={() => api?.scrollNext()}
-          className="h-10 w-10 rounded-full border-white/40 bg-black/30 backdrop-blur hover:bg-white/20"
+          className="h-10 w-10 rounded-full border-input bg-background/60 backdrop-blur hover:bg-secondary"
         >
-          <ArrowRight className="h-4 w-4 text-white" />
+          <ArrowRight className="h-4 w-4 text-foreground" />
         </Button>
       </div>
     </section>
@@ -76,45 +76,45 @@ function HeroSlide({ media, priority }: { media: MediaList; priority: boolean })
           className="object-cover"
         />
       ) : (
-        <div className="absolute inset-0 bg-slate-900" />
+        <div className="absolute inset-0 bg-card" />
       )}
 
       {/* Two scrims: one horizontal so the copy stays readable over a busy image,
           one vertical so the carousel meets the page without a hard edge. */}
-      <div className="absolute inset-0 bg-gradient-to-r from-slate-900 via-slate-900/80 to-transparent" />
-      <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-slate-900/30 to-transparent" />
+      <div className="absolute inset-0 bg-gradient-to-r from-background via-background/80 to-transparent" />
+      <div className="absolute inset-0 bg-gradient-to-t from-background via-background/30 to-transparent" />
 
       <div className="relative z-20 h-full">
         <Container className="flex h-full flex-col justify-end pb-12 md:justify-center">
           <div className="space-y-3 lg:w-[45vw]">
-            <h1 className="line-clamp-2 text-3xl font-black text-white md:text-5xl">{title}</h1>
+            <h1 className="line-clamp-2 text-3xl font-black text-foreground md:text-5xl">{title}</h1>
 
             <div className="flex flex-wrap items-center gap-2 text-xs">
-              {media.format && <Badge className="bg-[#e9376b] font-bold text-white">{media.format}</Badge>}
+              {media.format && <Badge className="bg-primary font-bold text-primary-foreground">{media.format}</Badge>}
               {media.seasonYear && (
-                <Badge variant="outline" className="border-gray-600 text-gray-300">
+                <Badge variant="outline" className="border-border text-muted-foreground">
                   {media.season ? `${media.season} ` : ""}
                   {media.seasonYear}
                 </Badge>
               )}
               {!!media.averageScore && (
-                <Badge className="border border-yellow-500/40 bg-yellow-500/20 text-yellow-300">
+                <Badge className="border border-ayu-yellow/40 bg-ayu-yellow/15 text-ayu-yellow">
                   ★ {media.averageScore}% score
                 </Badge>
               )}
               {(media.genres ?? []).slice(0, 3).map((genre) => (
-                <span key={genre} className="text-xs text-gray-400">
+                <span key={genre} className="text-xs text-muted-foreground">
                   • {genre}
                 </span>
               ))}
             </div>
 
             {studios.length > 0 && (
-              <p className="line-clamp-1 text-xs text-gray-400">{studios.join(", ")}</p>
+              <p className="line-clamp-1 text-xs text-muted-foreground">{studios.join(", ")}</p>
             )}
 
             <div className="flex items-center gap-3 pt-3">
-              <Button asChild className="h-10 bg-[#e9376b] text-white hover:bg-[#d32a5d]">
+              <Button asChild className="h-10 bg-primary text-primary-foreground hover:bg-primary/90">
                 <Link href={titlePath(media.id)}>Learn More</Link>
               </Button>
             </div>
@@ -128,12 +128,12 @@ function HeroSlide({ media, priority }: { media: MediaList; priority: boolean })
 function HeroSkeleton() {
   return (
     <section className="relative h-[70vh] min-h-[26rem] w-full md:h-[80vh]">
-      <div className="absolute inset-0 animate-pulse bg-slate-800" />
+      <div className="absolute inset-0 animate-pulse bg-placeholder" />
       <Container className="relative z-20 flex h-full flex-col justify-end pb-12 md:justify-center">
         <div className="space-y-4 lg:w-[45vw]">
-          <div className="h-12 w-3/4 animate-pulse rounded bg-slate-700" />
-          <div className="h-6 w-1/2 animate-pulse rounded bg-slate-700" />
-          <div className="h-10 w-32 animate-pulse rounded bg-slate-700" />
+          <div className="h-12 w-3/4 animate-pulse rounded bg-secondary" />
+          <div className="h-6 w-1/2 animate-pulse rounded bg-secondary" />
+          <div className="h-10 w-32 animate-pulse rounded bg-secondary" />
         </div>
       </Container>
     </section>
