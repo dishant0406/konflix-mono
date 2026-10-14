@@ -7,8 +7,8 @@ import { useParams } from "next/navigation";
 import { useState } from "react";
 
 import Loading from "@/app/loading";
-import AnimeRow from "@/components/anime-row";
-import EpisodeList from "@/components/anime/episode-list";
+import MediaRow from "@/components/media-row";
+import EpisodeList from "@/components/media/episode-list";
 import Container from "@/components/container";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -258,7 +258,7 @@ export default function TitleDetailPage() {
           {!isFilm && (
             <TabsContent value="episodes" className="mt-8">
               <EpisodeList
-                animeId={key ?? ""}
+                titleKey={key ?? ""}
                 totalEpisodes={totalEpisodes}
                 currentEpisodeNumber={null}
                 episodeList={media.episodeList}
@@ -287,7 +287,7 @@ export default function TitleDetailPage() {
 
         {relations.length > 0 && (
           <div className="mt-12">
-            <AnimeRow
+            <MediaRow
               title={site.relatedTitle}
               media={relations.map(toRowMedia)}
               hrefFor={(item) => titlePath(item.id)}
@@ -296,7 +296,7 @@ export default function TitleDetailPage() {
         )}
 
         {recommendations.length > 0 && (
-          <AnimeRow
+          <MediaRow
             title={site.recommendedTitle}
             media={recommendations.map(toRowMedia)}
             hrefFor={(item) => titlePath(item.id)}
@@ -339,6 +339,6 @@ function RelatedByGenre({ genres }: { genres: string[] | null }) {
   if (!genre || results.length === 0) return null;
 
   return (
-    <AnimeRow title={`More ${genre}`} media={results} hrefFor={(item) => titlePath(item.id)} />
+    <MediaRow title={`More ${genre}`} media={results} hrefFor={(item) => titlePath(item.id)} />
   );
 }

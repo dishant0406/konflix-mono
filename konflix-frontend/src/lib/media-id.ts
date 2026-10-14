@@ -16,7 +16,7 @@
 // different titles. It also means a page can tell what it is looking at from the URL
 // alone.
 //
-// This mirrors anime-server/lib/mediaId.js. The API is the contract, so the two must
+// This mirrors konflix-api/lib/mediaId.js. The API is the contract, so the two must
 // agree; they are kept deliberately small so that stays obvious.
 
 export type ContentType = "anime" | "series" | "movie";

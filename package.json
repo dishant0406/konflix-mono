@@ -2,13 +2,13 @@
   "name": "konflix-monorepo",
   "version": "2.0.0",
   "private": true,
-  "description": "Konflix monorepo: anime metadata and streaming API plus its Next.js frontend",
+  "description": "Konflix monorepo: media catalogue and streaming API plus its Next.js frontend",
   "license": "AGPL-3.0",
   "engines": {
     "node": ">=22.0.0"
   },
   "workspaces": [
-    "anime-server",
+    "konflix-api",
     "konflix-frontend"
   ],
   "scripts": {

@@ -1,7 +1,7 @@
 {
   "name": "konflix-api",
   "version": "2.0.0",
-  "description": "Konflix GraphQL API - anime metadata via pluggable providers, video via pluggable torrent indexers",
+  "description": "Konflix GraphQL API - anime, series and film metadata via pluggable providers, video via pluggable torrent indexers",
   "private": true,
   "type": "module",
   "license": "AGPL-3.0",

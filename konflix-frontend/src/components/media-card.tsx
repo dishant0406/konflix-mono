@@ -17,7 +17,7 @@ type Props = {
   priority?: boolean;
 };
 
-export default function AnimeCard({
+export default function MediaCard({
   media,
   href,
   className,

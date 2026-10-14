@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 
-import AnimeRow from "@/components/anime-row";
+import MediaRow from "@/components/media-row";
 import FeaturedCollection, { type FeaturedCategory } from "@/components/featured-collection";
 import HeroSection from "@/components/hero-section";
 import { titlePath } from "@/constants/routes";
@@ -46,7 +46,7 @@ export default function HomePage() {
 
       <div className="relative z-20 -mt-8">
         {filled.slice(0, 2).map(({ row, query }) => (
-          <AnimeRow
+          <MediaRow
             key={row.title}
             title={row.title}
             media={results(query.data)}
@@ -58,7 +58,7 @@ export default function HomePage() {
         <FeaturedCollection categories={featured} loading={rows[0]?.isLoading ?? false} />
 
         {filled.slice(2).map(({ row, query }) => (
-          <AnimeRow
+          <MediaRow
             key={row.title}
             title={row.title}
             media={results(query.data)}

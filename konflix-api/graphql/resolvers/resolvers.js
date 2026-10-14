@@ -52,7 +52,7 @@ const Query = {
 
   recommandedAnime: (args) => providerFor('anime').recommandedAnime(args.genre),
 
-streamLinkDetails: async (args) => {
+  streamLinkDetails: async (args) => {
     const id = args.id
 
     // resolveStream never throws, but it calls the metadata provider first. A
@@ -79,10 +79,9 @@ streamLinkDetails: async (args) => {
       available: Boolean(result.available),
       reason: result.reason || null,
       release: result.release || null,
-      animeNameWithEP:
+      titleWithEpisode:
         details.name && episodeNumber ? `${details.name} Episode ${episodeNumber}` : null,
-      ep_num: episodeNumber,
-      anime_info: details.synopsis || null,
+      episodeNumber,
     }
   },
 }

@@ -1,6 +1,6 @@
 // The media shapes the API returns.
 //
-// These mirror graphql/typeDefs/schema.graphql in anime-server. The API is the
+// These mirror graphql/typeDefs/schema.graphql in konflix-api. The API is the
 // contract; nothing here is invented locally.
 
 export type MediaFormat = "TV" | "MOVIE" | "OVA" | "ONA" | "SPECIAL" | "MUSIC";
@@ -127,6 +127,6 @@ export interface StreamLink {
   available: boolean | null;
   reason: string | null;
   release: string | null;
-  animeNameWithEP: string | null;
-  ep_num: number | null;
+  titleWithEpisode: string | null;
+  episodeNumber: number | null;
 }

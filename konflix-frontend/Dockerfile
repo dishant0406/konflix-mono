@@ -17,7 +17,7 @@ FROM node:22-bookworm-slim AS build
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-COPY anime-server/package.json ./anime-server/
+COPY konflix-api/package.json ./konflix-api/
 COPY konflix-frontend/package.json ./konflix-frontend/
 
 # The build needs devDependencies (Next, Tailwind, TypeScript, ESLint), so

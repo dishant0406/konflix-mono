@@ -117,8 +117,8 @@ export const GET_STREAM_LINK = gql`
       available
       reason
       release
-      animeNameWithEP
-      ep_num
+      titleWithEpisode
+      episodeNumber
     }
   }
 `;

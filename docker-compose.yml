@@ -46,7 +46,7 @@ services:
     image: ${API_IMAGE}
     build:
       context: .
-      dockerfile: anime-server/Dockerfile
+      dockerfile: konflix-api/Dockerfile
     restart: unless-stopped
     environment:
       NODE_ENV: production

@@ -71,9 +71,9 @@ type StreamLink {
   available: Boolean
   reason: String
   release: String
-  animeNameWithEP: String
-  ep_num: Int
-  anime_info: String
+  # The title with its episode appended, e.g. "Breaking Bad Episode 5".
+  titleWithEpisode: String
+  episodeNumber: Int
 }
 
 # ---------------------------------------------------------------------------

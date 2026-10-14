@@ -6,9 +6,9 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 
-import AnimeRow from "@/components/anime-row";
-import EpisodeList from "@/components/anime/episode-list";
-import VideoPlayer from "@/components/anime/video-player";
+import MediaRow from "@/components/media-row";
+import EpisodeList from "@/components/media/episode-list";
+import VideoPlayer from "@/components/media/video-player";
 import Container from "@/components/container";
 import { Button } from "@/components/ui/button";
 import { ROUTES, titlePath, watchPath } from "@/constants/routes";
@@ -142,7 +142,7 @@ export default function WatchPage() {
             <VideoPlayer
               src={link.url}
               streamType={link.streamType}
-              title={link.animeNameWithEP || title}
+              title={link.titleWithEpisode || title}
               poster={poster}
               onError={handleError}
             />
@@ -189,7 +189,7 @@ export default function WatchPage() {
           {!isFilm && key && (
             <div className="lg:col-span-3">
               <EpisodeList
-                animeId={key}
+                titleKey={key}
                 totalEpisodes={totalEpisodes}
                 currentEpisodeNumber={episodeNumber}
                 currentSeason={season}
@@ -236,7 +236,7 @@ export default function WatchPage() {
       )}
 
       {recommendations.data?.results?.length ? (
-        <AnimeRow
+        <MediaRow
           title={site.recommendedTitle}
           media={recommendations.data.results}
           hrefFor={(item) => titlePath(item.id)}

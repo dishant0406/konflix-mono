@@ -1,7 +1,7 @@
 # Konflix frontend
 
 Next.js app (App Router, TypeScript) for Konflix. It talks to the Konflix API
-(`../anime-server`) over GraphQL and plays the video URL the API returns.
+(`../konflix-api`) over GraphQL and plays the video URL the API returns.
 
 The UI is derived from [Kitsune](https://github.com/Dovakiin0/Kitsune) (MIT). See
 [../ATTRIBUTION.md](../ATTRIBUTION.md) for what was taken and what was left behind.

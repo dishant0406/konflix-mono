@@ -26,14 +26,14 @@ const PAGE_SIZE = 50;
  * and the stream layer matches on both.
  */
 export default function EpisodeList({
-  animeId,
+  titleKey,
   totalEpisodes,
   currentEpisodeNumber,
   currentSeason = null,
   episodeList,
 }: {
   /** The title's key, e.g. "anime-16498" or "series-169". */
-  animeId: string;
+  titleKey: string;
   totalEpisodes: number;
   currentEpisodeNumber: number | null;
   currentSeason?: number | null;
@@ -62,10 +62,10 @@ export default function EpisodeList({
     // An anime has no explicit list, so the count is expanded.
     return Array.from({ length: Math.max(0, totalEpisodes) }, (_, index) => ({
       number: index + 1,
-      id: animeEpisodeId(animeId.replace(/^[a-z]+-/, ""), index + 1),
+      id: animeEpisodeId(titleKey.replace(/^[a-z]+-/, ""), index + 1),
       name: null,
     }));
-  }, [episodeList, season, totalEpisodes, animeId]);
+  }, [episodeList, season, totalEpisodes, titleKey]);
 
   const blocks = useMemo(() => {
     if (numbered.length <= PAGE_SIZE) return [];
@@ -176,11 +176,11 @@ export default function EpisodeList({
               (currentSeason === null || season === currentSeason);
             // The id is already the provider's own, so a series episode keeps its
             // season. An anime id is rebuilt from the count.
-            const id = episode.id ?? animeEpisodeId(animeId, episode.number);
+            const id = episode.id ?? animeEpisodeId(titleKey, episode.number);
             return (
               <Link
                 key={id}
-                href={watchPath(animeId, id)}
+                href={watchPath(titleKey, id)}
                 title={episode.name ?? undefined}
                 aria-current={isCurrent ? "true" : undefined}
                 className={cn(

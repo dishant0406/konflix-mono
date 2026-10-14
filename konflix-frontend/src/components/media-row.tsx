@@ -3,7 +3,7 @@
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import AnimeCard from "@/components/anime-card";
+import MediaCard from "@/components/media-card";
 import Container from "@/components/container";
 import { Button } from "@/components/ui/button";
 import type { MediaList } from "@/types/media";
@@ -23,7 +23,7 @@ type Props = {
  * scrolls by touch, by trackpad and by keyboard for free. The arrows drive the
  * same scroll, which is why they are plain buttons over a real scrollable element.
  */
-export default function AnimeRow({ title, media, hrefFor, loading = false, episodeLabel }: Props) {
+export default function MediaRow({ title, media, hrefFor, loading = false, episodeLabel }: Props) {
   const trackRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -89,7 +89,7 @@ export default function AnimeRow({ title, media, hrefFor, loading = false, episo
       >
         {media.map((item, index) => (
           <div key={`${item.id}-${index}`} className="shrink-0 snap-start">
-            <AnimeCard
+            <MediaCard
               media={item}
               href={hrefFor(item)}
               episodeLabel={episodeLabel?.(item)}

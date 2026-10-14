@@ -11,7 +11,7 @@ Anime, series and films from one API, served as two sites.
 
 | Directory | What it is | Port |
 | --- | --- | --- |
-| `anime-server/` | GraphQL API. Metadata from AniList/Kitsu/Cinemeta/TVMaze/YTS, releases from torrent indexers, video streamed from a torrent swarm or a debrid CDN. | 9000 |
+| `konflix-api/` | GraphQL API. Metadata from AniList/Kitsu/Cinemeta/TVMaze/YTS, releases from torrent indexers, video streamed from a torrent swarm or a debrid CDN. | 9000 |
 | `konflix-frontend/` | Next.js app (App Router, TypeScript). One build, one container, every hostname. | 3000 |
 
 The previous version of this project scraped a private site and a public API, both
@@ -64,7 +64,7 @@ The provider's own id is alphanumeric rather than digits-only because providers 
 agree on a form: AniList, TVMaze and YTS use numbers, Cinemeta uses IMDb ids
 (`tt27548557`). A digits-only charset made every Cinemeta film unreachable from the
 frontend, which parses the same ids.
-`anime-server/lib/mediaId.js` and `konflix-frontend/src/lib/media-id.ts` must agree.
+`konflix-api/lib/mediaId.js` and `konflix-frontend/src/lib/media-id.ts` must agree.
 
 ## Adding a provider or an indexer
 
@@ -73,9 +73,9 @@ file and a key - no change to the schema, the resolvers, or the frontend.
 
 | Map | Directory | Selected by |
 | --- | --- | --- |
-| Metadata providers | `anime-server/graphql/providers/` | `PROVIDERS` (per type, `+`-separated for a fallback chain), `METADATA_PROVIDER` |
-| Torrent indexers | `anime-server/graphql/indexers/` | `TORRENT_INDEXERS` |
-| Stream sources | `anime-server/graphql/stream/sources/` | `STREAM_SOURCES` |
+| Metadata providers | `konflix-api/graphql/providers/` | `PROVIDERS` (per type, `+`-separated for a fallback chain), `METADATA_PROVIDER` |
+| Torrent indexers | `konflix-api/graphql/indexers/` | `TORRENT_INDEXERS` |
+| Stream sources | `konflix-api/graphql/stream/sources/` | `STREAM_SOURCES` |
 
 Each entry declares the content types it serves (`types: ['anime']`, `['movie']`,
 `['series']`, or several), so a film search never queries an anime feed.
@@ -228,7 +228,7 @@ play button that did nothing on a phone.
 
 ```bash
 npm install                                  # installs both workspaces
-cp anime-server/.env.example anime-server/.env
+cp konflix-api/.env.example konflix-api/.env
 cp konflix-frontend/.env.example konflix-frontend/.env
 ```
 
@@ -399,5 +399,5 @@ rebuild needed. This is the only setting that has needed changing in production.
 ### Secrets
 
 No secret is committed. `.env.deploy` is rendered on the server from GitHub secrets by
-the workflow, is gitignored, and is written with mode `600`. `anime-server/.env` is
+the workflow, is gitignored, and is written with mode `600`. `konflix-api/.env` is
 only for local development.

@@ -9,7 +9,7 @@ FROM node:22-bookworm AS deps
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-COPY anime-server/package.json ./anime-server/
+COPY konflix-api/package.json ./konflix-api/
 COPY konflix-frontend/package.json ./konflix-frontend/
 
 # build-essential and python3 are needed by the native modules that are rebuilt
@@ -43,14 +43,14 @@ RUN npm ci --workspace=konflix-api --omit=dev --ignore-scripts --no-audit --no-f
 # npm hoists every dependency to the root node_modules when nothing conflicts, so the
 # workspace one is normally absent. It is created here so the runtime stage can copy
 # it unconditionally: an empty directory is a valid copy source, a missing one is not.
-RUN mkdir -p /app/anime-server/node_modules
+RUN mkdir -p /app/konflix-api/node_modules
 
 # Installs the prebuilt node-datachannel binary.
 #
 # The package directory is derived from `require.resolve` rather than assumed to be
 # under the workspace. npm hoists a dependency to the highest node_modules that can
 # hold it, and node-datachannel arrives transitively through webtorrent, so it lands
-# in the root node_modules - not anime-server/node_modules. Hardcoding the workspace
+# in the root node_modules - not konflix-api/node_modules. Hardcoding the workspace
 # path made this step pass only while the layer stayed cached; the first dependency
 # change rebuilt it and the build failed on a missing package.json.
 #
@@ -93,7 +93,7 @@ RUN apt-get update \
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-COPY anime-server/package.json ./anime-server/
+COPY konflix-api/package.json ./konflix-api/
 COPY konflix-frontend/package.json ./konflix-frontend/
 COPY --from=deps /app/node_modules ./node_modules
 # The workspace node_modules is usually absent, because npm hoists every dependency
@@ -101,16 +101,16 @@ COPY --from=deps /app/node_modules ./node_modules
 # dependency tree here. The deps stage creates the directory empty so this copy is
 # valid either way, and so a dependency that could not be hoisted would still be
 # carried across instead of failing at runtime with MODULE_NOT_FOUND.
-COPY --from=deps /app/anime-server/node_modules ./anime-server/node_modules
+COPY --from=deps /app/konflix-api/node_modules ./konflix-api/node_modules
 
 # Copied file by file rather than as the whole directory, so the test suite and any
 # stray local file do not end up in the image.
-COPY anime-server/index.js ./anime-server/
-COPY anime-server/graphql ./anime-server/graphql
-COPY anime-server/lib ./anime-server/lib
-COPY anime-server/package.json ./anime-server/
+COPY konflix-api/index.js ./konflix-api/
+COPY konflix-api/graphql ./konflix-api/graphql
+COPY konflix-api/lib ./konflix-api/lib
+COPY konflix-api/package.json ./konflix-api/
 
-WORKDIR /app/anime-server
+WORKDIR /app/konflix-api
 
 ENV NODE_ENV=production
 

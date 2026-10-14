@@ -4,7 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 
 import Loading from "@/app/loading";
-import AnimeCard from "@/components/anime-card";
+import MediaCard from "@/components/media-card";
 import Container from "@/components/container";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -236,7 +236,7 @@ const searchQuery = useMediaSearchAcross(term, {
       ) : (
         <div className="grid w-full grid-cols-2 content-center gap-5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7">
           {results.map((item, index) => (
-            <AnimeCard
+            <MediaCard
               key={`${item.id}-${index}`}
               media={item}
               href={titlePath(item.id)}

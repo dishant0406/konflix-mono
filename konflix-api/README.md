@@ -1,11 +1,16 @@
 # Konflix API
 
-GraphQL API for anime metadata plus an HTTP endpoint that streams video from
-public torrent indexers.
+GraphQL API for anime, series and films: metadata from public catalogues, plus an
+HTTP endpoint that streams video from public torrent indexers.
 
 The previous version scraped a private site and a public API, both of which are
 gone. This version is built so that the volatile parts are isolated and
 replaceable, and so that a broken upstream degrades instead of taking the app down.
+
+The three catalogues are served by the same code. Each request carries a
+`contentType`, which selects the metadata provider and the indexer set; nothing is
+anime-specific except the modules named after their source (`providers/anilist.js`,
+`indexers/nyaa.js`).
 
 ## Requirements
 
