@@ -2,7 +2,7 @@
 
 import { useQueries } from "react-query";
 
-import { SITE } from "@/constants/site";
+import { useSite } from "@/providers/site-provider";
 import { request } from "@/lib/api";
 import { GET_MEDIA_SEARCH } from "@/lib/queries";
 import { interleaveResults, preferTitleMatches } from "@/lib/merge-search";
@@ -22,10 +22,11 @@ const SUGGESTION_LIMIT = 6;
  * catalogue that has matches is not crowded out by one that has none.
  */
 export function useSearchSuggestions(term: string) {
+  const site = useSite();
   const enabled = term.trim().length > 0;
 
   const queries = useQueries(
-    SITE.searchContentTypes.map((contentType) => ({
+    site.searchContentTypes.map((contentType) => ({
       queryKey: [QUERY_KEYS.MEDIA_SEARCH, "suggest", contentType, term],
       queryFn: () =>
         request<{ mediaSearch: MediaPage }>(GET_MEDIA_SEARCH, {

@@ -14,7 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ROUTES, titlePath, watchPath } from "@/constants/routes";
-import { SITE } from "@/constants/site";
+import { useSite } from "@/providers/site-provider";
 import { animeEpisodeId, parseMediaId, seriesEpisodeId } from "@/lib/media-id";
 import { mediaBanner, mediaPoster, mediaTitle } from "@/lib/utils";
 import { useMediaDetail, useMediaList } from "@/query/use-media";
@@ -50,6 +50,7 @@ function toRowMedia(node: MediaRelationNode): MediaList {
 }
 
 export default function TitleDetailPage() {
+  const site = useSite();
   const params = useParams();
   const key = typeof params.key === "string" ? params.key : undefined;
   const { data: media, isLoading, isError, refetch } = useMediaDetail(key);
@@ -62,7 +63,7 @@ export default function TitleDetailPage() {
   if (isError) {
     return (
       <Container className="py-24 text-center">
-        <h1 className="text-2xl font-bold text-foreground">Could not load this {SITE.itemLabel}</h1>
+        <h1 className="text-2xl font-bold text-foreground">Could not load this {site.itemLabel}</h1>
         <p className="mt-2 text-sm text-muted-foreground">
           The Konflix API did not respond. This is usually temporary.
         </p>
@@ -287,7 +288,7 @@ export default function TitleDetailPage() {
         {relations.length > 0 && (
           <div className="mt-12">
             <AnimeRow
-              title={SITE.relatedTitle}
+              title={site.relatedTitle}
               media={relations.map(toRowMedia)}
               hrefFor={(item) => titlePath(item.id)}
             />
@@ -296,7 +297,7 @@ export default function TitleDetailPage() {
 
         {recommendations.length > 0 && (
           <AnimeRow
-            title={SITE.recommendedTitle}
+            title={site.recommendedTitle}
             media={recommendations.map(toRowMedia)}
             hrefFor={(item) => titlePath(item.id)}
           />

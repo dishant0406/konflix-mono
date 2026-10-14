@@ -60,10 +60,9 @@ fi
 # The images must be tagged before compose is invoked, because compose interpolates
 # ${API_IMAGE} and ${FRONTEND_IMAGE} out of the environment.
 export API_IMAGE="konflix-api:$IMAGE_TAG"
+# One image serves every hostname. Which site a request gets is decided from its Host
+# header at runtime, so there is no per-site build and no second tag.
 export FRONTEND_IMAGE="konflix-frontend:$IMAGE_TAG"
-# The tv site is the same frontend image built with a different SITE argument, so it
-# needs its own tag: one image name cannot hold two different builds.
-export FRONTEND_TV_IMAGE="konflix-frontend-tv:$IMAGE_TAG"
 export NEXT_PUBLIC_GRAPHQL_URI="$(read_env NEXT_PUBLIC_GRAPHQL_URI)"
 
 compose() {
@@ -98,8 +97,7 @@ wait_for_health() {
 
 echo "==> Deploying $IMAGE_TAG"
 echo "    api image      $API_IMAGE"
-echo "    frontend image $FRONTEND_IMAGE (anime)"
-echo "    frontend image $FRONTEND_TV_IMAGE (tv)"
+echo "    frontend image $FRONTEND_IMAGE (all sites)"
 echo "    api origin     $PUBLIC_URL_VALUE"
 
 if [ -n "${SKIP_BUILD:-}" ]; then
@@ -109,7 +107,7 @@ else
   # The frontend build needs the API address and the site name baked in, both of which
   # are build arguments rather than runtime variables. Both frontends are built, and
   # they share every layer up to the site argument, so the second is nearly free.
-  compose build ${PULL:+--pull} api frontend frontend-tv
+  compose build ${PULL:+--pull} api frontend
 fi
 
 echo "==> Starting the stack"
@@ -122,7 +120,6 @@ echo "==> Waiting for the containers to report healthy"
 # reachable from: nothing is published to the host.
 wait_for_health konflix-api-1 api
 wait_for_health konflix-frontend-1 frontend
-wait_for_health konflix-frontend-tv-1 frontend-tv
 
 # Reports what is actually configured, which is the difference between "the process
 # started" and "it can do its job". Run inside the container so the host needs no node.
@@ -154,7 +151,7 @@ echo "==> Retiring images from earlier deploys"
 # referenced by their containers, so a removal that races with a viewer is refused
 # rather than fatal, which is why the failure is ignored.
 docker image ls --format '{{.Repository}}:{{.Tag}}' \
-  | grep -E '^konflix-(api|frontend|frontend-tv):' \
+  | grep -E '^konflix-(api|frontend):' \
   | grep -v ":${IMAGE_TAG}\$" \
   | xargs -r docker image rm >/dev/null 2>&1 || true
 

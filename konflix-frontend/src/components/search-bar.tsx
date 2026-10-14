@@ -8,7 +8,7 @@ import { useRef, useState } from "react";
 
 import { Input } from "@/components/ui/input";
 import { ROUTES, titlePath } from "@/constants/routes";
-import { SITE } from "@/constants/site";
+import { useSite } from "@/providers/site-provider";
 import useDebounce from "@/hooks/use-debounce";
 import { useSearchSuggestions } from "@/query/use-search-suggestions";
 import { cn, mediaPoster, mediaTitle } from "@/lib/utils";
@@ -20,6 +20,7 @@ export default function SearchBar({
   className?: string;
   onNavigate?: () => void;
 }) {
+  const site = useSite();
   const [value, setValue] = useState("");
   const [open, setOpen] = useState(false);
   const debounced = useDebounce(value, 300);
@@ -46,8 +47,8 @@ export default function SearchBar({
       <SearchIcon className="pointer-events-none absolute inset-y-0 left-3 my-auto h-4 w-4 text-muted-foreground" />
       <Input
         value={value}
-        placeholder={`Search ${SITE.itemLabelPlural}...`}
-        aria-label={`Search ${SITE.itemLabelPlural}`}
+        placeholder={`Search ${site.itemLabelPlural}...`}
+        aria-label={`Search ${site.itemLabelPlural}`}
         className="h-10 w-full border-input bg-secondary/60 pl-9 text-foreground placeholder:text-muted-foreground"
         onChange={(event) => setValue(event.target.value)}
         onFocus={() => setOpen(true)}

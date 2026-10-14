@@ -12,13 +12,14 @@ import VideoPlayer from "@/components/anime/video-player";
 import Container from "@/components/container";
 import { Button } from "@/components/ui/button";
 import { ROUTES, titlePath, watchPath } from "@/constants/routes";
-import { SITE } from "@/constants/site";
+import { useSite } from "@/providers/site-provider";
 import { animeEpisodeId, parseMediaId, seriesEpisodeId } from "@/lib/media-id";
 import { mediaPoster, mediaTitle } from "@/lib/utils";
 import { useMediaList, useWatchMetadata } from "@/query/use-media";
 import { useStreamLink } from "@/query/use-stream-link";
 
 export default function WatchPage() {
+  const site = useSite();
   const params = useParams();
   const router = useRouter();
 
@@ -221,13 +222,13 @@ export default function WatchPage() {
 
       {metadata.isError && (
         <p className="py-10 text-center text-sm text-muted-foreground">
-          Could not load this {SITE.itemLabel}. The Konflix API may be unreachable.
+          Could not load this {site.itemLabel}. The Konflix API may be unreachable.
         </p>
       )}
 
       {!metadata.isLoading && !metadata.isError && !media && (
         <p className="py-10 text-center text-sm text-muted-foreground">
-          That {SITE.itemLabel} could not be found.{" "}
+          That {site.itemLabel} could not be found.{" "}
           <Link href={ROUTES.HOME} className="text-primary hover:underline">
             Back to home
           </Link>
@@ -236,7 +237,7 @@ export default function WatchPage() {
 
       {recommendations.data?.results?.length ? (
         <AnimeRow
-          title={SITE.recommendedTitle}
+          title={site.recommendedTitle}
           media={recommendations.data.results}
           hrefFor={(item) => titlePath(item.id)}
         />

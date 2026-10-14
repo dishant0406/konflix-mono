@@ -5,7 +5,8 @@ import { useQueries, useQuery } from "react-query";
 
 import { request } from "@/lib/api";
 import { GET_MEDIA_DETAIL, GET_MEDIA_LIST, GET_MEDIA_SEARCH, GET_WATCH_METADATA } from "@/lib/queries";
-import { SITE, type ContentType } from "@/constants/site";
+import { type ContentType } from "@/constants/site";
+import { useSite } from "@/providers/site-provider";
 import { parseMediaId } from "@/lib/media-id";
 import { mergeSearchPages, preferTitleMatches } from "@/lib/merge-search";
 import { QUERY_KEYS } from "./keys";
@@ -34,7 +35,8 @@ export interface MediaListFilters {
  * wrong catalogue entirely.
  */
 export function useMediaList(filters: MediaListFilters, enabled = true) {
-  const input = { contentType: SITE.contentType, ...filters };
+  const site = useSite();
+  const input = { contentType: site.contentType, ...filters };
   return useQuery(
     [QUERY_KEYS.MEDIA_LIST, input],
     () => request<{ mediaList: MediaPage }>(GET_MEDIA_LIST, { input }).then((data) => data.mediaList),
@@ -55,7 +57,8 @@ export function useMediaList(filters: MediaListFilters, enabled = true) {
  * the merge does not attempt to rank across them - there is no shared score to rank by.
  */
 export function useMediaSearchAcross(term: string, filters: MediaListFilters = {}) {
-  const types = SITE.searchContentTypes;
+  const site = useSite();
+  const types = site.searchContentTypes;
   const perPage = filters.perPage ?? 24;
 
   const queries = useQueries(
@@ -96,7 +99,8 @@ export function useMediaSearchAcross(term: string, filters: MediaListFilters = {
  * it. A bare id with no type falls back to this site's catalogue.
  */
 export function useMediaDetail(id: string | undefined) {
-  const contentType = parseMediaId(id)?.contentType ?? SITE.contentType;
+  const site = useSite();
+  const contentType = parseMediaId(id)?.contentType ?? site.contentType;
   return useQuery(
     [QUERY_KEYS.MEDIA_DETAIL, id],
     () =>
@@ -110,7 +114,8 @@ export function useMediaDetail(id: string | undefined) {
 
 /** The watch page's metadata: the title and its episode list, without the detail extras. */
 export function useWatchMetadata(id: string | undefined) {
-  const contentType = parseMediaId(id)?.contentType ?? SITE.contentType;
+  const site = useSite();
+  const contentType = parseMediaId(id)?.contentType ?? site.contentType;
   return useQuery(
     [QUERY_KEYS.WATCH_METADATA, id],
     () =>
@@ -139,9 +144,10 @@ export interface MediaRow {
  * of queries.
  */
 export function useMediaRows(rows: MediaRow[], perPage: number) {
+  const site = useSite();
   return useQueries(
     rows.map((row) => {
-      const contentType = row.contentType ?? SITE.contentType;
+      const contentType = row.contentType ?? site.contentType;
       return {
         queryKey: [QUERY_KEYS.MEDIA_LIST, contentType, row.sort, row.genre, perPage],
         queryFn: () =>

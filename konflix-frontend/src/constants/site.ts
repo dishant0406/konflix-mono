@@ -1,18 +1,29 @@
 // Site configuration.
 //
-// One codebase builds two sites. `SITE` selects which, and everything that differs
-// between them - the copy, the row titles, the genres, the content type sent to the
-// API - is declared here rather than scattered as conditionals.
+// One codebase serves three hostnames. `siteForHost` decides which from the request's
+// host, and everything that differs between the sites - the copy, the row titles, the
+// genres, the content type sent to the API - is declared here rather than scattered as
+// conditionals.
 //
-// `SITE` is a *build* argument, not a runtime variable, so each build is a plain
-// static app with no host detection and no per-request branching. The API address is
-// identical for both, which is why one image cannot serve both only in the sense that
-// Next bakes NEXT_PUBLIC_* at build time - the value is the same either way, so a
-// second build is all that is needed.
+// The host is read per request, not baked at build time, so there is exactly one
+// frontend build and one frontend container. The bare zone resolves to no site, which
+// is how the service picker gets its own page.
 
 export type ContentType = "anime" | "series" | "movie";
 
+/**
+ * The zone the sites are served from.
+ *
+ * One value for the whole deployment rather than a per-site one, which is what lets a
+ * single build serve every hostname. NEXT_PUBLIC_ so the middleware and the browser
+ * bundle can both read it; the value is identical everywhere, so nothing about it is
+ * per-site.
+ */
+export const SITE_DOMAIN = process.env.NEXT_PUBLIC_SITE_DOMAIN || "konflix.live";
+
 export interface SiteConfig {
+  /** The subdomain this site answers on, e.g. "anime" for anime.konflix.live. */
+  subdomain: string;
   /** Which catalogue this site browses. Sent to the API on every query. */
   contentType: ContentType;
   appName: string;
@@ -60,6 +71,7 @@ export interface SiteConfig {
 }
 
 const ANIME: SiteConfig = {
+  subdomain: "anime",
   contentType: "anime",
   appName: "Konflix",
   title: "Konflix | Anime Streaming",
@@ -107,6 +119,7 @@ const ANIME: SiteConfig = {
 };
 
 const TV: SiteConfig = {
+  subdomain: "tv",
   // Films are the default for this site, but the rows below interleave series, so
   // the page stays useful when either source is having a bad day.
   contentType: "movie",
@@ -153,4 +166,54 @@ const TV: SiteConfig = {
     "Film and series metadata from Cinemeta. Series metadata also from TVMaze, licensed CC BY-SA.",
 };
 
-export const SITE: SiteConfig = process.env.NEXT_PUBLIC_SITE === "tv" ? TV : ANIME;
+/**
+ * The hostnames each site answers on.
+ *
+ * The canonical subdomain for each site, plus the dev-server ports, so both sites are
+ * reachable locally without an /etc/hosts entry. `siteForHost` normalises the request
+ * host down to a bare hostname before looking it up, so the port suffix is part of the
+ * key rather than something stripped.
+ */
+const HOSTS: Record<string, SiteConfig> = {
+  [`anime.${SITE_DOMAIN}`]: ANIME,
+  "localhost:3000": ANIME,
+  [`tv.${SITE_DOMAIN}`]: TV,
+  "localhost:3001": TV,
+};
+
+/**
+ * Marks a request the middleware has rewritten to the service picker.
+ *
+ * A rewrite changes the URL the render sees, so by the time the layout runs the host is
+ * the server's own address rather than the one the browser sent, and the picker host
+ * would resolve to whichever site that address happens to map to. The middleware sets
+ * this header instead of relying on the host surviving the rewrite.
+ */
+export const PICKER_HEADER = "x-konflix-picker";
+
+/** Which site a request host belongs to, or null for the service picker. */
+export function siteForHost(host: string | null | undefined): SiteConfig | null {
+  if (!host) return null;
+  return HOSTS[host.trim().toLowerCase()] ?? null;
+}
+
+/** The canonical origin of a site, used to link between the two. */
+export function siteUrl(site: SiteConfig): string {
+  return `https://${site.subdomain}.${SITE_DOMAIN}`;
+}
+
+/**
+ * The label for each site on the picker.
+ *
+ * Declared next to the sites rather than derived from them, because the picker needs a
+ * blurb and a poster that a site's own config has no reason to carry.
+ */
+export const PICKER_SITES: {
+  site: SiteConfig;
+  blurb: string;
+  /** A few titles to show as a preview, looked up live by the picker. */
+  genre: string;
+}[] = [
+  { site: ANIME, blurb: "Series and films from Japan, subbed and dubbed.", genre: "Action" },
+  { site: TV, blurb: "Hollywood and Bollywood films, plus series.", genre: "Action" },
+];

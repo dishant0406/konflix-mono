@@ -1,21 +1,20 @@
-# Konflix production stack: one server, four containers.
+# Konflix production stack: one server, three containers.
 #
 #   cloudflared    the only thing exposed to the internet, over an outbound tunnel.
 #                  Nothing binds a public port, so there is no open firewall hole and
 #                  no certificate to renew on this box.
 #   api            the GraphQL API and the video relay (port 9000, internal only).
-#   frontend       the anime site (port 3000, internal only).
-#   frontend-tv    the films and series site (port 3001, internal only).
+#   frontend       every site (port 3000, internal only).
 #
-# Three hostnames reach the same tunnel and are routed by hostname in the tunnel's
+# Four hostnames reach the same tunnel and are routed by hostname in the tunnel's
 # ingress config (scripts/cloudflare.sh), which is why no reverse proxy is needed
 # here. Each site talks to the API directly on api.konflix.live, so no proxy sits in
 # the video byte path.
 #
-# The two frontends are the same image built twice with a different SITE argument.
-# They cannot share one container: SITE drives the server-rendered metadata, so it is
-# baked in at build time. The API address is identical for both, so nothing else
-# differs.
+# One container serves all of them. Which site a request gets is decided from its Host
+# header at runtime (src/middleware.ts): anime. and tv. serve their catalogues, and the
+# bare zone serves the service picker. Nothing is baked per-site, so there is one build
+# and one container rather than one of each per site.
 #
 # Every value comes from the environment. The deploy script renders an env file from
 # GitHub Actions secrets and passes it with --env-file, so no secret is ever written
@@ -35,7 +34,6 @@ services:
     depends_on:
       - api
       - frontend
-      - frontend-tv
     logging: &logging
       # Bounded, because the disk is a fixed size and a chatty container would
       # otherwise fill it. The default json-file driver has no limit.
@@ -84,9 +82,11 @@ services:
       dockerfile: konflix-frontend/Dockerfile
       args:
         # Both are baked into the bundle at build time, so they are build arguments
-        # rather than runtime variables. Changing either requires a rebuild.
+        # rather than runtime variables. Changing either requires a rebuild. The site
+        # domain is the same for every hostname, which is what lets one build serve all
+        # of them.
         NEXT_PUBLIC_GRAPHQL_URI: ${NEXT_PUBLIC_GRAPHQL_URI}
-        NEXT_PUBLIC_SITE: anime
+        NEXT_PUBLIC_SITE_DOMAIN: ${NEXT_PUBLIC_SITE_DOMAIN:-konflix.live}
     restart: unless-stopped
     environment:
       NODE_ENV: production
@@ -96,29 +96,6 @@ services:
       - api
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 30s
-    logging: *logging
-
-  frontend-tv:
-    image: ${FRONTEND_TV_IMAGE}
-    build:
-      context: .
-      dockerfile: konflix-frontend/Dockerfile
-      args:
-        NEXT_PUBLIC_GRAPHQL_URI: ${NEXT_PUBLIC_GRAPHQL_URI}
-        NEXT_PUBLIC_SITE: tv
-    restart: unless-stopped
-    environment:
-      NODE_ENV: production
-      PORT: 3001
-      NEXT_PUBLIC_GRAPHQL_URI: ${NEXT_PUBLIC_GRAPHQL_URI}
-    depends_on:
-      - api
-    healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s
       timeout: 10s
       retries: 5

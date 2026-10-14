@@ -1,5 +1,9 @@
 # Konflix frontend image.
 #
+# One image serves every hostname: the anime site, the TV site, and the service picker on
+# the bare zone. Which one a request gets is decided from its Host header at runtime (see
+# src/middleware.ts), so there is nothing per-site to bake in and only one build to make.
+#
 # The build context is the repository root, not this directory, because the frontend
 # is one workspace of a monorepo and installs from the shared lockfile.
 #
@@ -28,12 +32,13 @@ COPY konflix-frontend ./konflix-frontend
 # Next inlines NEXT_PUBLIC_* into the browser bundle at build time, so both have to be
 # present now. Changing either therefore requires a rebuild, not a restart.
 #
-# NEXT_PUBLIC_SITE selects which catalogue this build serves: "anime" or "tv". It is
-# what makes two sites out of one codebase; see src/constants/site.ts.
+# NEXT_PUBLIC_SITE_DOMAIN is the zone the sites are served from. One value for the whole
+# deployment: which site a request belongs to is decided from the request's Host header
+# at runtime, not from this build argument, so one image serves every hostname.
 ARG NEXT_PUBLIC_GRAPHQL_URI
-ARG NEXT_PUBLIC_SITE=anime
+ARG NEXT_PUBLIC_SITE_DOMAIN=konflix.live
 ENV NEXT_PUBLIC_GRAPHQL_URI=$NEXT_PUBLIC_GRAPHQL_URI
-ENV NEXT_PUBLIC_SITE=$NEXT_PUBLIC_SITE
+ENV NEXT_PUBLIC_SITE_DOMAIN=$NEXT_PUBLIC_SITE_DOMAIN
 
 # An empty value produces a build that succeeds and a browser bundle that calls the
 # viewer's own localhost, which looks like a broken API rather than a missing build
@@ -48,8 +53,8 @@ FROM node:22-bookworm-slim
 WORKDIR /app
 
 ENV NODE_ENV=production
-# PORT is deliberately not set here. The same image runs as both frontends, and the
-# port is what tells them apart at runtime, so compose supplies it. server.js reads it.
+# PORT is deliberately not set here. It is a runtime concern and compose supplies it;
+# server.js reads it. One container is all that is needed now.
 ENV HOSTNAME=0.0.0.0
 
 # The standalone output is rooted at the workspace directory, so it is unpacked into

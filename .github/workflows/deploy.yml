@@ -110,13 +110,10 @@ jobs:
         run: npx tsc --noEmit
         working-directory: konflix-frontend
 
-      - name: Build the frontends
-        # Both sites, because they are two builds of one codebase and the SITE argument
-        # is what makes them differ. A build that only works for one of them would
-        # otherwise be found on the server.
-        run: |
-          npm run build
-          NEXT_PUBLIC_SITE=tv npm run build
+      - name: Build the frontend
+        # One build, because the site is chosen from the request host at runtime rather
+        # than baked in. There is no second SITE build to check.
+        run: npm run build
 
   deploy:
     needs: [preflight, verify]
@@ -158,6 +155,7 @@ jobs:
         env:
           PUBLIC_URL: ${{ vars.PUBLIC_URL }}
           NEXT_PUBLIC_GRAPHQL_URI: ${{ vars.NEXT_PUBLIC_GRAPHQL_URI }}
+          NEXT_PUBLIC_SITE_DOMAIN: ${{ vars.NEXT_PUBLIC_SITE_DOMAIN }}
           CLOUDFLARE_TUNNEL_TOKEN: ${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }}
           TORBOX_API_KEY: ${{ secrets.TORBOX_API_KEY }}
           STREAM_SOURCES: ${{ vars.STREAM_SOURCES }}
@@ -167,6 +165,7 @@ jobs:
           # empty value.
           PUBLIC_URL="${PUBLIC_URL:-https://api.konflix.live}"
           NEXT_PUBLIC_GRAPHQL_URI="${NEXT_PUBLIC_GRAPHQL_URI:-$PUBLIC_URL/graphql}"
+          NEXT_PUBLIC_SITE_DOMAIN="${NEXT_PUBLIC_SITE_DOMAIN:-konflix.live}"
           STREAM_SOURCES="${STREAM_SOURCES:-debrid,torrent,archive-org}"
           MAX_CACHE_BYTES="${MAX_CACHE_BYTES:-12884901888}"
 
@@ -174,6 +173,7 @@ jobs:
           cat > .env.deploy <<EOF
           PUBLIC_URL=$PUBLIC_URL
           NEXT_PUBLIC_GRAPHQL_URI=$NEXT_PUBLIC_GRAPHQL_URI
+          NEXT_PUBLIC_SITE_DOMAIN=$NEXT_PUBLIC_SITE_DOMAIN
           STREAM_SOURCES=$STREAM_SOURCES
           MAX_CACHE_BYTES=$MAX_CACHE_BYTES
           CLOUDFLARE_TUNNEL_TOKEN=$CLOUDFLARE_TUNNEL_TOKEN
@@ -222,10 +222,12 @@ jobs:
           PUBLIC_URL: ${{ vars.PUBLIC_URL }}
           FRONTEND_URL: ${{ vars.FRONTEND_URL }}
           TV_URL: ${{ vars.TV_URL }}
+          HUB_URL: ${{ vars.HUB_URL }}
         run: |
           PUBLIC_URL="${PUBLIC_URL:-https://api.konflix.live}"
           FRONTEND_URL="${FRONTEND_URL:-https://anime.konflix.live}"
           TV_URL="${TV_URL:-https://tv.konflix.live}"
+          HUB_URL="${HUB_URL:-https://konflix.live}"
 
           echo "Checking $PUBLIC_URL/health"
           health=$(curl -fsS --retry 5 --retry-delay 5 --retry-all-errors "$PUBLIC_URL/health")
@@ -270,8 +272,30 @@ jobs:
               ;;
           esac
 
-          echo "Checking $FRONTEND_URL"
-          curl -fsS --retry 5 --retry-delay 5 --retry-all-errors -o /dev/null -w 'HTTP %{http_code}\n' "$FRONTEND_URL"
+          # Each hostname has to serve its own site. All three point at one container,
+          # and the Host header is the only thing that decides which site renders, so a
+          # broken host map would serve the anime catalogue on the TV host while every
+          # check above still passed.
+          echo "Checking the three frontend hostnames serve different sites"
+          HUB_URL="${HUB_URL:-https://konflix.live}"
+          for check in \
+            "$FRONTEND_URL|anime|Konflix | Anime Streaming" \
+            "$TV_URL|tv|Konflix TV" \
+            "$HUB_URL|hub|Choose a service"
+          do
+            url="${check%%|*}"
+            rest="${check#*|}"
+            label="${rest%%|*}"
+            expected="${rest#*|}"
+            body=$(curl -fsS --retry 5 --retry-delay 5 --retry-all-errors "$url")
+            case "$body" in
+              *"$expected"*) echo "    $label ok ($url)" ;;
+              *)
+                echo "$url did not serve the $label site (expected to contain '$expected')" >&2
+                exit 1
+                ;;
+            esac
+          done
 
           # A GraphQL round trip proves the frontend's API address and the API itself
           # both work, which a 200 on the home page alone does not.

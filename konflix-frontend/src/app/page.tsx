@@ -6,17 +6,18 @@ import AnimeRow from "@/components/anime-row";
 import FeaturedCollection, { type FeaturedCategory } from "@/components/featured-collection";
 import HeroSection from "@/components/hero-section";
 import { titlePath } from "@/constants/routes";
-import { SITE } from "@/constants/site";
+import { useSite } from "@/providers/site-provider";
 import { useMediaList, useMediaRows } from "@/query/use-media";
 import type { MediaList } from "@/types/media";
 
 const ROW_SIZE = 20;
 
 export default function HomePage() {
+  const site = useSite();
   // The rows are declared in the site config, so the two sites differ by data rather
   // than by conditionals here. Each row is one query; the config supplies the sort and
   // the genre.
-  const rows = useMediaRows(SITE.rows, ROW_SIZE);
+  const rows = useMediaRows(site.rows, ROW_SIZE);
 
   const spotlight = useMediaList({ sort: "trending", perPage: 6 });
 
@@ -26,7 +27,7 @@ export default function HomePage() {
   // are sliced rather than reused wholesale.
   const featured = useMemo<FeaturedCategory[]>(() => {
     const usable = rows.map((row, index) => ({
-      title: SITE.rows[index].title,
+      title: site.rows[index].title,
       media: results(row.data),
     }));
     return usable.filter((entry) => entry.media.length >= 3).slice(0, 3);
@@ -35,7 +36,7 @@ export default function HomePage() {
   // A row whose source is having a bad day renders as a heading with nothing under
   // it, which reads as a broken page. Empty rows are dropped instead, so one failing
   // provider cannot empty the whole site.
-  const filled = SITE.rows.map((row, index) => ({ row, query: rows[index] })).filter(
+  const filled = site.rows.map((row, index) => ({ row, query: rows[index] })).filter(
     ({ query }) => query.isLoading || results(query.data).length > 0,
   );
 

@@ -2,16 +2,17 @@
 
 Anime, series and films from one API, served as two sites.
 
-| Site | Catalogue | Container |
+| Hostname | What it serves | Container |
 | --- | --- | --- |
+| `konflix.live` | The service picker: choose anime or TV | `frontend` |
 | `anime.konflix.live` | Anime (AniList) | `frontend` |
-| `tv.konflix.live` | Films and series (Cinemeta, with TVMaze and YTS as fallbacks) | `frontend-tv` |
-| `api.konflix.live` | GraphQL, shared by both | `api` |
+| `tv.konflix.live` | Films and series (Cinemeta, with TVMaze and YTS as fallbacks) | `frontend` |
+| `api.konflix.live` | GraphQL, shared by all of them | `api` |
 
 | Directory | What it is | Port |
 | --- | --- | --- |
 | `anime-server/` | GraphQL API. Metadata from AniList/Kitsu/Cinemeta/TVMaze/YTS, releases from torrent indexers, video streamed from a torrent swarm or a debrid CDN. | 9000 |
-| `konflix-frontend/` | Next.js app (App Router, TypeScript). Built twice, once per site. | 3000 / 3001 |
+| `konflix-frontend/` | Next.js app (App Router, TypeScript). One build, one container, every hostname. | 3000 |
 
 The previous version of this project scraped a private site and a public API, both
 of which are gone. This version isolates every volatile upstream behind a
@@ -22,17 +23,26 @@ The frontend's UI is derived from [Kitsune](https://github.com/Dovakiin0/Kitsune
 (MIT); see [ATTRIBUTION.md](ATTRIBUTION.md) for exactly what was taken and what
 was deliberately left behind.
 
-## How one codebase serves two sites
+## How one build serves every hostname
 
-Both sites are the **same image built twice**, with `NEXT_PUBLIC_SITE` (`anime` or
-`tv`) selecting a config object in `konflix-frontend/src/constants/site.ts`. That
-object holds everything that differs: the content type sent to the API, the row
-titles, the genre list, the filter vocabulary, the attribution. Components read
-`SITE` rather than branching on a site name.
+There is **one frontend image and one frontend container**. Which site a request gets is
+decided from its `Host` header at runtime, by `siteForHost` in
+`konflix-frontend/src/constants/site.ts`. That function returns a config object holding
+everything that differs between sites: the content type sent to the API, the row titles,
+the genre list, the filter vocabulary, the attribution. Components read the site from
+context rather than branching on a name.
 
-This is a build argument rather than a runtime variable on purpose. Next.js inlines
-`NEXT_PUBLIC_*` at build time, and the API address is identical for both sites, so
-there is no host detection and no per-request branching.
+The bare zone belongs to no site, so it is the **service picker**. Middleware rewrites
+every request on that host to `/picker`, because the app's routes need a site to render.
+A rewrite replaces the URL the render sees, so the middleware also sets `x-konflix-picker`
+to mark it - otherwise the picker host would resolve to whichever site the rewritten
+address happens to map to.
+
+Inside a site, links go to `/home` rather than `/`, because `/` on the zone's own host is
+the picker and would bounce the visitor out of the service they are using.
+
+The one value baked in at build time is `NEXT_PUBLIC_SITE_DOMAIN`, the zone itself. It is
+identical for every site, which is why a single build can serve all of them.
 
 ## Content types
 
@@ -246,21 +256,20 @@ npm run dev --workspace=konflix
 
 ## Deployment
 
-One server runs both apps. Four containers, defined in `docker-compose.yml`:
+One server runs both apps. Three containers, defined in `docker-compose.yml`:
 
 | Container | Role |
 | --- | --- |
 | `cloudflared` | The only thing reachable from the internet, over an outbound tunnel |
 | `api` | GraphQL and the video relay (`:9000`, internal only) |
-| `frontend` | Next.js, the anime site (`:3000`, internal only) |
-| `frontend-tv` | Next.js, the films and series site (`:3001`, internal only) |
+| `frontend` | Next.js, every site (`:3000`, internal only) |
 
-Three hostnames reach the same tunnel and are routed by hostname in its ingress
-config: `anime.konflix.live` to `frontend`, `tv.konflix.live` to `frontend-tv`, and
-`api.konflix.live` to the API. `konflix.live` still resolves to the anime site, so
-existing links keep working. **No reverse proxy**, because the tunnel already routes
-by hostname, and the browser loads the API directly so nothing sits in the video byte
-path.
+Four hostnames reach the same tunnel and are routed by hostname in its ingress
+config: `anime.konflix.live`, `tv.konflix.live` and `konflix.live` all go to
+`frontend`, and `api.konflix.live` to the API. The tunnel does not need to know which
+site is which - the container reads the `Host` header and decides. **No reverse
+proxy**, because the tunnel already routes by hostname, and the browser loads the API
+directly so nothing sits in the video byte path.
 
 Nothing binds a public port. `cloudflared` dials out, so there is no open firewall
 hole and no certificate to renew on the server.

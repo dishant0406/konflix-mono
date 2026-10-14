@@ -19,12 +19,11 @@ ZONE="${ZONE:-konflix.live}"
 TUNNEL_NAME="${TUNNEL_NAME:-konflix}"
 # Hostname -> container service, routed by hostname in the tunnel ingress config.
 #
-# The bare zone is the anime site, so existing links keep working. tv. is the films
-# and series site; both are the same image built with a different SITE argument.
+# All three frontend hostnames point at the same container. Which site a request gets is
+# decided from its Host header inside the app, so the tunnel does not need to know.
 ANIME_HOST="${ANIME_HOST:-anime.$ZONE}"
 TV_HOST="${TV_HOST:-tv.$ZONE}"
-# The bare zone redirects to anime. rather than serving the app, so there is exactly
-# one canonical address per site.
+# The bare zone is the service picker: it belongs to no site, so it lists the sites.
 FRONTEND_HOST="${FRONTEND_HOST:-$ZONE}"
 API_HOST="${API_HOST:-api.$ZONE}"
 
@@ -39,9 +38,9 @@ run() {
 echo "Zone:     $ZONE"
 echo "Tunnel:   $TUNNEL_NAME"
 echo "Hostnames:"
-echo "  $ANIME_HOST -> frontend:3000   (anime)"
-echo "  $TV_HOST    -> frontend-tv:3001 (films and series)"
-echo "  $FRONTEND_HOST -> redirect to $ANIME_HOST"
+echo "  $ANIME_HOST -> frontend:3000 (anime)"
+echo "  $TV_HOST    -> frontend:3000 (films and series)"
+echo "  $FRONTEND_HOST -> frontend:3000 (service picker)"
 echo "  $API_HOST   -> api:9000"
 echo
 
@@ -98,7 +97,7 @@ run cf tunnels config update "$TUNNEL_ID" --body "$(cat <<JSON
   "config": {
     "ingress": [
       { "hostname": "$ANIME_HOST", "service": "http://frontend:3000" },
-      { "hostname": "$TV_HOST", "service": "http://frontend-tv:3001" },
+      { "hostname": "$TV_HOST", "service": "http://frontend:3000" },
       { "hostname": "$FRONTEND_HOST", "service": "http://frontend:3000" },
       { "hostname": "$API_HOST", "service": "http://api:9000" },
       { "service": "http_status:404" }

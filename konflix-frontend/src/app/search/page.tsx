@@ -16,14 +16,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ROUTES, titlePath } from "@/constants/routes";
-import { SITE } from "@/constants/site";
+import { useSite } from "@/providers/site-provider";
 import { useSearchPageParams } from "@/hooks/use-search-params";
 import { cn } from "@/lib/utils";
 import { useMediaList, useMediaSearchAcross } from "@/query/use-media";
 
 // The season and year filters are AniList concepts. They are declared here rather than
 // in the site config because only this page offers them, and they are only rendered
-// where they do something (see SITE.supportsAdvancedFilters).
+// where they do something (see site.supportsAdvancedFilters).
 const SEASONS = [
   { value: "winter", label: "Winter" },
   { value: "spring", label: "Spring" },
@@ -43,6 +43,7 @@ export default function SearchPage() {
 }
 
 function SearchResults() {
+  const site = useSite();
   const params = useSearchPageParams();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -132,26 +133,26 @@ const searchQuery = useMediaSearchAcross(term, {
           <FilterSelect
             label="Sort"
             value={draft.sort}
-            options={SITE.sorts}
+            options={site.sorts}
             onChange={(value) => apply({ sort: value })}
           />
-          {SITE.supportsAdvancedFilters && (
+          {site.supportsAdvancedFilters && (
             <>
               <FilterSelect
                 label="Type"
                 value={draft.format}
-                options={SITE.formats}
+                options={site.formats}
                 onChange={(value) => apply({ format: value })}
               />
               <FilterSelect
                 label="Status"
                 value={draft.status}
-                options={SITE.statuses}
+                options={site.statuses}
                 onChange={(value) => apply({ status: value })}
               />
             </>
           )}
-          {SITE.supportsAdvancedFilters && (
+          {site.supportsAdvancedFilters && (
             <>
               <FilterSelect
                 label="Season"
@@ -186,7 +187,7 @@ const searchQuery = useMediaSearchAcross(term, {
             value={draft.genres ?? []}
             onValueChange={(value) => apply({ genres: value.filter(Boolean) })}
           >
-            {SITE.genres.map((genre) => (
+            {site.genres.map((genre) => (
               <ToggleGroupItem
                 key={genre}
                 value={genre}
@@ -230,7 +231,7 @@ const searchQuery = useMediaSearchAcross(term, {
         <p className="py-16 text-center text-sm text-muted-foreground">
           {hasTerm
             ? `Nothing matched “${term}” with those filters.`
-            : `No ${SITE.itemLabelPlural} matched those filters.`}
+            : `No ${site.itemLabelPlural} matched those filters.`}
         </p>
       ) : (
         <div className="grid w-full grid-cols-2 content-center gap-5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7">
