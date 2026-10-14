@@ -692,3 +692,33 @@ test('pickVideoFile prefers a real episode over a bonus of the same number', asy
   const bonusOnly = [{ name: 'IGL/IGL_Bonus_EP_1_ft. Arpit Bala.mp4', length: 500 * 1024 ** 2 }]
   assert.match(pickVideoFile(bonusOnly, 1, 0, 1).name, /Bonus_EP_1/)
 })
+
+test('an unlabelled release cannot satisfy a later season', async () => {
+  const { rankReleases } = await import('../graphql/stream/releases.js')
+
+  // The real defect. The Season 1 pack of "India's Got Latent" is titled with the show
+  // name alone - it names no season - and its files are named "IGL_EP_05" with no season
+  // either. It was therefore accepted for a request for season 2, and S1E5 played in
+  // place of S2E5. The real S2E5 exists and is a different episode.
+  const titles = ['india s got latent', 'indias got latent']
+  const unlabelledPack = {
+    title: "India's Got Latent",
+    infoHash: '1fb077d1660144985c11e998bd91baac494ecf26',
+    magnet: 'magnet:?xt=urn:btih:1fb077d1660144985c11e998bdbaac494ecf26',
+    sizeBytes: 20358144983,
+    seeders: 45,
+    source: 'knaben',
+  }
+
+  // Season 1 is what an unlabelled release means, so it still answers there.
+  assert.equal(rankReleases([unlabelledPack], 5, "India's Got Latent", titles, 1).length, 1)
+  // Season 2 must not fall back to it.
+  assert.equal(rankReleases([unlabelledPack], 5, "India's Got Latent", titles, 2).length, 0)
+
+  // A pack that does label its season is unaffected.
+  const labelled = { ...unlabelledPack, title: 'Show S02 1080p WEB-DL', infoHash: 'a'.repeat(40) }
+  assert.equal(rankReleases([labelled], 5, 'Show', ['show'], 2).length, 1)
+
+  // The anime path passes no season, so nothing is narrowed there.
+  assert.equal(rankReleases([unlabelledPack], 5, "India's Got Latent", titles, null).length, 1)
+})

@@ -114,6 +114,12 @@ export function pickVideoFile(files, episodeNumber, minBytes = MIN_VIDEO_BYTES, 
   // whatever its number says. This is a hard filter rather than a narrowing one: it
   // applies even when it would leave nothing, because serving the wrong season is
   // worse than serving nothing.
+  //
+  // A file naming no season is still accepted, because the season is only known from
+  // the release title and this function never sees it. A pack titled "Show S02" whose
+  // files are named "Show - 05.mkv" is a real shape, and rejecting those would turn a
+  // correct season-2 pack into no source at all. Whether an unlabelled *release* may
+  // satisfy a later season is decided in matchesEpisode, which does see the title.
   const inSeason = (file) => {
     if (season === null || season === undefined) return true
     const named = parseSeason(file.name)

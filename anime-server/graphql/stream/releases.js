@@ -475,9 +475,17 @@ export function matchesEpisode(releaseTitle, episodeNumber, season) {
   if (season === undefined || season === null) return true
 
   const releaseSeason = parseSeason(releaseTitle)
-  // A release naming no season is accepted: some groups omit it, and the episode
-  // number alone is still a real signal.
-  if (releaseSeason === null) return true
+  // A release naming no season is season 1 by convention: a show with more than one
+  // season always labels them, and it is season 1 that is written without one. So it
+  // can satisfy a season-1 request, but never a later one.
+  //
+  // Accepting it for any season is what served the first-season pack of "India's Got
+  // Latent" for a request for season 2 - the pack is titled with the show name alone,
+  // so its season cannot be read, and its files are named "IGL_EP_05" with no season
+  // either. Nothing downstream could tell it apart from a season-2 copy, and the wrong
+  // episode played. Refusing is the same choice this file makes everywhere else: a
+  // wrong episode served silently is worse than an honest "no source".
+  if (releaseSeason === null) return season === 1
   return releaseSeason === season
 }
 
