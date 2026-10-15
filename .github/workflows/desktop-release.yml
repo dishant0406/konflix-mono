@@ -59,7 +59,8 @@ jobs:
             echo "The app still loads a library from outside itself." >&2
             exit 1
           fi
-          shasum -a 256 "$dmg" | tee "$dmg.sha256"
+          # Named by the file alone, so `shasum -c` works from wherever it was downloaded to.
+          (cd "$(dirname "$dmg")" && shasum -a 256 "$(basename "$dmg")" | tee "$(basename "$dmg").sha256")
 
       - uses: actions/upload-artifact@v4
         with:
