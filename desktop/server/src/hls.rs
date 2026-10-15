@@ -696,8 +696,10 @@ fn ahead_of_viewer(session: &Session, fed: u64) -> bool {
         return true;
     }
     match session.bytes_per_second {
-        // One segment of slack: ffmpeg needs the whole of one before it can write it.
-        Some(rate) => fed as f64 > rate * (SEGMENT_SECONDS * (viewer + session.ahead + 1) as f64),
+        // Two segments of slack: ffmpeg needs the whole of one, and the keyframe after it, before
+        // it can write it, and a file's rate is only an average. Less than that can stall at
+        // the very first segment.
+        Some(rate) => fed as f64 > rate * (SEGMENT_SECONDS * (viewer + session.ahead + 2) as f64),
         None => false,
     }
 }
