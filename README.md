@@ -127,6 +127,38 @@ This replaced a single live fragmented MP4, which could not be played on iOS at 
 media source to answer a byte-range request with a real `206` and a length, and a stream still
 being produced has neither.
 
+## Why it is fast
+
+Measured from a browser in Mumbai against the server in Virginia, where a trip to the server costs
+half a second to a second whatever it carries. Almost everything below is about not making that
+trip, or not waiting for it.
+
+- **Pages arrive with their data in them.** Home, the catalogues and a title are rendered on the
+  server with the API's answer in the page, over the internal network, so the first paint does not
+  wait for the scripts to arrive and then for a request of their own. A move between pages inside an
+  open browser does not ask for that data again: the router's request is answered at once
+  (`isClientNavigation` in `akidev-frontend/src/lib/api-server.ts`) and the page appears in place and
+  fills in. A link that has been hovered, and the four tabs, are fetched ahead.
+- **There is no page loader.** The old full-height spinner replaced the whole page while the server
+  worked, which on a title that was not cached took five seconds and shifted the layout under the
+  viewer. The page now stays where it is until the new one is there, and the new one has skeletons
+  of its own shape.
+- **Pictures are resized once and kept.** `/v1/img` makes a WebP of a poster or banner at the width
+  asked for, keeps it on disk (the `torrent-cache` volume, so a deploy keeps them) and answers with an
+  immutable file. A page draws the pictures of the tiles on screen and a little past it, and the rest
+  as a row is scrolled, which took the home page from 3MB of pictures to 1MB. The site's own image
+  optimiser was dropped: it answers `Vary: Accept`, which Cloudflare will not keep.
+- **Cloudflare keeps what is the same for everyone** (`scripts/cloudflare-cache.sh`): pages for half
+  a minute, pictures for a month, catalogue and title answers for as long as the API says. Smart
+  Tiered Cache is on, so a data centre asks a nearby one before it asks the server. The API sends no
+  `Vary: Origin` for this reason: the edge ignores it, and a copy made for a request without an
+  Origin header would reach the page with no CORS headers.
+- **Less script.** The watch page's 312KB became 134KB by loading hls.js only for a stream that needs
+  it, and search loads when it is first opened.
+
+Scrolling was already smooth (a frame every 17ms with the CPU slowed four times), so nothing there
+was changed.
+
 ## Known limitations
 
 **A film is found by title, and a title is ambiguous.** Release names carry a bare

@@ -28,6 +28,7 @@ export default function MediaRow({
   failed,
   onRetry,
   resume,
+  eager,
 }: {
   title: string;
   items: Card[];
@@ -36,6 +37,8 @@ export default function MediaRow({
   onRetry?: () => void;
   /** Per tile, by index: how far through, and where to carry on. */
   resume?: (ResumeFor | undefined)[];
+  /** A row that is on screen when the page opens. The others draw their pictures when scrolled near. */
+  eager?: boolean;
 }) {
   const track = useRef<HTMLDivElement>(null);
   const [edges, setEdges] = useState({ left: false, right: false });
@@ -43,6 +46,22 @@ export default function MediaRow({
   // lazy loading reaches a thousand pixels past it, which is half the row: dozens of pictures per
   // page that nobody has scrolled to. The rest get theirs as the row is scrolled towards them.
   const [drawn, setDrawn] = useState(FIRST_DRAWN);
+  // Whether the row is on screen or about to be. A page has ten rows and the screen shows two, and
+  // the browser's lazy loading would fetch the pictures of the next two or three as well.
+  const section = useRef<HTMLElement>(null);
+  const [near, setNear] = useState(Boolean(eager));
+  useEffect(() => {
+    const element = section.current;
+    if (near || !element) return undefined;
+    const watch = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) setNear(true);
+      },
+      { rootMargin: "300px 0px" },
+    );
+    watch.observe(element);
+    return () => watch.disconnect();
+  }, [near]);
 
   const measure = useCallback(() => {
     const element = track.current;
@@ -70,7 +89,7 @@ export default function MediaRow({
   if (!loading && !failed && items.length === 0) return null;
 
   return (
-    <section className="flex flex-col gap-3 pt-6" aria-label={title}>
+    <section ref={section} className="flex flex-col gap-3 pt-6" aria-label={title}>
       <SectionTitle className="gutter">{title}</SectionTitle>
 
       {failed ? (
@@ -89,7 +108,7 @@ export default function MediaRow({
             className="no-scrollbar gutter flex gap-3 overflow-x-auto overscroll-x-contain scroll-smooth"
           >
             {items.map((card, index) => (
-              <Tile key={card.id} card={card} resume={resume?.[index]} drawn={index < drawn} />
+              <Tile key={card.id} card={card} resume={resume?.[index]} drawn={near && index < drawn} />
             ))}
           </div>
           <Edge side="left" visible={edges.left} onClick={() => page(-1)} />

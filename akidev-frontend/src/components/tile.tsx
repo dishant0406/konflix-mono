@@ -4,7 +4,7 @@ import { Info, Play } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { useQueryClient } from "react-query";
 
 import { KIND_LABEL } from "@/constants/site";
@@ -16,7 +16,7 @@ import { detailQueryOptions } from "@/query/use-media";
 import { MetaLine } from "./states";
 
 /** How long the pointer rests on a tile before its page is fetched ahead of the click. */
-const RESTS_FOR = 200;
+const RESTS_FOR = 100;
 
 export const TILE_WIDTH = 176;
 export const TILE_GAP = 12;
@@ -47,6 +47,9 @@ export default function Tile({
   className?: string;
 }) {
   const router = useRouter();
+  // Set once the pointer has rested on the tile. A link is fetched ahead in full only then: fetching
+  // all two hundred on the page would be a request each for pages almost none will be opened.
+  const [hot, setHot] = useState(false);
   const client = useQueryClient();
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -56,8 +59,9 @@ export default function Tile({
 
   const rest = () => {
     timer.current = setTimeout(() => {
-      // The page and its data, so the click finds both already here and the title appears in place.
-      router.prefetch(open);
+      // The page (through the link) and its data, so the click finds both already here and the
+      // title appears in place.
+      setHot(true);
       void client.prefetchQuery(detailQueryOptions(card.id));
     }, RESTS_FOR);
   };
@@ -70,6 +74,8 @@ export default function Tile({
       className={cn("group/tile relative flex w-[140px] shrink-0 flex-col gap-2 sm:w-[176px]", className)}
       onMouseEnter={rest}
       onMouseLeave={leave}
+      // A touch has no hover, so the press is the first sign of intent.
+      onTouchStart={() => setHot(true)}
     >
       <div className="relative aspect-[2/3] w-full overflow-hidden rounded-lg border border-transparent bg-raised transition-colors group-hover/tile:border-ink/40">
         {card.poster && drawn ? (
@@ -89,7 +95,7 @@ export default function Tile({
         ) : null}
 
         {/* The whole tile is the link; the two round buttons sit above it. */}
-        <Link href={click} aria-label={card.title} className="absolute inset-0" />
+        <Link href={click} prefetch={hot} aria-label={card.title} className="absolute inset-0" />
 
         <div className="pointer-events-none absolute inset-0 flex flex-col justify-end gap-1.5 bg-gradient-to-t from-canvas/95 via-canvas/0 via-80% to-transparent p-3 opacity-0 transition-opacity group-hover/tile:opacity-100 group-focus-within/tile:opacity-100">
           <span className="text-[10px] font-bold text-accent">{KIND_LABEL[card.kind]}</span>

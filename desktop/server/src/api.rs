@@ -37,8 +37,11 @@ pub struct AppState {
 const PER_PAGE: u32 = 24;
 const FEATURED: usize = 9;
 const SEARCH_MAX: usize = 60;
-const CATALOGUE_CACHE: &str = "public, max-age=60, stale-while-revalidate=300";
-const TITLE_CACHE: &str = "public, max-age=300, stale-while-revalidate=900";
+/// How long a browser and the edge keep a list, and how long past that they may show it while a
+/// fresh one is fetched. A list changes over hours, and showing the last one at once is what makes a
+/// page seen before open instantly.
+const CATALOGUE_CACHE: &str = "public, max-age=300, stale-while-revalidate=3600";
+const TITLE_CACHE: &str = "public, max-age=900, stale-while-revalidate=3600";
 
 struct Row {
     title: &'static str,

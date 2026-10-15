@@ -20,6 +20,7 @@ export default function HomeView({ initial }: { initial?: HomeResponse }) {
 
       {recent.length > 0 && (
         <MediaRow
+          eager
           title="Continue watching"
           items={recent.map((entry) => entry.media)}
           resume={recent.map((entry) => ({
@@ -31,7 +32,7 @@ export default function HomeView({ initial }: { initial?: HomeResponse }) {
 
       {home.loading
         ? LOADING_ROWS.map((title) => <MediaRow key={title} title={title} items={[]} loading />)
-        : home.rows.map((row) => <MediaRow key={row.title} title={row.title} items={row.items} />)}
+        : home.rows.map((row, index) => <MediaRow key={row.title} title={row.title} items={row.items} eager={index < 2} />)}
     </div>
   );
 }
