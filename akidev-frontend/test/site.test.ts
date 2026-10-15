@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { CATALOGUES, CONTENT_TYPES, catalogueForSlug, genresFor } from "../src/constants/site.ts";
+import { CATALOGUES, CONTENT_TYPES, DEFAULT_SORT, SORTS, catalogueForSlug, genresFor } from "../src/constants/site.ts";
 
 test("each catalogue page is found by its slug", () => {
   assert.equal(catalogueForSlug("anime")?.kind, "anime");
@@ -32,4 +32,9 @@ test("a genre filter only offers genres the provider has", () => {
   for (const genre of genresFor(null)) {
     assert.ok(genresFor("anime").includes(genre) && genresFor("movie").includes(genre), genre);
   }
+});
+
+test("a catalogue opens on the first sort, which is what the server renders it with", () => {
+  assert.equal(DEFAULT_SORT, SORTS[0].value);
+  assert.equal(DEFAULT_SORT, "popularity");
 });

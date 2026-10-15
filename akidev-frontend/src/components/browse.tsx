@@ -5,6 +5,7 @@ import { useState } from "react";
 
 import { CATALOGUES, SORTS, genresFor, type ContentType } from "@/constants/site";
 import type { Card } from "@/lib/media";
+import type { Page as CataloguePage } from "@/types/media";
 import { cn } from "@/lib/utils";
 import { useBrowse, useSearch } from "@/query/use-media";
 
@@ -45,11 +46,11 @@ function Page({ heading, filters, children }: { heading: string; filters: React.
 }
 
 /** One catalogue, or all of them: sort tabs, a genre list, and a grid that loads more. */
-export function CatalogueView({ kind }: { kind: ContentType | null }) {
+export function CatalogueView({ kind, initial }: { kind: ContentType | null; initial?: CataloguePage }) {
   const [sort, setSort] = useState(SORTS[0].value);
   const [genre, setGenre] = useState<string | undefined>();
   const [genresOpen, setGenresOpen] = useState(false);
-  const browse = useBrowse(kind, sort, genre);
+  const browse = useBrowse(kind, sort, genre, initial);
 
   const heading = CATALOGUES.find((page) => page.kind === kind)?.label ?? "Browse";
 

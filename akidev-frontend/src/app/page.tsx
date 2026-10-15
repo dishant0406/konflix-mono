@@ -1,37 +1,13 @@
-"use client";
+import HomeView from "@/components/home-view";
+import { serverGet } from "@/lib/api-server";
+import type { HomeResponse } from "@/types/media";
 
-import Hero from "@/components/hero";
-import MediaRow from "@/components/row";
-import { watchPath } from "@/constants/routes";
-import { fraction, useRecent } from "@/lib/progress";
-import { useHome } from "@/query/use-media";
+// Rendered for each request, with the home page's data already in it, so the first paint does not
+// wait for the scripts to arrive and then for a request of their own. The data itself is kept for a
+// minute, and the page for half a minute at the edge (see next.config.mjs).
+export const dynamic = "force-dynamic";
 
-/** The rows drawn as placeholders while the page loads. */
-const LOADING_ROWS = ["Trending Anime", "New Releases", "Popular Series"];
-
-export default function HomePage() {
-  const home = useHome();
-  const recent = useRecent();
-
-  return (
-    <div className="pb-8">
-      <Hero items={home.featured} loading={home.loading} />
-
-      {recent.length > 0 && (
-        <MediaRow
-          title="Continue watching"
-          items={recent.map((entry) => entry.media)}
-          resume={recent.map((entry) => ({
-            fraction: fraction(entry),
-            href: watchPath(entry.media.id, entry.episodeId),
-          }))}
-        />
-      )}
-
-      {home.loading
-        ? LOADING_ROWS.map((title) => <MediaRow key={title} title={title} items={[]} loading />)
-        : home.rows.map((row) => <MediaRow key={row.title} title={row.title} items={row.items} />)}
-    </div>
-  );
+export default async function Page() {
+  const home = await serverGet<HomeResponse>("/v1/home", 60);
+  return <HomeView initial={home ?? undefined} />;
 }
-

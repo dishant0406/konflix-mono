@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { useInfiniteQuery, useQuery } from "react-query";
 
-import type { ContentType } from "@/constants/site";
+import { DEFAULT_SORT, type ContentType } from "@/constants/site";
 import { ApiError, get } from "@/lib/api";
 import type { Card } from "@/lib/media";
 import type { Detail, HomeResponse, Media, Page } from "@/types/media";
@@ -16,8 +16,12 @@ const NONE: Media[] = [];
  * The home page: the banner's titles and every row, in one request. A row whose provider
  * failed comes back empty and is left out rather than blanking the page.
  */
-export function useHome() {
-  const query = useQuery([QUERY_KEYS.HOME], () => get<HomeResponse>("/v1/home"), { staleTime: 5 * MINUTE });
+export function useHome(initial?: HomeResponse) {
+  const query = useQuery([QUERY_KEYS.HOME], () => get<HomeResponse>("/v1/home"), {
+    staleTime: 5 * MINUTE,
+    // What the server rendered the page with, so nothing is asked for again at once.
+    initialData: initial,
+  });
   const rows = useMemo(() => (query.data?.rows ?? []).filter((row) => row.items.length > 0), [query.data]);
   return {
     featured: query.data?.featured ?? NONE,
@@ -30,7 +34,7 @@ export function useHome() {
  * A catalogue, or all three, a page at a time. With no kind the server asks the three together
  * and interleaves them, so the grid is a mix rather than all anime first.
  */
-export function useBrowse(kind: ContentType | null, sort: string, genre: string | undefined) {
+export function useBrowse(kind: ContentType | null, sort: string, genre: string | undefined, initial?: Page) {
   const query = useInfiniteQuery(
     [QUERY_KEYS.CATALOGUE, "browse", kind, sort, genre],
     ({ pageParam = 1 }) => get<Page>("/v1/catalogue", { kind: kind ?? "all", sort, genre, page: pageParam }),
@@ -38,6 +42,8 @@ export function useBrowse(kind: ContentType | null, sort: string, genre: string 
       getNextPageParam: (last, pages) => (last.has_next ? pages.length + 1 : undefined),
       keepPreviousData: true,
       staleTime: 5 * MINUTE,
+      // The first page, as the server rendered it, for the view the page opens on.
+      initialData: initial && sort === DEFAULT_SORT && !genre ? { pages: [initial], pageParams: [undefined] } : undefined,
     },
   );
 
@@ -83,8 +89,9 @@ export function useSearch(term: string, limit: number) {
 }
 
 /** The query for a title's full record, shared by the page and by the hover prefetch. */
-export function detailQueryOptions(key: string | undefined) {
+export function detailQueryOptions(key: string | undefined, initial?: Detail) {
   return {
+    initialData: initial,
     queryKey: [QUERY_KEYS.DETAIL, key],
     queryFn: () => get<Detail>(`/v1/titles/${encodeURIComponent(key ?? "")}`),
     enabled: Boolean(key),
@@ -95,8 +102,8 @@ export function detailQueryOptions(key: string | undefined) {
 }
 
 /** A title in full. The id names the provider, so the server knows which catalogue to ask. */
-export function useDetail(key: string | undefined) {
-  return useQuery(detailQueryOptions(key));
+export function useDetail(key: string | undefined, initial?: Detail) {
+  return useQuery(detailQueryOptions(key, initial));
 }
 
 /** More of what a title is: popular in its first genre, so every page has something below it. */

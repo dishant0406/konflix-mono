@@ -109,8 +109,8 @@ fn untouched(bytes: Bytes) -> Picture {
     }
 }
 
-/// The picture at most `width` wide, as a WebP at `quality`. What cannot be read, would lose its
-/// transparency, or would not get smaller is returned as it is.
+/// The picture at most `width` wide, as a WebP at `quality`. What cannot be read, or would not get
+/// smaller, is returned as it is.
 pub fn shrink(bytes: Bytes, width: u32, quality: u8) -> Picture {
     // How big it is is read from the header, before anything is decoded.
     let size = ImageReader::new(Cursor::new(&bytes))
@@ -124,10 +124,7 @@ pub fn shrink(bytes: Bytes, width: u32, quality: u8) -> Picture {
     let Ok(picture) = image::load_from_memory(&bytes) else {
         return untouched(bytes);
     };
-    // A picture with see-through parts would lose them as a JPEG.
-    if picture.color().has_alpha() {
-        return untouched(bytes);
-    }
+    let transparent = picture.color().has_alpha();
     let target = wide.min(width);
     let resized = if target < wide {
         let height = ((u64::from(tall) * u64::from(target)) / u64::from(wide)).max(1) as u32;
@@ -135,11 +132,20 @@ pub fn shrink(bytes: Bytes, width: u32, quality: u8) -> Picture {
     } else {
         picture
     };
-    // WebP is a third smaller than a JPEG of the same look, and every browser still in use reads it.
-    let rgb = DynamicImage::ImageRgb8(resized.to_rgb8());
-    let kept = webp::Encoder::from_rgb(rgb.as_bytes(), rgb.width(), rgb.height())
-        .encode(f32::from(quality))
-        .to_vec();
+    // WebP is a third smaller than a JPEG of the same look, keeps transparency, and every browser
+    // still in use reads it. A PNG poster is the case that matters: it is several times the size of
+    // the picture it holds.
+    let kept = if transparent {
+        let rgba = DynamicImage::ImageRgba8(resized.to_rgba8());
+        webp::Encoder::from_rgba(rgba.as_bytes(), rgba.width(), rgba.height())
+            .encode(f32::from(quality))
+            .to_vec()
+    } else {
+        let rgb = DynamicImage::ImageRgb8(resized.to_rgb8());
+        webp::Encoder::from_rgb(rgb.as_bytes(), rgb.width(), rgb.height())
+            .encode(f32::from(quality))
+            .to_vec()
+    };
     if !kept.is_empty() && kept.len() < bytes.len() {
         Picture {
             bytes: Bytes::from(kept),
@@ -398,17 +404,26 @@ mod tests {
     }
 
     #[test]
-    fn a_picture_with_transparency_is_left_alone() {
-        let rgba: image::RgbaImage =
-            ImageBuffer::from_fn(800, 800, |x, y| image::Rgba([x as u8, y as u8, 9, 128]));
+    fn a_picture_with_transparency_keeps_it_and_gets_much_smaller() {
         use image::ImageEncoder as _;
+        let rgba: image::RgbaImage = ImageBuffer::from_fn(800, 800, |x, y| {
+            image::Rgba([(x / 3) as u8, (y / 3) as u8, 9, 128])
+        });
         let mut png = Vec::new();
         image::codecs::png::PngEncoder::new(&mut png)
             .write_image(rgba.as_raw(), 800, 800, image::ExtendedColorType::Rgba8)
             .unwrap();
-        let made = shrink(Bytes::from(png.clone()), 96, 75);
-        assert_eq!(made.content_type, "image/png");
-        assert_eq!(made.bytes.len(), png.len());
+        let made = shrink(Bytes::from(png.clone()), 352, 75);
+        assert_eq!(made.content_type, "image/webp");
+        assert!(
+            made.bytes.len() < png.len() / 4,
+            "{} vs {}",
+            made.bytes.len(),
+            png.len()
+        );
+        let decoded = image::load_from_memory(&made.bytes).unwrap();
+        assert_eq!((decoded.width(), decoded.height()), (352, 352));
+        assert!(decoded.color().has_alpha());
     }
 
     #[test]

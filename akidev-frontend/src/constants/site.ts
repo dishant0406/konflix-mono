@@ -53,6 +53,9 @@ export const SORTS: Sort[] = [
   { value: "title", label: "A–Z" },
 ];
 
+/** The sort a catalogue opens on, which is what the server renders it with. */
+export const DEFAULT_SORT = SORTS[0].value;
+
 const ANIME_GENRES = [
   "Action", "Adventure", "Comedy", "Drama", "Ecchi", "Fantasy", "Horror", "Mahou Shoujo",
   "Mecha", "Music", "Mystery", "Psychological", "Romance", "Sci-Fi", "Slice of Life",

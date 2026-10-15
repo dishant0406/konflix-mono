@@ -92,6 +92,9 @@ services:
       NODE_ENV: production
       PORT: 3000
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+      # Pages are rendered with their data in them, and the server that renders them asks the API
+      # on the internal network rather than across the internet at its public address.
+      API_INTERNAL_URL: http://api:9000
     depends_on:
       - api
     healthcheck:

@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { KIND_LABEL } from "@/constants/site";
 import { titlePath } from "@/constants/routes";
 import { facts, type Card } from "@/lib/media";
+import { stripTags } from "@/lib/text";
 import { cn } from "@/lib/utils";
 
 import { Button } from "./button";
@@ -94,9 +95,4 @@ export default function Hero({ items, loading }: { items: Card[]; loading: boole
       )}
     </section>
   );
-}
-
-/** Descriptions from AniList carry markup (<br>, <i>); a plain-text line has no use for it. */
-export function stripTags(text: string): string {
-  return text.replace(/<br\s*\/?>/gi, " ").replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
 }
