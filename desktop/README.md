@@ -1,0 +1,169 @@
+# Akidev Desktop
+
+A native macOS app for the same catalogue as the web sites: anime, series and films in one
+window, with no hostnames, no modes and no server to run. The backend is a Rust library inside
+the app. It looks titles up, finds a release on the torrent indexers, joins the swarm itself and
+plays the video in the window.
+
+The UI is [GPUI](https://www.gpui.rs/) through [gpui-kit](https://gpui-kit.com): a near-black
+canvas, grey surfaces and one amber accent, so the artwork is the colour on screen. Video is
+decoded by [libmpv](https://mpv.io).
+
+The web apps in `../akidev-api` and `../akidev-frontend` are unchanged and keep serving the sites.
+
+## What is in it
+
+The window is one bar that is both the title bar and the navigation, with the screen below
+it. The bar is transparent over artwork and turns solid once a page scrolls.
+
+| Screen | What it does |
+| --- | --- |
+| Home | A rotating banner, a "Continue watching" row once you have started something, and rows from all three catalogues. A tile is clean at rest; hovering shows its facts and Play / Info |
+| Anime, Series, Films | One catalogue with sort and genre filters |
+| Search (⌘K) | Results as you type, across all three catalogues. Enter opens the best match, or the full results page when nothing is highlighted |
+| Title | Banner, facts, Play and Trailer, episodes by season, cast, related and recommended titles |
+| Watch | The picture fills the window. Controls hide after three seconds. Seek bar, ±10 seconds, volume, subtitle and audio tracks (the buttons show the current one), an episode panel, next episode, fullscreen, and an offer of the next episode near the end |
+| Settings | Two sliders: how much disk the torrents may use, and how many are kept at once. Saved as soon as you let go |
+
+Keys on the watch page: `space` pause, `←` `→` seek 10 seconds, `↑` `↓` volume, `m` mute,
+`c` subtitles, `a` audio, `e` episodes, `n` next episode, `f` fullscreen, `esc` leave
+fullscreen or close the panel. Anywhere: `⌘K` search, `⌘Q` quit.
+
+Progress is remembered per title, so opening an episode you left part way resumes it, and a
+title you finish drops out of "Continue watching".
+
+## Layout
+
+```
+core/      akidev-core: providers, indexers, release ranking, torrent engine, stream resolver
+sources/   the definitions of the indexers and providers, published separately from the app
+app/    akidev: the GPUI app and the libmpv player
+```
+
+In `app/src`, `design/` holds the tokens (palette, type scale, spacing) and the few shared
+components (buttons, chips, tabs, empty and error states); every screen is built from them.
+`app.rs` is the window shell, `route.rs` is navigation, and each screen has its own file
+(`home`, `browse`, `title`, `watch`, `settings`, plus `palette` for ⌘K). `player.rs` wraps
+libmpv, `progress.rs` remembers where you are, and `images.rs` loads posters.
+
+`core` has no GPU dependency, so everything in it is tested headless.
+
+`core` is a port of the Node API, module for module:
+
+| Rust | Node |
+| --- | --- |
+| `providers/`, one engine that follows the definitions in `sources/` (AniList, Cinemeta, TVMaze and YTS are definitions) | `akidev-api/graphql/providers/` |
+| `indexers/`, one engine that follows the definitions in `sources/` | `akidev-api/graphql/indexers/` |
+| `releases.rs` | `graphql/stream/releases.js` and `pickVideoFile` |
+| `torrent.rs`, `serve.rs` | `graphql/stream/torrent.js`, `serve.js` |
+| `stream.rs` | `graphql/stream/index.js` |
+| `search.rs` | `akidev-frontend/src/lib/merge-search.ts` |
+
+Its tests are the Node tests carried over with the same inputs and expected outputs. The Node
+code that existed only for browsers is not ported: HLS conversion, ffprobe, and the debrid
+source. mpv plays any container directly.
+
+## Indexers and providers update without a build
+
+Which indexers and providers exist, their addresses, how each is asked and how its reply is read,
+and the public trackers are data in [`sources/sources.json`](sources/README.md),
+not code. The app has one copy built in, uses the last good copy it saved, and fetches the
+published one in the background (at start and every six hours). A downloaded copy is used only
+if its ed25519 signature is valid, its version is higher than the one in use and it passes the
+same validation as the built-in one; otherwise nothing changes, so a bad publish cannot break
+an installed app. `./scripts/publish-sources.sh` signs and uploads a new copy to Cloudflare R2.
+Viewers see none of this: there is no list of indexers, no switches and no addresses to change in the
+app. Settings holds only the torrent limits.
+
+How a watch works: `stream.rs` turns a media id into search terms, asks every indexer that serves the kind,
+ranks the releases and races the best few (the first starts at once, the next join every six
+seconds if it is slow; a release nobody seeds is skipped). The winner's swarm is joined by
+`torrent.rs`, which picks the file. `serve.rs` serves that file on `127.0.0.1`, behind a random
+per-run token, with byte ranges, and the player reads from it.
+
+**It streams, it does not download.** No file is ever selected, so the engine fetches only what
+a reader asks for, plus a window ahead of it (about 32 MB, fixed inside librqbit), plus mpv's own
+read-ahead (a minute, at most 64 MiB). Pieces behind the playhead stay on disk until the torrent
+is evicted or you quit. When a file is chosen, its first and last few MB are fetched at once,
+because players read both ends before showing a frame, and a stream is held open for as long as
+the file is playable so librqbit keeps its peers connected. While buffering, the player shows the
+transfer speed and peer count.
+
+`vendor/librqbit` is librqbit 9.0.1 with one change (see `vendor/librqbit/PATCH.md`): starting or
+seeking a stream wakes the peers that are idle. As published, an idle peer notices new work only
+on a five second timer, so every seek and every new connection from the player waited up to five
+seconds.
+
+## Requirements
+
+- macOS 12 or later on Apple silicon or Intel, with Xcode (GPUI renders with Metal)
+- Rust (stable)
+- `brew install mpv`, for libmpv
+
+## Running
+
+```bash
+cargo run -p akidev                          # the home screen
+cargo run -p akidev -- search dangal         # open a screen directly
+cargo run -p akidev -- series-tt0903747      # a title; add -s1e5 to play an episode
+cargo run -p akidev -- settings
+```
+
+An id is `anime-<AniList id>`, `series-<IMDb id>` or `movie-<IMDb id>`, with `-ep3` or
+`-s1e5` for an episode. A film's id plays it.
+
+Set `RUST_LOG=info` to see which release each watch picked and how long it took, and
+`RUST_LOG=akidev_core=debug` for the indexers and the torrent engine.
+
+## Tests and checks
+
+```bash
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+cargo fmt --all --check
+```
+
+The streaming test runs a seeder and a leecher on localhost, so it needs no internet. It fails if
+the engine ever fetches the whole file again, or if a read waits on an idle peer.
+
+## Packaging
+
+```bash
+./scripts/bundle-macos.sh
+```
+
+Builds `target/release/bundle/Akidev.app` with libmpv and every library it loads copied
+inside, so it runs on a Mac without Homebrew. It is signed ad hoc, which is enough to run it
+locally. Distributing it needs a Developer ID signature and notarisation, which are not set up.
+
+libmpv is LGPL or GPL depending on how it was built. Homebrew's is built with GPL parts, so an
+app bundling it is covered by the GPL. This project is AGPL-3.0.
+
+## Settings and data
+
+| What | Where |
+| --- | --- |
+| Settings | `~/Library/Application Support/live.akidev.Akidev/config.toml` (a file that cannot be read is kept as `config.toml.broken` and defaults are used) |
+| Where you are in each title | `~/Library/Application Support/live.akidev.Akidev/progress.json` |
+| Indexer and provider definitions | `~/Library/Caches/live.akidev.Akidev/sources/` (the last signed copy fetched; the built-in one is used when it is missing or older) |
+| Posters | `~/Library/Caches/live.akidev.Akidev/images/` (files downloaded more than 30 days ago are removed at start) |
+| Torrent downloads | `<cache>/torrents/akidev-torrents/`, emptied at start and on quit and capped by the settings. It holds what was fetched while watching: the part played so far plus a little ahead, not the whole file. A `cache_dir` in `config.toml` moves the base directory; only the `akidev-torrents` folder inside it is ever deleted |
+
+Every setting has a default, so no file is needed. The limits apply after a restart. A setting from
+an older version that no longer exists, such as a list of turned-off indexers, is ignored.
+
+## Known limits
+
+- Playback is as good as the swarm. A 2160p release needs a couple of MB/s sustained, and the
+  seeder counts indexers report are often far above the peers that actually connect, so such a
+  release can take half a minute to show a frame and rebuffer. Nothing yet prefers a lighter
+  release when the swarm is thin.
+- A seek into a part that has not been fetched waits for the swarm to deliver it, usually a
+  second or two.
+- Frames are rendered in software at up to 1280 pixels wide and drawn by GPUI. That costs about
+  a quarter of one core for 1080p, and a 4K picture is scaled down.
+- Not every title has a torrent. The watch page then says so instead of showing a broken player.
+- Tiles and controls are driven by the mouse; apart from the watch page keys there is no
+  keyboard navigation of rows yet.
+- The banner does not tint itself to the artwork's colours.
+- macOS only so far. The code is not macOS specific, but Linux and Windows have not been built.

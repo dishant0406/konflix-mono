@@ -1,0 +1,23 @@
+[workspace]
+members = ["core", "app"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0"
+
+[workspace.dependencies]
+anyhow = "1"
+futures = "0.3"
+regex = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "gzip", "native-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "fs", "net", "io-util"] }
+tracing = "0.1"
+
+# librqbit with one change: a read that starts, or seeks, wakes the peers that are idle. See
+# vendor/librqbit/PATCH.md.
+[patch.crates-io]
+librqbit = { path = "vendor/librqbit" }

@@ -1,0 +1,297 @@
+//! Turns a media id into something a player can open.
+//!
+//! media id -> title -> indexer search -> rank releases -> race the best swarms
+//! -> a localhost URL, or an explicit "nothing available" with the reason.
+
+use crate::config::Config;
+use crate::indexers::{SearchOptions, search_all};
+use crate::media_id::{self, MediaId};
+use crate::model::{Detail, Kind, Release};
+use crate::releases::{
+    movie_search_terms, rank_movie_releases, rank_releases, search_terms, series_search_terms,
+};
+use crate::torrent::{Engine, StreamStats};
+use crate::{providers, serve};
+use futures::FutureExt as _;
+use std::net::SocketAddr;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+/// Which file of which torrent is playing, for asking how its stream is going.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StreamId {
+    pub info_hash: String,
+    pub file_index: usize,
+}
+
+/// A candidate that has not found peers after this long is joined by the next one.
+const STAGGER: Duration = Duration::from_secs(6);
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Resolution {
+    Ready {
+        url: String,
+        release: String,
+        stream: StreamId,
+    },
+    /// Nothing could be played. A normal outcome, not an error: the UI says so.
+    Unavailable { reason: String },
+}
+
+pub struct Streamer {
+    config: Mutex<Config>,
+    engine: Arc<Engine>,
+    address: SocketAddr,
+    /// Secret in every stream URL, so only the player can read the server.
+    token: String,
+}
+
+impl Streamer {
+    /// Starts the torrent engine, downloading under a directory it owns inside `dir`,
+    /// and the localhost server the player reads from.
+    pub async fn start(config: Config, dir: PathBuf) -> anyhow::Result<Streamer> {
+        let engine = Arc::new(Engine::start(&config, &dir).await?);
+        let server = serve::start(engine.clone()).await?;
+        Ok(Streamer {
+            config: Mutex::new(config),
+            engine,
+            address: server.address,
+            token: server.token,
+        })
+    }
+
+    /// How a stream is going: bytes fetched, speed and peers.
+    pub fn stats(&self, stream: &StreamId) -> Option<StreamStats> {
+        self.engine.stats(&stream.info_hash, stream.file_index)
+    }
+
+    /// Replaces the settings used by later searches. The torrent limits are read once
+    /// at start, so they apply after a restart.
+    pub fn set_config(&self, config: Config) {
+        *self.config.lock().unwrap() = config;
+    }
+
+    /// Finds a playable source for one episode or film. Never fails. `fresh` is for a
+    /// retry: it drops what is cached for the releases about to be tried, so a swarm
+    /// that died is joined again instead of handing back the same dead torrent.
+    pub async fn resolve(&self, id: &str, fresh: bool) -> Resolution {
+        let config = self.config.lock().unwrap().clone();
+        let Some(parsed) = media_id::parse(id) else {
+            return unavailable("Unrecognised media id.");
+        };
+        // A title without an episode is a detail page. A film is the exception: it has
+        // no episode by definition.
+        if parsed.kind != Kind::Movie && parsed.episode.is_none() {
+            return unavailable("No episode was requested.");
+        }
+        let Some(detail) = providers::detail(&parsed.key()).await else {
+            return unavailable("Unknown title.");
+        };
+
+        let (terms, ranked) = find_releases(&config, &parsed, &detail).await;
+        let started = Instant::now();
+        let deadline = started + Duration::from_millis(config.resolve_deadline_ms);
+        let candidates = candidates(&ranked, config.max_candidates);
+
+        if candidates.is_empty() {
+            let term = terms
+                .first()
+                .map(String::as_str)
+                .unwrap_or(&detail.media.title);
+            return unavailable(&format!("No torrent found for \"{term}\"."));
+        }
+
+        tracing::debug!(
+            "[stream] {id}: trying {:?}",
+            candidates
+                .iter()
+                .map(|r| (&r.title, r.seeders, r.size_bytes))
+                .collect::<Vec<_>>()
+        );
+
+        // The best release starts at once and the others join, a few seconds apart, only if
+        // it is slow. The first to be ready wins and the rest are dropped, which deletes
+        // their torrents. Trying them one after another meant a dead swarm cost its whole
+        // timeout before the next was even asked.
+        // A candidate also starts early once every one ahead of it has failed.
+        let (failures, failed) = tokio::sync::watch::channel(0usize);
+        let failures = Arc::new(failures);
+        let attempts = candidates.iter().enumerate().map(|(index, release)| {
+            let engine = self.engine.clone();
+            let trackers = crate::sources::current().trackers.clone();
+            let failures = failures.clone();
+            let mut failed = failed.clone();
+            async move {
+                let _ = tokio::time::timeout(
+                    STAGGER * index as u32,
+                    failed.wait_for(|&count| count >= index),
+                )
+                .await;
+                let left = deadline.saturating_duration_since(Instant::now());
+                match engine
+                    .open(
+                        release,
+                        parsed.episode,
+                        parsed.season,
+                        left,
+                        fresh,
+                        &trackers,
+                    )
+                    .await
+                {
+                    Ok(playable) => Ok((release, playable)),
+                    Err(error) => {
+                        // Logged rather than shown: it names releases and upstream errors,
+                        // and the viewer can act on none of it.
+                        tracing::warn!("[stream] {id}: \"{}\": {error:#}", release.title);
+                        failures.send_modify(|count| *count += 1);
+                        Err(error)
+                    }
+                }
+            }
+            .boxed()
+        });
+
+        match futures::future::select_ok(attempts).await {
+            Ok(((release, playable), _unfinished)) => {
+                tracing::info!(
+                    "[stream] {id}: \"{}\" after {:?}, from {} candidates",
+                    release.title,
+                    started.elapsed(),
+                    ranked.len()
+                );
+                Resolution::Ready {
+                    url: serve::url(
+                        self.address,
+                        &self.token,
+                        &playable.info_hash,
+                        playable.file_index,
+                    ),
+                    release: release.title.clone(),
+                    stream: StreamId {
+                        info_hash: playable.info_hash,
+                        file_index: playable.file_index,
+                    },
+                }
+            }
+            Err(_) => unavailable("Found releases, but none could be played."),
+        }
+    }
+}
+
+/// The releases worth trying, best first. A count of zero may only mean the indexer does
+/// not know it, so releases without seeders are tried last rather than dropped.
+fn candidates(ranked: &[Release], limit: usize) -> Vec<&Release> {
+    let (seeded, unseeded): (Vec<&Release>, Vec<&Release>) =
+        ranked.iter().partition(|release| release.seeders > 0);
+    seeded.into_iter().chain(unseeded).take(limit).collect()
+}
+
+fn unavailable(reason: &str) -> Resolution {
+    Resolution::Unavailable {
+        reason: reason.to_string(),
+    }
+}
+
+/// The search terms, and the releases they found, best first.
+async fn find_releases(
+    config: &Config,
+    parsed: &MediaId,
+    detail: &Detail,
+) -> (Vec<String>, Vec<Release>) {
+    let media = &detail.media;
+    let titles = if media.title_variants.is_empty() {
+        vec![media.title.clone()]
+    } else {
+        media.title_variants.clone()
+    };
+    let year = media.year.and_then(|year| u32::try_from(year).ok());
+    // Torrentio and EZTV are searched by IMDb id rather than by text, and Torrentio
+    // takes the season and episode in its path. Indexers that need none of it ignore it.
+    let options = SearchOptions {
+        kind: parsed.kind,
+        imdb_id: detail.imdb_id.clone(),
+        season: parsed.season,
+        episode: parsed.episode,
+    };
+
+    let (terms, mut ranked) = match (parsed.kind, parsed.episode) {
+        (Kind::Movie, _) => {
+            let terms = movie_search_terms(&titles, year);
+            let found = search_all(config, &terms, &options).await;
+            let ranked = rank_movie_releases(&found, year, &media.title, &titles);
+            (terms, ranked)
+        }
+        (Kind::Series, Some(episode)) => {
+            let terms = series_search_terms(&titles, parsed.season, Some(episode));
+            let found = search_all(config, &terms, &options).await;
+            let ranked = rank_releases(&found, episode, &media.title, &titles, parsed.season);
+            (terms, ranked)
+        }
+        (Kind::Anime, Some(episode)) => {
+            let terms = search_terms(&titles, Some(episode));
+            let found = search_all(config, &terms, &options).await;
+            let ranked = rank_releases(&found, episode, &media.title, &titles, parsed.season);
+            (terms, ranked)
+        }
+        (_, None) => (Vec::new(), Vec::new()),
+    };
+    ranked.truncate(config.max_candidates);
+    (terms, ranked)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn release(title: &str, seeders: u32) -> Release {
+        Release {
+            title: title.into(),
+            info_hash: "a".repeat(40),
+            magnet: String::new(),
+            size_bytes: None,
+            seeders,
+            source: "test".into(),
+        }
+    }
+
+    fn titles(found: Vec<&Release>) -> Vec<&str> {
+        found
+            .into_iter()
+            .map(|release| release.title.as_str())
+            .collect()
+    }
+
+    #[test]
+    fn a_release_nobody_seeds_is_tried_last() {
+        let ranked = [
+            release("dead", 0),
+            release("alive", 4),
+            release("also alive", 1),
+        ];
+        assert_eq!(
+            titles(candidates(&ranked, 3)),
+            ["alive", "also alive", "dead"]
+        );
+        assert_eq!(titles(candidates(&ranked, 2)), ["alive", "also alive"]);
+    }
+
+    #[test]
+    fn unseeded_releases_are_tried_when_they_are_all_there_is() {
+        let ranked = [release("a", 0), release("b", 0)];
+        assert_eq!(titles(candidates(&ranked, 3)), ["a", "b"]);
+    }
+
+    #[test]
+    fn only_the_best_few_are_tried() {
+        let ranked = [
+            release("a", 9),
+            release("b", 8),
+            release("c", 7),
+            release("d", 6),
+        ];
+        assert_eq!(titles(candidates(&ranked, 2)), ["a", "b"]);
+        assert!(candidates(&[], 3).is_empty());
+    }
+}

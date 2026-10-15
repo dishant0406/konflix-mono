@@ -1,0 +1,20 @@
+[package]
+name = "akidev"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+akidev-core = { path = "../core" }
+gpui-kit = "=0.7.3"
+anyhow.workspace = true
+directories = "6"
+futures.workspace = true
+image = { version = "0.25", default-features = false }
+serde_json.workspace = true
+smallvec = "1"
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+libmpv2-sys = "4"
+serde = { workspace = true, features = ["derive"] }

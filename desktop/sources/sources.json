@@ -1,0 +1,1195 @@
+{
+  "schema": 1,
+  "version": 3,
+  "trackers": [
+    "udp://tracker.opentrackr.org:1337/announce",
+    "udp://open.stealth.si:80/announce",
+    "udp://tracker.torrent.eu.org:451/announce",
+    "udp://exodus.desync.com:6969/announce"
+  ],
+  "indexers": [
+    {
+      "id": "subsplease",
+      "name": "SubsPlease",
+      "kinds": [
+        "anime"
+      ],
+      "fanout": "per-title",
+      "hosts": [
+        "https://subsplease.org/api/"
+      ],
+      "request": {
+        "query": {
+          "f": "search",
+          "s": "{term}",
+          "tz": "UTC"
+        }
+      },
+      "response": {
+        "format": "json",
+        "rows": "*",
+        "children": "downloads",
+        "fields": {
+          "title": {
+            "magnet_name": "magnet"
+          },
+          "hash": {
+            "magnet_hash": "magnet"
+          },
+          "magnet": "magnet",
+          "size": {
+            "magnet_size": "magnet"
+          }
+        }
+      }
+    },
+    {
+      "id": "nyaa",
+      "name": "Nyaa",
+      "kinds": [
+        "anime"
+      ],
+      "hosts": [
+        "https://nyaa.si",
+        "https://nyaa.land",
+        "https://nyaa.iss.ink"
+      ],
+      "request": {
+        "path": "/",
+        "query": {
+          "page": "rss",
+          "q": "{term}",
+          "c": "1_0",
+          "f": "0"
+        }
+      },
+      "response": {
+        "format": "rss",
+        "fields": {
+          "title": "title",
+          "hash": "nyaa:infoHash",
+          "size": "nyaa:size",
+          "seeders": "nyaa:seeders"
+        }
+      }
+    },
+    {
+      "id": "animetosho",
+      "name": "AnimeTosho",
+      "kinds": [
+        "anime"
+      ],
+      "hosts": [
+        "https://feed.animetosho.net"
+      ],
+      "request": {
+        "path": "/api/torznab",
+        "query": {
+          "t": "search",
+          "q": "{term}",
+          "limit": "100"
+        }
+      },
+      "response": {
+        "format": "rss",
+        "fields": {
+          "title": "title",
+          "hash": "torznab:attr@infohash",
+          "size": "torznab:attr@size",
+          "seeders": "torznab:attr@seeders"
+        }
+      }
+    },
+    {
+      "id": "knaben",
+      "name": "Knaben",
+      "kinds": [
+        "anime",
+        "series",
+        "movie"
+      ],
+      "hosts": [
+        "https://api.knaben.org/v1"
+      ],
+      "request": {
+        "method": "POST",
+        "json": {
+          "search_type": "100%",
+          "search_field": "title",
+          "query": "{term}",
+          "size": 50,
+          "categories": {
+            "$kind": {
+              "anime": [
+                6000000
+              ],
+              "series": [
+                2000000
+              ],
+              "movie": [
+                3000000,
+                2000000
+              ]
+            }
+          },
+          "order_by": "seeders",
+          "order_direction": "desc"
+        }
+      },
+      "response": {
+        "format": "json",
+        "rows": "hits",
+        "drop": [
+          {
+            "path": "categoryId",
+            "starts_with": "5"
+          }
+        ],
+        "fields": {
+          "title": "title",
+          "hash": "hash",
+          "size": "bytes",
+          "seeders": "liveSeeders"
+        }
+      }
+    },
+    {
+      "id": "torrents-csv",
+      "name": "Torrents-CSV",
+      "kinds": [
+        "anime",
+        "series",
+        "movie"
+      ],
+      "fanout": "per-title",
+      "hosts": [
+        "https://torrents-csv.com"
+      ],
+      "request": {
+        "path": "/service/search",
+        "query": {
+          "q": "{term}",
+          "size": "100"
+        }
+      },
+      "response": {
+        "format": "json",
+        "rows": "torrents",
+        "must_contain_term": true,
+        "fields": {
+          "title": "name",
+          "hash": "infohash",
+          "size": "size_bytes",
+          "seeders": "seeders"
+        }
+      }
+    },
+    {
+      "id": "torrentio",
+      "name": "Torrentio",
+      "kinds": [
+        "series",
+        "movie"
+      ],
+      "fanout": "once",
+      "hosts": [
+        "https://torrentio.strem.fun"
+      ],
+      "request": {
+        "path": {
+          "$kind": {
+            "movie": "/stream/movie/{imdb}.json",
+            "series": "/stream/series/{imdb}:{season}:{episode}.json"
+          }
+        }
+      },
+      "response": {
+        "format": "json",
+        "rows": "streams",
+        "dedupe": {
+          "avoid": "(?i)(?:^|[^a-z0-9])(?:bonus|discarded|deleted|behind[ ._]*the[ ._]*scenes|bloopers?|outtakes?)(?:[^a-z0-9]|$)"
+        },
+        "fields": {
+          "title": {
+            "join": [
+              {
+                "line": {
+                  "from": "title",
+                  "skip": "👤|💾",
+                  "index": 0
+                }
+              },
+              {
+                "coalesce": [
+                  "behaviorHints.filename",
+                  {
+                    "line": {
+                      "from": "title",
+                      "skip": "👤|💾",
+                      "index": 1
+                    }
+                  },
+                  {
+                    "line": {
+                      "from": "title",
+                      "skip": "👤|💾",
+                      "index": 0
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "hash": "infoHash",
+          "size": {
+            "regex": {
+              "from": "title",
+              "pattern": "(?i)💾\\s*([0-9.]+\\s*(?:KB|MB|GB|TB))"
+            }
+          },
+          "seeders": {
+            "regex": {
+              "from": "title",
+              "pattern": "👤\\s*([0-9]+)"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "yts",
+      "name": "YTS",
+      "kinds": [
+        "movie"
+      ],
+      "hosts": [
+        "https://movies-api.accel.li/api/v2"
+      ],
+      "request": {
+        "path": "/list_movies.json",
+        "query": {
+          "query_term": "{imdb_or_term}",
+          "limit": "50"
+        }
+      },
+      "response": {
+        "format": "json",
+        "rows": "data.movies",
+        "children": "torrents",
+        "fields": {
+          "title": {
+            "template": "{^.title}{? ({^.year})?}{? {quality}?}{? {type}?}"
+          },
+          "hash": "hash",
+          "size": "size_bytes",
+          "seeders": "seeds"
+        }
+      }
+    },
+    {
+      "id": "eztv",
+      "name": "EZTV",
+      "kinds": [
+        "series"
+      ],
+      "fanout": "per-title",
+      "hosts": [
+        "https://eztv.wf/api"
+      ],
+      "request": {
+        "path": "/get-torrents",
+        "query": {
+          "imdb_id": "{imdb_digits}",
+          "limit": "100"
+        }
+      },
+      "response": {
+        "format": "json",
+        "rows": "torrents",
+        "fields": {
+          "title": "filename",
+          "hash": "hash",
+          "size": "size_bytes",
+          "seeders": "seeds"
+        }
+      }
+    },
+    {
+      "id": "apibay",
+      "name": "The Pirate Bay",
+      "kinds": [
+        "anime",
+        "series",
+        "movie"
+      ],
+      "cooldown_secs": 300,
+      "hosts": [
+        "https://apibay.org"
+      ],
+      "request": {
+        "path": "/q.php",
+        "query": {
+          "q": "{term}",
+          "cat": "0"
+        }
+      },
+      "response": {
+        "format": "json",
+        "drop": [
+          {
+            "path": "name",
+            "equals": "No results returned"
+          },
+          {
+            "path": "info_hash",
+            "equals": "0000000000000000000000000000000000000000"
+          }
+        ],
+        "fields": {
+          "title": "name",
+          "hash": "info_hash",
+          "size": "size",
+          "seeders": "seeders"
+        }
+      }
+    }
+  ],
+  "providers": [
+    {
+      "id": "anilist",
+      "kinds": [
+        "anime"
+      ],
+      "base_url": "https://graphql.anilist.co",
+      "sorts": {
+        "default": "POPULARITY_DESC",
+        "popularity": "POPULARITY_DESC",
+        "trending": "TRENDING_DESC",
+        "score": "SCORE_DESC",
+        "recent": "START_DATE_DESC",
+        "title": "TITLE_ROMAJI"
+      },
+      "card": {
+        "id": "id",
+        "title": {
+          "coalesce": [
+            "title.english",
+            "title.romaji",
+            "title.native",
+            {
+              "const": "Untitled"
+            }
+          ]
+        },
+        "title_variants": [
+          "title.english",
+          "title.romaji",
+          "title.native"
+        ],
+        "poster": {
+          "coalesce": [
+            "coverImage.extraLarge",
+            "coverImage.large"
+          ]
+        },
+        "banner": "bannerImage",
+        "format": "format",
+        "status": "status",
+        "year": {
+          "coalesce": [
+            "seasonYear",
+            "startDate.year"
+          ]
+        },
+        "episodes": {
+          "coalesce": [
+            {
+              "positive": "episodes"
+            },
+            {
+              "positive": {
+                "add": {
+                  "from": "nextAiringEpisode.episode",
+                  "n": -1
+                }
+              }
+            }
+          ]
+        },
+        "runtime_minutes": "duration",
+        "score": {
+          "coalesce": [
+            "averageScore",
+            "meanScore"
+          ]
+        },
+        "popularity": "popularity",
+        "genres": "genres",
+        "adult": "isAdult"
+      },
+      "list": {
+        "request": {
+          "method": "POST",
+          "url": "{base}",
+          "json": {
+            "query": {
+              "$text": "query ($page: Int, $perPage: Int, $sort: [MediaSort], $genre: String, $year: Int, $search: String, $statusNot: MediaStatus, $startDateGreater: FuzzyDateInt) { Page(page: $page, perPage: $perPage) { pageInfo { hasNextPage } media(type: ANIME, sort: $sort, isAdult: false, genre: $genre, seasonYear: $year, search: $search, status_not: $statusNot, startDate_greater: $startDateGreater) { id title { romaji english native } coverImage { extraLarge large } bannerImage format season seasonYear episodes duration status averageScore meanScore popularity genres isAdult studios(isMain: true) { nodes { name } } nextAiringEpisode { episode } startDate { year } } } }"
+            },
+            "variables": {
+              "page": {
+                "$number": "{page}"
+              },
+              "perPage": {
+                "$number": "{per_page}"
+              },
+              "sort": "{sort}",
+              "genre?": "{genre}",
+              "year?": {
+                "$number": "{year}"
+              },
+              "statusNot?": {
+                "$sort": {
+                  "recent": "NOT_YET_RELEASED"
+                }
+              },
+              "startDateGreater?": {
+                "$sort": {
+                  "recent": {
+                    "$number": "19000101"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "rows": "data.Page.media",
+        "check": {
+          "error": "errors",
+          "message": "errors.0.message"
+        },
+        "drop": [
+          {
+            "path": "coverImage.large",
+            "exists": false
+          }
+        ],
+        "paging": {
+          "per_page": 24,
+          "max": 50,
+          "style": "page",
+          "next": {
+            "flag": "data.Page.pageInfo.hasNextPage"
+          }
+        }
+      },
+      "search": {
+        "request": {
+          "method": "POST",
+          "url": "{base}",
+          "json": {
+            "query": {
+              "$text": "query ($page: Int, $perPage: Int, $sort: [MediaSort], $genre: String, $year: Int, $search: String, $statusNot: MediaStatus, $startDateGreater: FuzzyDateInt) { Page(page: $page, perPage: $perPage) { pageInfo { hasNextPage } media(type: ANIME, sort: $sort, isAdult: false, genre: $genre, seasonYear: $year, search: $search, status_not: $statusNot, startDate_greater: $startDateGreater) { id title { romaji english native } coverImage { extraLarge large } bannerImage format season seasonYear episodes duration status averageScore meanScore popularity genres isAdult studios(isMain: true) { nodes { name } } nextAiringEpisode { episode } startDate { year } } } }"
+            },
+            "variables": {
+              "page": {
+                "$number": "{page}"
+              },
+              "perPage": {
+                "$number": "{per_page}"
+              },
+              "sort": "{sort}",
+              "search": "{term}"
+            }
+          }
+        },
+        "rows": "data.Page.media",
+        "check": {
+          "error": "errors",
+          "message": "errors.0.message"
+        },
+        "drop": [
+          {
+            "path": "coverImage.large",
+            "exists": false
+          }
+        ],
+        "per_page": 14,
+        "next": {
+          "flag": "data.Page.pageInfo.hasNextPage"
+        }
+      },
+      "detail": {
+        "request": {
+          "method": "POST",
+          "url": "{base}",
+          "json": {
+            "query": {
+              "$text": "query ($id: Int) { Media(id: $id, type: ANIME) { id title { romaji english native } coverImage { extraLarge large } bannerImage format season seasonYear episodes duration status averageScore meanScore popularity genres isAdult studios(isMain: true) { nodes { name } } nextAiringEpisode { episode } startDate { year } description(asHtml: false) trailer { id site } relations { edges { relationType node { id type format status episodes meanScore title { romaji english native } coverImage { extraLarge large } startDate { year } } } } recommendations(sort: RATING_DESC, perPage: 12) { nodes { mediaRecommendation { id format status episodes meanScore averageScore popularity genres title { romaji english native } coverImage { extraLarge large } startDate { year } } } } characters(sort: [ROLE, RELEVANCE], perPage: 12) { edges { role node { name { full } image { large } } } } } }"
+            },
+            "variables": {
+              "id": {
+                "$number": "{id}"
+              }
+            }
+          }
+        },
+        "id_pattern": "^[0-9]+$",
+        "check": {
+          "error": "errors",
+          "message": "errors.0.message"
+        },
+        "root": "data.Media",
+        "description": {
+          "plain_text": "description"
+        },
+        "studios": "studios.nodes.*.name",
+        "trailer": {
+          "site": "trailer.site",
+          "id": "trailer.id"
+        },
+        "cast": {
+          "sources": [
+            {
+              "rows": "characters.edges",
+              "name": "node.name.full",
+              "role": "role",
+              "image": "node.image.large"
+            }
+          ]
+        },
+        "related": {
+          "rows": "relations.edges.*.node",
+          "drop": [
+            {
+              "path": "type",
+              "differs": "ANIME"
+            }
+          ]
+        },
+        "recommended": {
+          "rows": "recommendations.nodes.*.mediaRecommendation"
+        }
+      }
+    },
+    {
+      "id": "cinemeta",
+      "kinds": [
+        "series",
+        "movie"
+      ],
+      "base_url": "https://v3-cinemeta.strem.io",
+      "types": {
+        "series": "series",
+        "movie": "movie"
+      },
+      "sorts": {
+        "default": "top",
+        "score": "imdbRating",
+        "recent": "year"
+      },
+      "card": {
+        "id": {
+          "coalesce": [
+            "imdb_id",
+            "id"
+          ]
+        },
+        "title": "name",
+        "poster": "poster",
+        "banner": "background",
+        "format": {
+          "by_kind": {
+            "series": {
+              "const": "TV"
+            },
+            "movie": {
+              "const": "MOVIE"
+            }
+          }
+        },
+        "status": {
+          "by_kind": {
+            "series": {
+              "map": {
+                "from": "status",
+                "table": [
+                  [
+                    "ended",
+                    "FINISHED"
+                  ],
+                  [
+                    "cancel",
+                    "CANCELLED"
+                  ],
+                  [
+                    "running",
+                    "RELEASING"
+                  ],
+                  [
+                    "continuing",
+                    "RELEASING"
+                  ]
+                ]
+              }
+            }
+          }
+        },
+        "year": {
+          "year": "releaseInfo"
+        },
+        "runtime_minutes": {
+          "minutes": "runtime"
+        },
+        "score": {
+          "scale": {
+            "from": "imdbRating",
+            "by": 10
+          }
+        },
+        "popularity": {
+          "scale": {
+            "from": "popularity",
+            "by": 100
+          }
+        },
+        "genres": {
+          "coalesce": [
+            "genres",
+            "genre"
+          ]
+        }
+      },
+      "list": {
+        "request": {
+          "url": "{base}/catalog/{type}/{sort}{?/skip={skip}?}.json"
+        },
+        "rows": "metas",
+        "ttl_secs": 21600,
+        "dedupe": {
+          "coalesce": [
+            "imdb_id",
+            "id"
+          ]
+        },
+        "drop": [
+          {
+            "path": {
+              "coalesce": [
+                "released",
+                "releaseInfo"
+              ]
+            },
+            "after_today": {}
+          }
+        ],
+        "genre": "genres",
+        "year": {
+          "year": "releaseInfo"
+        },
+        "order": {
+          "recent": [
+            {
+              "by": {
+                "coalesce": [
+                  "released",
+                  "releaseInfo"
+                ]
+              },
+              "descending": true
+            }
+          ]
+        },
+        "paging": {
+          "per_page": 24,
+          "max": 50,
+          "style": "skip",
+          "size": 48,
+          "window": {
+            "when": [
+              "genre",
+              "year",
+              "sort:recent"
+            ],
+            "pages": 3
+          }
+        }
+      },
+      "search": {
+        "request": {
+          "url": "{base}/catalog/{type}/{sort}/search={term}.json"
+        },
+        "rows": "metas"
+      },
+      "detail": {
+        "request": {
+          "url": "{base}/meta/{type}/{id}.json"
+        },
+        "id_pattern": "^tt[0-9]+$",
+        "root": "meta",
+        "description": "description",
+        "count_episodes": true,
+        "imdb_id": {
+          "coalesce": [
+            "imdb_id",
+            "id"
+          ]
+        },
+        "trailer": {
+          "site": {
+            "const": "YouTube"
+          },
+          "id": "trailers.0.source"
+        },
+        "episodes": {
+          "rows": "videos",
+          "drop": [
+            {
+              "path": "season",
+              "equals": "0"
+            }
+          ],
+          "id": {
+            "coalesce": [
+              {
+                "template": "series-{^.imdb_id}-s{season}e{number}"
+              },
+              {
+                "template": "series-{^.id}-s{season}e{number}"
+              }
+            ]
+          },
+          "season": "season",
+          "number": "number",
+          "name": {
+            "coalesce": [
+              "name",
+              "title"
+            ]
+          },
+          "airdate": {
+            "coalesce": [
+              "released",
+              "firstAired"
+            ]
+          }
+        },
+        "cast": {
+          "sources": [
+            {
+              "rows": "credits_cast",
+              "name": "name",
+              "role": "character",
+              "image": {
+                "template": "{?https://image.tmdb.org/t/p/w185{profile_path}?}"
+              }
+            },
+            {
+              "rows": "cast",
+              "name": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "tvmaze",
+      "kinds": [
+        "series"
+      ],
+      "base_url": "https://api.tvmaze.com",
+      "card": {
+        "id": "id",
+        "title": "name",
+        "poster": {
+          "coalesce": [
+            "image.original",
+            "image.medium"
+          ]
+        },
+        "format": {
+          "coalesce": [
+            "type",
+            {
+              "const": "TV"
+            }
+          ]
+        },
+        "status": "status",
+        "year": {
+          "year": "premiered"
+        },
+        "runtime_minutes": {
+          "coalesce": [
+            "averageRuntime",
+            "runtime"
+          ]
+        },
+        "score": {
+          "scale": {
+            "from": "rating.average",
+            "by": 10
+          }
+        },
+        "popularity": "weight",
+        "genres": "genres"
+      },
+      "list": {
+        "request": {
+          "url": "{base}/schedule/full"
+        },
+        "rows": "_embedded.show",
+        "ttl_secs": 21600,
+        "dedupe": "id",
+        "drop": [
+          {
+            "path": "image",
+            "exists": false
+          },
+          {
+            "path": "premiered",
+            "after_today": {
+              "grace_days": 30
+            }
+          }
+        ],
+        "genre": "genres",
+        "order": {
+          "default": [
+            {
+              "by": "weight",
+              "compare": "number",
+              "descending": true
+            },
+            {
+              "by": "rating.average",
+              "compare": "number",
+              "descending": true
+            },
+            {
+              "by": "premiered",
+              "descending": true
+            }
+          ],
+          "score": [
+            {
+              "by": "rating.average",
+              "compare": "number",
+              "descending": true,
+              "missing_last": true
+            },
+            {
+              "by": "weight",
+              "compare": "number",
+              "descending": true
+            },
+            {
+              "by": "rating.average",
+              "compare": "number",
+              "descending": true
+            },
+            {
+              "by": "premiered",
+              "descending": true
+            }
+          ],
+          "recent": [
+            {
+              "by": "premiered",
+              "descending": true
+            },
+            {
+              "by": "weight",
+              "compare": "number",
+              "descending": true
+            },
+            {
+              "by": "rating.average",
+              "compare": "number",
+              "descending": true
+            },
+            {
+              "by": "premiered",
+              "descending": true
+            }
+          ],
+          "title": [
+            {
+              "by": "name",
+              "compare": "caseless"
+            }
+          ]
+        },
+        "paging": {
+          "per_page": 24,
+          "max": 50,
+          "style": "pool"
+        }
+      },
+      "search": {
+        "request": {
+          "url": "{base}/search/shows?q={term}"
+        },
+        "rows": "show",
+        "drop": [
+          {
+            "path": "image",
+            "exists": false
+          }
+        ]
+      },
+      "detail": {
+        "request": {
+          "url": "{base}/shows/{id}?embed%5B%5D=episodes&embed%5B%5D=cast"
+        },
+        "id_pattern": "^[0-9]+$",
+        "root": "",
+        "description": {
+          "plain_text": "summary"
+        },
+        "count_episodes": true,
+        "imdb_id": {
+          "regex": {
+            "from": "externals.imdb",
+            "pattern": "^(tt[0-9]+)$"
+          }
+        },
+        "studios": "network.name",
+        "episodes": {
+          "rows": "_embedded.episodes",
+          "id": {
+            "template": "series-{^.id}-s{season}e{number}"
+          },
+          "season": "season",
+          "number": "number",
+          "name": "name",
+          "airdate": "airdate"
+        },
+        "cast": {
+          "sources": [
+            {
+              "rows": "_embedded.cast",
+              "name": "person.name",
+              "role": "character.name",
+              "image": "person.image.medium"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "yts",
+      "kinds": [
+        "movie"
+      ],
+      "base_url": "https://movies-api.accel.li/api/v2",
+      "types": {
+        "movie": "movie"
+      },
+      "sorts": {
+        "default": "download_count",
+        "score": "rating",
+        "recent": "date_added",
+        "title": "title"
+      },
+      "card": {
+        "id": "id",
+        "title": {
+          "coalesce": [
+            "title_english",
+            "title"
+          ]
+        },
+        "title_variants": [
+          "title_english",
+          "title"
+        ],
+        "poster": {
+          "coalesce": [
+            "large_cover_image",
+            "medium_cover_image"
+          ]
+        },
+        "banner": {
+          "coalesce": [
+            "background_image_original",
+            "background_image"
+          ]
+        },
+        "format": {
+          "const": "MOVIE"
+        },
+        "status": {
+          "const": "FINISHED"
+        },
+        "year": "year",
+        "episodes": {
+          "const": "1"
+        },
+        "runtime_minutes": "runtime",
+        "score": {
+          "scale": {
+            "from": "rating",
+            "by": 10
+          }
+        },
+        "popularity": "like_count",
+        "genres": "genres"
+      },
+      "list": {
+        "request": {
+          "url": "{base}/list_movies.json",
+          "query": {
+            "sort_by": "{sort}",
+            "order_by": "desc",
+            "limit": "{per_page}",
+            "page": "{page}",
+            "minimum_rating": "5",
+            "genre?": "{genre_lower}"
+          }
+        },
+        "rows": "data.movies",
+        "check": {
+          "ok": {
+            "path": "status",
+            "equals": "ok"
+          },
+          "message": "status_message"
+        },
+        "drop": [
+          {
+            "path": "year",
+            "exists": false
+          },
+          {
+            "path": "year",
+            "outside_recent_years": {
+              "behind": 1,
+              "grace_days": 30
+            },
+            "when": "sort:recent"
+          }
+        ],
+        "year": "year",
+        "paging": {
+          "per_page": 24,
+          "max": 50,
+          "style": "page",
+          "next": {
+            "total": "data.movie_count"
+          },
+          "widen": {
+            "when": [
+              "year",
+              "sort:recent"
+            ],
+            "per_page": 50
+          }
+        }
+      },
+      "search": {
+        "request": {
+          "url": "{base}/list_movies.json",
+          "query": {
+            "query_term": "{term}",
+            "limit": "{per_page}",
+            "page": "{page}"
+          }
+        },
+        "rows": "data.movies",
+        "check": {
+          "ok": {
+            "path": "status",
+            "equals": "ok"
+          },
+          "message": "status_message"
+        },
+        "per_page": 50,
+        "next": {
+          "total": "data.movie_count"
+        }
+      },
+      "detail": {
+        "request": {
+          "url": "{base}/movie_details.json",
+          "query": {
+            "movie_id": "{id}",
+            "with_cast": "true",
+            "with_images": "true"
+          }
+        },
+        "id_pattern": "^[0-9]+$",
+        "check": {
+          "ok": {
+            "path": "status",
+            "equals": "ok"
+          },
+          "message": "status_message"
+        },
+        "root": "data.movie",
+        "missing": [
+          {
+            "path": "title",
+            "exists": false
+          },
+          {
+            "path": "id",
+            "equals": "0"
+          }
+        ],
+        "description": {
+          "coalesce": [
+            "description_full",
+            "summary"
+          ]
+        },
+        "imdb_id": "imdb_code",
+        "trailer": {
+          "site": {
+            "const": "youtube"
+          },
+          "id": "yt_trailer_code"
+        },
+        "cast": {
+          "sources": [
+            {
+              "rows": "cast",
+              "name": "name",
+              "role": "character_name",
+              "image": "url_small_image"
+            }
+          ]
+        },
+        "recommended": {
+          "request": {
+            "url": "{base}/movie_suggestions.json",
+            "query": {
+              "movie_id": "{id}"
+            }
+          },
+          "check": {
+            "ok": {
+              "path": "status",
+              "equals": "ok"
+            },
+            "message": "status_message"
+          },
+          "rows": "data.movies",
+          "limit": 12
+        }
+      }
+    }
+  ],
+  "chains": {
+    "anime": [
+      "anilist"
+    ],
+    "series": [
+      "cinemeta",
+      "tvmaze"
+    ],
+    "movie": [
+      "cinemeta",
+      "yts"
+    ]
+  }
+}
