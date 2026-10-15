@@ -2,8 +2,11 @@
 
 ## UI
 
-The user interface in `akidev-frontend/` is derived from **Kitsune**
-(https://github.com/Dovakiin0/Kitsune), which is licensed under the MIT License:
+The user interface in `akidev-frontend/` was first derived from **Kitsune**
+(https://github.com/Dovakiin0/Kitsune), which is licensed under the MIT License. It has since
+been redesigned to match the desktop app, and its components were rewritten rather than
+adapted, so little if any of that code remains. The notice stays, as the licence asks of
+anything derived from it:
 
 ```
 MIT License
@@ -29,9 +32,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-What was taken: the component structure and Tailwind styling of the card, row,
-hero, episode-list and detail layouts, and the shadcn/ui primitives in
-`src/components/ui/`.
+What was taken, in the first version: the component structure and Tailwind styling of the
+card, row, hero, episode-list and detail layouts, and the shadcn/ui primitives.
 
 What was **not** taken, and is deliberately absent:
 

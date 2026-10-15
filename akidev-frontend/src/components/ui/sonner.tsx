@@ -1,29 +1,20 @@
-"use client"
+"use client";
 
-import { Toaster as Sonner } from "sonner"
+import { Toaster as Sonner } from "sonner";
 
-type ToasterProps = React.ComponentProps<typeof Sonner>
-
-// The app is dark-only, so the theme is fixed rather than read from a provider.
-const Toaster = ({ ...props }: ToasterProps) => {
+// A toast is the app's own: a raised pill at the bottom, centred.
+export function Toaster() {
   return (
     <Sonner
       theme="dark"
-      className="toaster group"
+      position="bottom-center"
       toastOptions={{
+        unstyled: true,
         classNames: {
           toast:
-            "group toast group-[.toaster]:bg-background group-[.toaster]:text-foreground group-[.toaster]:border-border group-[.toaster]:shadow-lg",
-          description: "group-[.toast]:text-muted-foreground",
-          actionButton:
-            "group-[.toast]:bg-primary group-[.toast]:text-primary-foreground",
-          cancelButton:
-            "group-[.toast]:bg-muted group-[.toast]:text-muted-foreground",
+            "flex max-w-[560px] items-center gap-2 rounded-2xl border border-line bg-raised px-4 py-2.5 text-sm text-ink shadow-lg",
         },
       }}
-      {...props}
     />
-  )
+  );
 }
-
-export { Toaster }

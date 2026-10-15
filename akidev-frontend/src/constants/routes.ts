@@ -1,11 +1,8 @@
 // Route paths.
-//
-// Content-agnostic on purpose: the same codebase serves an anime site and a
-// films/series site, so no route is named after a content type. Which catalogue a
-// page shows comes from the id it is given, not from the path.
 
 export const ROUTES = {
   HOME: "/",
+  /** Search results. Takes `?q=`. */
   SEARCH: "/search",
   /** A title's detail page. Takes the title's key, e.g. "/title/series-169". */
   TITLE: "/title",
@@ -20,4 +17,8 @@ export function titlePath(key: string): string {
 
 export function watchPath(key: string, mediaId: string): string {
   return `${ROUTES.WATCH}/${key}/${mediaId}`;
+}
+
+export function searchPath(term: string): string {
+  return `${ROUTES.SEARCH}?q=${encodeURIComponent(term)}`;
 }

@@ -60,8 +60,7 @@ fi
 # The images must be tagged before compose is invoked, because compose interpolates
 # ${API_IMAGE} and ${FRONTEND_IMAGE} out of the environment.
 export API_IMAGE="konflix-api:$IMAGE_TAG"
-# One image serves every hostname. Which site a request gets is decided from its Host
-# header at runtime, so there is no per-site build and no second tag.
+# One image serves every hostname, so there is no per-site build and no second tag.
 export FRONTEND_IMAGE="konflix-frontend:$IMAGE_TAG"
 export NEXT_PUBLIC_GRAPHQL_URI="$(read_env NEXT_PUBLIC_GRAPHQL_URI)"
 
@@ -161,6 +160,5 @@ ZONE_VALUE="$(printf '%s' "$PUBLIC_URL_VALUE" | sed -E 's|^https?://||; s|/.*$||
 
 echo
 echo "Deployed $IMAGE_TAG."
-echo "  anime site  https://anime.$ZONE_VALUE"
-echo "  tv site     https://tv.$ZONE_VALUE"
+echo "  site        https://$ZONE_VALUE"
 echo "  api         $PUBLIC_URL_VALUE"

@@ -1,64 +1,40 @@
 import type { Config } from "tailwindcss";
 
+// The colours are the desktop app's, as RGB channels so Tailwind's /alpha modifiers work.
+// See desktop/app/src/design/tokens.rs: a near-black canvas with grey steps for surfaces, so
+// the artwork is the colour on screen. Amber is the one accent.
+const token = (name: string) => `rgb(var(--${name}) / <alpha-value>)`;
+
 const config: Config = {
-	darkMode: ["class"],
-	content: [
-		"./src/pages/**/*.{js,ts,jsx,tsx,mdx}",
-		"./src/components/**/*.{js,ts,jsx,tsx,mdx}",
-		"./src/app/**/*.{js,ts,jsx,tsx,mdx}",
-	],
+	content: ["./src/**/*.{js,ts,jsx,tsx,mdx}"],
 	theme: {
 		extend: {
 			colors: {
-				background: 'hsl(var(--background))',
-				foreground: 'hsl(var(--foreground))',
-				card: {
-					DEFAULT: 'hsl(var(--card))',
-					foreground: 'hsl(var(--card-foreground))'
-				},
-				popover: {
-					DEFAULT: 'hsl(var(--popover))',
-					foreground: 'hsl(var(--popover-foreground))'
-				},
-				primary: {
-					DEFAULT: 'hsl(var(--primary))',
-					foreground: 'hsl(var(--primary-foreground))'
-				},
-				secondary: {
-					DEFAULT: 'hsl(var(--secondary))',
-					foreground: 'hsl(var(--secondary-foreground))'
-				},
-				muted: {
-					DEFAULT: 'hsl(var(--muted))',
-					foreground: 'hsl(var(--muted-foreground))'
-				},
-				accent: {
-					DEFAULT: 'hsl(var(--accent))',
-					foreground: 'hsl(var(--accent-foreground))'
-				},
-				destructive: {
-					DEFAULT: 'hsl(var(--destructive))',
-					foreground: 'hsl(var(--destructive-foreground))'
-				},
-				border: 'hsl(var(--border))',
-				input: 'hsl(var(--input))',
-				ring: 'hsl(var(--ring))',
-				placeholder: 'hsl(var(--placeholder))',
-				sunk: 'hsl(var(--sunk))',
-				/* The Ayu syntax palette. Names are Tailwind-ish because that is
-				   where they are used, not because they are ours. */
-				ayu: {
-					yellow: 'hsl(var(--ayu-yellow))',
-					special: 'hsl(var(--ayu-special))'
-				}
+				canvas: token("canvas"),
+				surface: token("surface"),
+				raised: token("raised"),
+				line: token("line"),
+				ink: token("ink"),
+				dim: token("dim"),
+				faint: token("faint"),
+				accent: token("accent"),
+				danger: token("danger"),
 			},
-			borderRadius: {
-				lg: 'var(--radius)',
-				md: 'calc(var(--radius) - 2px)',
-				sm: 'calc(var(--radius) - 4px)'
-			}
+			fontFamily: {
+				sans: ["var(--font-app)", "system-ui", "sans-serif"],
+			},
+			keyframes: {
+				rise: { from: { opacity: "0", transform: "translateY(6px)" }, to: { opacity: "1", transform: "none" } },
+				fade: { from: { opacity: "0" }, to: { opacity: "1" } },
+				pulse: { "0%,100%": { opacity: "1" }, "50%": { opacity: "0.55" } },
+			},
+			animation: {
+				rise: "rise 0.35s ease-out both",
+				fade: "fade 0.7s cubic-bezier(0.22,1,0.36,1) both",
+				pulse: "pulse 1.6s ease-in-out infinite",
+			},
 		}
 	},
-	plugins: [require("tailwindcss-animate")],
+	plugins: [],
 };
 export default config;

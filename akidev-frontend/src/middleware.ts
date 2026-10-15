@@ -1,50 +1,33 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { PICKER_HEADER, siteForHost } from "@/constants/site";
+import { SITE_DOMAIN } from "@/constants/site";
 
 /**
- * Keeps each hostname to its own job.
+ * Retired hostnames send visitors to the one site.
  *
- * A host that belongs to a site serves the app unchanged. The bare zone belongs to no
- * site, so every path there is rewritten to the picker - the app's routes need a site to
- * render, and without one they would render with no copy and no catalogue.
- *
- * A rewrite rather than a redirect, so the address bar keeps the zone's own root while
- * the picker is what actually renders.
+ * The site used to be two, anime.akidev.live and tv.akidev.live. It is now one, with Anime,
+ * Series and Films tabs, so each old host redirects to the matching page of the main one and
+ * keeps the rest of the path, which keeps old title and watch links working.
  */
+const RETIRED: Record<string, string> = {
+  [`anime.${SITE_DOMAIN}`]: "/anime",
+  [`tv.${SITE_DOMAIN}`]: "/films",
+};
+
 export function middleware(request: NextRequest) {
-  // A rewrite re-enters this function, and by then the URL is the rewritten one - the
-  // host is the server's own address, which maps to a site. The header set on the first
-  // pass is what stops the second pass from misreading the picker as a site request and
-  // bouncing it in a loop.
-  if (request.headers.get(PICKER_HEADER)) {
-    return NextResponse.next();
-  }
+  const host = request.headers.get("host")?.trim().toLowerCase() ?? "";
+  const landing = RETIRED[host];
+  if (!landing) return NextResponse.next();
 
-  const site = siteForHost(request.headers.get("host"));
-
-  if (site) {
-    // The picker offers a choice that a visitor on a site host has already made, and it
-    // would render inside that site's chrome. Send them to the site's own home instead
-    // of rendering it, so the redirect is a real one rather than a client-side hop.
-    if (request.nextUrl.pathname === "/picker") {
-      return NextResponse.redirect(new URL("/", request.url), 308);
-    }
-    return NextResponse.next();
-  }
-
-  const url = request.nextUrl.clone();
-  url.pathname = "/picker";
-
-  // The rewrite replaces the URL the render sees, so the host no longer identifies the
-  // picker. Marking it here is what lets the layout tell the two apart.
-  const requestHeaders = new Headers(request.headers);
-  requestHeaders.set(PICKER_HEADER, "1");
-  return NextResponse.rewrite(url, { request: { headers: requestHeaders } });
+  const target = new URL(request.url);
+  target.protocol = "https:";
+  target.host = SITE_DOMAIN;
+  target.port = "";
+  if (request.nextUrl.pathname === "/") target.pathname = landing;
+  return NextResponse.redirect(target, 308);
 }
 
 export const config = {
-  // Everything except Next's own assets, the image optimiser, and static files. The
-  // picker needs those, and rewriting a request for one would serve it the page instead.
+  // Everything except Next's own assets and static files.
   matcher: ["/((?!_next/|api/|favicon.ico|.*\\.).*)"],
 };

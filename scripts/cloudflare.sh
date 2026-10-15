@@ -19,11 +19,10 @@ ZONE="${ZONE:-akidev.live}"
 TUNNEL_NAME="${TUNNEL_NAME:-konflix}"
 # Hostname -> container service, routed by hostname in the tunnel ingress config.
 #
-# All three frontend hostnames point at the same container. Which site a request gets is
-# decided from its Host header inside the app, so the tunnel does not need to know.
+# All three frontend hostnames point at the same container. The bare zone is the site; anime.
+# and tv. are retired and the app redirects them to it, so they still need to reach it.
 ANIME_HOST="${ANIME_HOST:-anime.$ZONE}"
 TV_HOST="${TV_HOST:-tv.$ZONE}"
-# The bare zone is the service picker: it belongs to no site, so it lists the sites.
 FRONTEND_HOST="${FRONTEND_HOST:-$ZONE}"
 API_HOST="${API_HOST:-api.$ZONE}"
 
@@ -38,9 +37,9 @@ run() {
 echo "Zone:     $ZONE"
 echo "Tunnel:   $TUNNEL_NAME"
 echo "Hostnames:"
-echo "  $ANIME_HOST -> frontend:3000 (anime)"
-echo "  $TV_HOST    -> frontend:3000 (films and series)"
-echo "  $FRONTEND_HOST -> frontend:3000 (service picker)"
+echo "  $ANIME_HOST -> frontend:3000 (redirects to the site)"
+echo "  $TV_HOST    -> frontend:3000 (redirects to the site)"
+echo "  $FRONTEND_HOST -> frontend:3000 (the site)"
 echo "  $API_HOST   -> api:9000"
 echo
 

@@ -11,10 +11,9 @@
 # here. Each site talks to the API directly on api.akidev.live, so no proxy sits in
 # the video byte path.
 #
-# One container serves all of them. Which site a request gets is decided from its Host
-# header at runtime (src/middleware.ts): anime. and tv. serve their catalogues, and the
-# bare zone serves the service picker. Nothing is baked per-site, so there is one build
-# and one container rather than one of each per site.
+# One container serves all of them. The bare zone is the site, with Anime, Series and Films
+# tabs. anime. and tv. are retired: the middleware (src/middleware.ts) redirects them to the
+# matching page of the bare zone, so old links keep working.
 #
 # Every value comes from the environment. The deploy script renders an env file from
 # GitHub Actions secrets and passes it with --env-file, so no secret is ever written

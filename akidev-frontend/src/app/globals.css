@@ -2,95 +2,51 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Ayu Dark.
- *
- * Values are the canonical ones from ayu-theme/ayu-colors (the `ayu` package),
- * not approximations. Two of them are deliberately not the literal ayu values,
- * both for readability rather than taste:
- *
- *   --muted-foreground  ayu's gray.l5 (#667381) is 3.93:1 on our base, which
- *                       fails AA for body text, so this is a step lighter.
- *   --input             ayu's ui.line (#1b1f29) is 1.15:1, far below the 3:1
- *                       WCAG asks of a form control's boundary.
- *
- * Every value is stored as bare HSL channels because that is what Tailwind's
- * `hsl(var(--token))` expects, and it is what lets the /alpha modifiers work.
- */
-@layer base {
-  :root {
-    /* Surfaces, darkest first. */
-    --background: 222 28% 7%; /* #0d1017 — ayu editor.bg */
-    --foreground: 47 7% 73%; /* #bfbdb6 — ayu editor.fg */
-
-    --card: 220 27% 9%; /* #10141c — ayu surface.lift */
-    --card-foreground: 47 7% 73%;
-
-    --popover: 220 27% 9%;
-    --popover-foreground: 47 7% 73%;
-
-    /* Amber, the single accent. Nothing on this site is pink or blue. */
-    --primary: 40 75% 61%; /* #e6b450 — ayu common.accent.tint */
-    /* Must be the dark base: white on this amber is 1.91:1 and unreadable. */
-    --primary-foreground: 222 28% 7%;
-
-    --secondary: 223 21% 13%; /* #1b1f29 — ayu ui.line */
-    --secondary-foreground: 47 7% 73%;
-
-    --muted: 223 21% 13%;
-    --muted-foreground: 213 15% 53%; /* #73819a — 4.83:1, passes AA */
-
-    --accent: 223 21% 13%;
-    --accent-foreground: 47 7% 73%;
-
-    --destructive: 0 63% 60%; /* #d95757 — ayu common.error */
-    --destructive-foreground: 222 28% 7%;
-
-    /* Borders stay subtle, as they are in ayu's own editor. */
-    --border: 212 14% 23%; /* #333b44 — ayu gray.l1 */
-    --input: 211 12% 40%; /* #5a6673 — a visible control boundary */
-    --ring: 40 75% 61%;
-
-    /* Poster and banner placeholders, and skeletons. */
-    --placeholder: 223 21% 13%;
-
-    /* The darkest surface: video letterboxing, trailer backing, overlays.
-       ayu surface.sunk, not pure black. */
-    --sunk: 240 33% 1%; /* #010102 */
-
-    --radius: 0.5rem;
-
-    /* Syntax palette. Only the two the UI actually renders: the score badge
-       and the playback-error notice. */
-    --ayu-yellow: 34 100% 66%; /* #ffb454 */
-    --ayu-special: 35 65% 72%; /* #e6c08a */
-  }
+/* The desktop app's palette (desktop/app/src/design/tokens.rs), as RGB channels. */
+:root {
+  --canvas: 11 11 13; /* #0b0b0d: the window background */
+  --surface: 20 20 22; /* #141416: panels resting on the canvas */
+  --raised: 28 28 31; /* #1c1c1f: hover fills, menus */
+  --line: 39 39 42; /* #27272a */
+  --ink: 244 244 245; /* #f4f4f5 */
+  --dim: 161 161 170; /* #a1a1aa */
+  --faint: 113 113 122; /* #71717a */
+  --accent: 230 180 80; /* #e6b450: progress, the active tab, focus */
+  --danger: 248 113 113; /* #f87171 */
 }
 
 @layer base {
-  * {
-    @apply border-border;
+  html {
+    background: rgb(var(--canvas));
+    color-scheme: dark;
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply bg-canvas font-sans text-ink antialiased;
   }
 
   /* Visible focus for every keyboard-reachable control. */
   :focus-visible {
-    outline: 2px solid hsl(var(--ring));
+    outline: 2px solid rgb(var(--accent));
     outline-offset: 2px;
   }
 
-  /* The layout is dark by design, so form controls and scrollbars follow it. */
-  input,
-  select,
-  textarea {
-    color-scheme: dark;
+  ::selection {
+    background: rgb(var(--accent) / 0.35);
   }
 }
 
-/* Carousels animate by default; this respects a user who has asked for less
-   motion. It is a requirement, not a preference. */
+@layer utilities {
+  /* Rows scroll sideways without a bar, as they do in the app. */
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Motion respects a user who has asked for less of it. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -103,19 +59,28 @@
 }
 
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
-
 ::-webkit-scrollbar-track {
-  background: #0d1017;
+  background: rgb(var(--canvas));
 }
-
 ::-webkit-scrollbar-thumb {
-  background: #333b44;
-  border-radius: 3px;
+  background: rgb(var(--line));
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--faint) / 0.6);
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: #4d5763;
+@layer components {
+  /* The horizontal padding of every screen's content: 40px, as in the app. */
+  .gutter {
+    padding-inline: 1.25rem;
+  }
+  @media (min-width: 768px) {
+    .gutter {
+      padding-inline: 2.5rem;
+    }
+  }
 }

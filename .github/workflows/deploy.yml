@@ -277,29 +277,28 @@ jobs:
               ;;
           esac
 
-          # Each hostname has to serve its own site. All three point at one container,
-          # and the Host header is the only thing that decides which site renders, so a
-          # broken host map would serve the anime catalogue on the TV host while every
-          # check above still passed.
-          echo "Checking the three frontend hostnames serve different sites"
+          # One site on the bare zone, and the two retired hostnames send visitors to it.
+          # A broken redirect would leave old anime. and tv. links dead while every check
+          # above still passed.
+          echo "Checking the site and the retired hostnames"
           HUB_URL="${HUB_URL:-https://akidev.live}"
-          for check in \
-            "$FRONTEND_URL|anime|Akidev | Anime Streaming" \
-            "$TV_URL|tv|Akidev TV" \
-            "$HUB_URL|hub|Choose a service"
-          do
+          body=$(curl -fsS --retry 5 --retry-delay 5 --retry-all-errors "$HUB_URL")
+          case "$body" in
+            *"Akidev | Anime, series and films"*) echo "    site ok ($HUB_URL)" ;;
+            *)
+              echo "$HUB_URL did not serve the site (no expected title)" >&2
+              exit 1
+              ;;
+          esac
+          for check in "$FRONTEND_URL|$HUB_URL/anime" "$TV_URL|$HUB_URL/films"; do
             url="${check%%|*}"
-            rest="${check#*|}"
-            label="${rest%%|*}"
-            expected="${rest#*|}"
-            body=$(curl -fsS --retry 5 --retry-delay 5 --retry-all-errors "$url")
-            case "$body" in
-              *"$expected"*) echo "    $label ok ($url)" ;;
-              *)
-                echo "$url did not serve the $label site (expected to contain '$expected')" >&2
-                exit 1
-                ;;
-            esac
+            expected="${check#*|}"
+            seen=$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' --retry 5 --retry-delay 5 --retry-all-errors "$url")
+            if [ "$seen" != "308 $expected" ]; then
+              echo "expected $url to redirect to $expected, got '$seen'" >&2
+              exit 1
+            fi
+            echo "    $url -> $expected"
           done
 
           # A GraphQL round trip proves the frontend's API address and the API itself
@@ -343,40 +342,17 @@ jobs:
 
           # The routes themselves. A build can succeed while every page 404s, which a
           # check of the home page alone would not catch.
-          #
-          # Both sites are checked, because they are two builds of one codebase and a
-          # site argument that broke would only show on one of them.
-          echo "Checking the anime site routes"
-          for route in "/" "/search?q=naruto" "/title/anime-16498" "/watch/anime-130003/anime-130003-ep1"; do
-            code=$(curl -sL -o /dev/null -w '%{http_code}' --retry 3 --retry-delay 5 --retry-all-errors "$FRONTEND_URL$route")
+          echo "Checking the site routes"
+          for route in "/" "/anime" "/series" "/films" "/search?q=naruto" "/search?q=dangal" \
+            "/title/anime-16498" "/title/movie-7691" "/title/series-169" \
+            "/watch/anime-130003/anime-130003-ep1"; do
+            code=$(curl -sL -o /dev/null -w '%{http_code}' --retry 3 --retry-delay 5 --retry-all-errors "$HUB_URL$route")
             if [ "$code" != "200" ]; then
-              echo "expected 200 from $FRONTEND_URL$route, got $code" >&2
+              echo "expected 200 from $HUB_URL$route, got $code" >&2
               exit 1
             fi
             echo "  $route -> $code"
           done
-
-          echo "Checking the tv site routes"
-          for route in "/" "/search?q=dangal" "/title/movie-7691" "/title/series-169"; do
-            code=$(curl -sL -o /dev/null -w '%{http_code}' --retry 3 --retry-delay 5 --retry-all-errors "$TV_URL$route")
-            if [ "$code" != "200" ]; then
-              echo "expected 200 from $TV_URL$route, got $code" >&2
-              exit 1
-            fi
-            echo "  $route -> $code"
-          done
-
-          # The two sites must actually differ. A shared build would render the anime
-          # home page on both hosts, which the route checks above would not notice.
-          echo "Checking the two sites render different copy"
-          anime_title=$(curl -fsS --retry 3 --retry-delay 5 --retry-all-errors "$FRONTEND_URL" | grep -o '<title>[^<]*</title>' | head -1)
-          tv_title=$(curl -fsS --retry 3 --retry-delay 5 --retry-all-errors "$TV_URL" | grep -o '<title>[^<]*</title>' | head -1)
-          echo "  anime: $anime_title"
-          echo "  tv:    $tv_title"
-          if [ "$anime_title" = "$tv_title" ]; then
-            echo "both sites served the same title; the SITE build argument did not take effect" >&2
-            exit 1
-          fi
 
           # The delivery routes, which nothing else here exercises. A previous deploy
           # returned 200 on /health and a good GraphQL response while every request to

@@ -1,344 +1,181 @@
 "use client";
 
-import { CirclePlay, Tv } from "lucide-react";
+import { ExternalLink, Play } from "lucide-react";
 import Image from "next/image";
-import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useState } from "react";
 
-import Loading from "@/app/loading";
-import MediaRow from "@/components/media-row";
-import EpisodeList from "@/components/media/episode-list";
-import Container from "@/components/container";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ROUTES, titlePath, watchPath } from "@/constants/routes";
-import { useSite } from "@/providers/site-provider";
-import { animeEpisodeId, parseMediaId, seriesEpisodeId } from "@/lib/media-id";
+import { Button } from "@/components/button";
+import Episodes from "@/components/episodes";
+import { stripTags } from "@/components/hero";
+import MediaRow from "@/components/row";
+import { ErrorState, MetaLine, SectionTitle, Skeleton } from "@/components/states";
+import { KIND_LABEL } from "@/constants/site";
+import { watchPath } from "@/constants/routes";
+import { relationCard } from "@/lib/media";
+import { animeEpisodeId, parseMediaId } from "@/lib/media-id";
+import { useRecent } from "@/lib/progress";
 import { mediaBanner, mediaPoster, mediaTitle } from "@/lib/utils";
-import { useMediaDetail, useMediaList } from "@/query/use-media";
-import type { MediaList, MediaRelationNode } from "@/types/media";
+import { useDetail, useMoreLike } from "@/query/use-media";
+import type { MediaFull } from "@/types/media";
 
-// A relation or recommendation is a partial media record, so the missing list
-// fields are filled in here. One helper rather than an inline object per row.
-function toRowMedia(node: MediaRelationNode): MediaList {
-  return {
-    id: node.id ?? "",
-    title: node.title,
-    coverImage: node.coverImage,
-    bannerImage: null,
-    format: node.format,
-    season: null,
-    seasonYear: node.startDate?.year ?? null,
-    episodes: node.episodes,
-    duration: null,
-    status: node.status,
-    averageScore: node.meanScore ?? null,
-    meanScore: node.meanScore,
-    popularity: 0,
-    favourites: 0,
-    genres: null,
-    source: null,
-    countryOfOrigin: null,
-    isAdult: false,
-    studios: null,
-    nextAiringEpisode: null,
-    startDate: node.startDate,
-    endDate: null,
-  };
+const HEIGHT = "h-[min(700px,max(480px,70vh))]";
+
+const STATUS: Record<string, string> = {
+  FINISHED: "finished",
+  RELEASING: "airing",
+  NOT_YET_RELEASED: "upcoming",
+  CANCELLED: "cancelled",
+  HIATUS: "on hiatus",
+};
+
+/** What plays when Play is pressed: the film itself, or the first episode. */
+function firstPlayable(key: string, media: MediaFull): string | null {
+  const parsed = parseMediaId(key);
+  if (!parsed) return null;
+  if (parsed.contentType === "movie") return key;
+  if (parsed.contentType === "series") return media.episodeList?.[0]?.episodeId ?? null;
+  return animeEpisodeId(parsed.mediaId, 1);
 }
 
-export default function TitleDetailPage() {
-  const site = useSite();
+export default function TitlePage() {
   const params = useParams();
   const key = typeof params.key === "string" ? params.key : undefined;
-  const { data: media, isLoading, isError, refetch } = useMediaDetail(key);
-  const [trailerOpen, setTrailerOpen] = useState(false);
+  const parsed = parseMediaId(key);
+  const detail = useDetail(key);
+  const recent = useRecent();
+  const media = detail.data;
+  const moreLike = useMoreLike(parsed?.contentType, media?.genres?.[0]);
 
-  if (isLoading) return <Loading />;
-
-  // A failed request is not a missing title, and saying "not found" during an
-  // outage is both wrong and unactionable.
-  if (isError) {
+  if (detail.isLoading) {
     return (
-      <Container className="py-24 text-center">
-        <h1 className="text-2xl font-bold text-foreground">Could not load this {site.itemLabel}</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          The Akidev API did not respond. This is usually temporary.
-        </p>
-        <Button className="mt-6" onClick={() => refetch()}>
-          Try again
-        </Button>
-      </Container>
+      <div>
+        <Skeleton className={`w-full rounded-none ${HEIGHT}`} />
+      </div>
     );
   }
 
-  if (!media) {
+  if (detail.isError || !media || !key || !parsed) {
     return (
-      <Container className="py-24 text-center">
-        <h1 className="text-2xl font-bold text-foreground">Not found</h1>
-        <p className="mt-2 text-sm text-muted-foreground">That title is not in the catalogue.</p>
-        <Button asChild className="mt-6">
-          <Link href={ROUTES.HOME}>Back to home</Link>
-        </Button>
-      </Container>
+      <div className="pt-24">
+        {detail.isError ? (
+          <ErrorState title="Couldn't load this title" detail="The catalogue didn't answer. This is usually temporary." onRetry={() => detail.refetch()} />
+        ) : (
+          <ErrorState title="Not found" detail="That title is not in the catalogue." />
+        )}
+      </div>
     );
   }
 
   const title = mediaTitle(media.title);
-  const poster = mediaPoster(media.coverImage);
-  const banner = mediaBanner(media);
-  const studios = (media.studios?.nodes ?? []).map((studio) => studio.name).filter(Boolean);
-  const parsed = parseMediaId(key);
-  const isFilm = parsed?.contentType === "movie";
-  const totalEpisodes =
-    media.episodes ??
-    (media.nextAiringEpisode?.episode ? Math.max(media.nextAiringEpisode.episode - 1, 0) : 0);
-  const relations = (media.relations?.edges ?? [])
-    .map((edge) => edge.node)
-    .filter((node): node is MediaRelationNode => Boolean(node?.id));
-  const recommendations = (media.recommendations?.nodes ?? [])
-    .map((node) => node.mediaRecommendation)
-    .filter((node): node is MediaRelationNode => Boolean(node?.id));
-  const characters = (media.characters?.edges ?? []).filter((edge) => edge.node);
-  // Only https links are followed: the value comes from the metadata provider, and a
-  // non-http scheme would otherwise end up in an href.
-  const externalLinks = (media.externalLinks ?? []).filter((link) =>
-    link.url?.startsWith("https://"),
-  );
-  const trailerUrl =
-    media.trailer?.site === "youtube" && media.trailer.id
-      ? `https://www.youtube.com/embed/${media.trailer.id}?autoplay=1`
+  const art = mediaBanner(media) || mediaPoster(media.coverImage);
+  const studios = (media.studios?.nodes ?? []).map((studio) => studio.name).filter(Boolean) as string[];
+  const isFilm = parsed.contentType === "movie";
+  const count =
+    media.episodes ?? (media.nextAiringEpisode?.episode ? Math.max(media.nextAiringEpisode.episode - 1, 0) : 0);
+
+  const resume = recent.find((entry) => entry.media.id === key);
+  const first = firstPlayable(key, media);
+  const play = resume
+    ? { id: resume.episodeId, label: "Resume" }
+    : first
+      ? { id: first, label: "Play" }
       : null;
 
-  // What "watch" means differs by content type: a film is one playable item, an anime
-  // counts episodes from 1, and a series addresses them by season and episode.
-  const playTarget =
-    parsed && key
-      ? isFilm
-        ? watchPath(key, key)
-        : parsed.contentType === "series"
-          ? watchPath(key, seriesEpisodeId(parsed.mediaId, 1, 1))
-          : watchPath(key, animeEpisodeId(parsed.mediaId, 1))
-      : null;
-  const playLabel = isFilm ? "Watch now" : "Watch episode 1";
+  const trailer = media.trailer?.site === "youtube" ? media.trailer.id : null;
+
+  const facts = [
+    media.seasonYear ?? media.startDate?.year,
+    media.format?.toLowerCase(),
+    media.duration ? `${media.duration} min` : null,
+    media.status ? STATUS[media.status] : null,
+    !isFilm && count > 0 ? `${count} episodes` : null,
+  ]
+    .filter((part) => part !== null && part !== undefined && part !== "")
+    .map(String);
+
+  const people = (media.characters?.edges ?? []).flatMap((edge) =>
+    edge.node?.name?.full ? [{ name: edge.node.name.full, role: edge.role, image: edge.node.image?.large ?? null }] : [],
+  );
+  const related = (media.relations?.edges ?? []).flatMap((edge) => {
+    const card = edge.node ? relationCard(edge.node) : null;
+    return card ? [card] : [];
+  });
+  const recommended = (media.recommendations?.nodes ?? []).flatMap((node) => {
+    const card = node.mediaRecommendation ? relationCard(node.mediaRecommendation) : null;
+    return card ? [card] : [];
+  });
+  const genre = media.genres?.[0];
+  const score = media.averageScore;
 
   return (
-    <div className="w-full">
-      <div className="relative h-[30vh] min-h-[14rem] w-full md:h-[40vh]">
-        {banner && <Image src={banner} alt="" fill sizes="100vw" priority className="object-cover" />}
-        <div className="absolute inset-0 bg-gradient-to-t from-background via-background/60 to-transparent" />
-      </div>
+    <div className="pb-8">
+      <section className={`relative w-full overflow-hidden bg-canvas ${HEIGHT}`}>
+        {art && <Image src={art} alt="" fill priority sizes="100vw" className="object-cover" />}
+        <div className="absolute inset-0 bg-gradient-to-r from-canvas via-canvas/0 via-[70%] to-transparent" />
+        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent via-50% to-canvas" />
 
-      <Container className="pb-20">
-        <div className="flex flex-col gap-8 md:flex-row md:items-end md:gap-16">
-          <div className="relative -mt-24 h-[18rem] w-[12.5rem] shrink-0 overflow-hidden rounded-xl border border-border bg-card shadow-2xl md:-mt-32 md:h-[25rem] md:w-[17rem]">
-            {poster && <Image src={poster} alt={title} fill sizes="280px" priority className="object-cover" />}
+        <div className="gutter absolute inset-x-0 bottom-12 flex max-w-[calc(640px+5rem)] flex-col items-start gap-3">
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-bold text-accent">{KIND_LABEL[parsed.contentType]}</span>
+            {!!score && <span className="text-sm font-semibold text-accent">★ {score}%</span>}
           </div>
-
-          <div className="flex flex-col gap-4 pb-4">
-            <h1 className="text-2xl font-extrabold text-foreground md:text-5xl">{title}</h1>
-
-            <div className="flex flex-wrap items-center gap-2 text-xs">
-              {media.format && <Badge className="bg-primary text-primary-foreground">{media.format}</Badge>}
-              {media.status && (
-                <Badge variant="outline" className="border-border text-muted-foreground">
-                  {media.status.replace(/_/g, " ")}
-                </Badge>
-              )}
-              {media.seasonYear && (
-                <Badge variant="outline" className="border-border text-muted-foreground">
-                  {media.season ? `${media.season} ` : ""}
-                  {media.seasonYear}
-                </Badge>
-              )}
-              {!!media.averageScore && (
-                <Badge className="border border-ayu-yellow/40 bg-ayu-yellow/15 text-ayu-yellow">
-                  ★ {media.averageScore}%
-                </Badge>
-              )}
-              {!isFilm && totalEpisodes > 0 && (
-                <Badge variant="outline" className="border-border text-muted-foreground">
-                  {totalEpisodes} episodes
-                </Badge>
-              )}
-              {isFilm && media.duration ? (
-                <Badge variant="outline" className="border-border text-muted-foreground">
-                  {media.duration} min
-                </Badge>
-              ) : null}
-            </div>
-
-            <div className="flex flex-wrap items-center gap-3">
-              {playTarget && (
-                <Button asChild className="bg-primary text-primary-foreground hover:bg-primary/90">
-                  <Link href={playTarget}>
-                    <CirclePlay className="mr-2 h-4 w-4" />
-                    {playLabel}
-                  </Link>
-                </Button>
-              )}
-              {trailerUrl && (
-                <Button variant="secondary" onClick={() => setTrailerOpen(true)}>
-                  <Tv className="mr-2 h-4 w-4" />
-                  Trailer
-                </Button>
-              )}
-            </div>
+          <h1 className="line-clamp-3 text-4xl font-black leading-[1.05] text-ink sm:text-5xl md:text-[56px]">{title}</h1>
+          <MetaLine parts={facts} />
+          {media.description && (
+            <p className="line-clamp-4 text-[15px] leading-6 text-dim">{stripTags(media.description)}</p>
+          )}
+          {media.genres && media.genres.length > 0 && (
+            <p className="text-[13px] text-faint">{media.genres.slice(0, 4).join(" · ")}</p>
+          )}
+          {studios.length > 0 && <p className="text-[13px] text-faint">{studios.join(", ")}</p>}
+          <div className="flex flex-wrap gap-3 pt-2">
+            {play && (
+              <Button href={watchPath(key, play.id)} icon={<Play className="size-4" />}>
+                {play.label}
+              </Button>
+            )}
+            {trailer && (
+              <a
+                href={`https://www.youtube.com/watch?v=${trailer}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md bg-ink/[0.12] px-5 py-2.5 text-[15px] font-semibold text-ink transition-colors hover:bg-ink/20"
+              >
+                <ExternalLink className="size-4" />
+                Trailer
+              </a>
+            )}
           </div>
         </div>
+      </section>
 
-        <Tabs defaultValue="overview" className="mt-10 w-full">
-          <TabsList className="flex h-auto w-fit flex-wrap items-center justify-start">
-            <TabsTrigger value="overview" className="text-base font-semibold md:text-lg">
-              Overview
-            </TabsTrigger>
-            {!isFilm && (
-              <TabsTrigger value="episodes" className="text-base font-semibold md:text-lg">
-                Episodes
-              </TabsTrigger>
-            )}
-            {characters.length > 0 && (
-              <TabsTrigger value="characters" className="text-base font-semibold md:text-lg">
-                Characters
-              </TabsTrigger>
-            )}
-          </TabsList>
+      <Episodes titleKey={key} count={count} list={media.episodeList} currentId={resume?.episodeId} />
 
-          <TabsContent value="overview" className="mt-8 grid w-full grid-cols-1 gap-x-16 gap-y-6 md:grid-cols-5">
-            <div className="col-span-1 flex flex-col gap-4">
-              <h2 className="text-lg font-semibold text-foreground">Details</h2>
-              <dl className="grid grid-cols-[7rem_1fr] gap-y-2 text-sm">
-                <dt className="text-muted-foreground">Format</dt>
-                <dd className="text-foreground">{media.format ?? "—"}</dd>
-                <dt className="text-muted-foreground">Status</dt>
-                <dd className="text-foreground">{media.status?.replace(/_/g, " ") ?? "—"}</dd>
-                {!isFilm && (
-                  <>
-                    <dt className="text-muted-foreground">Episodes</dt>
-                    <dd className="text-foreground">{totalEpisodes || "—"}</dd>
-                  </>
-                )}
-                <dt className="text-muted-foreground">Duration</dt>
-                <dd className="text-foreground">{media.duration ? `${media.duration} min` : "—"}</dd>
-                <dt className="text-muted-foreground">Studio</dt>
-                <dd className="text-foreground">{studios.join(", ") || "—"}</dd>
-                <dt className="text-muted-foreground">Genres</dt>
-                <dd className="text-foreground">{(media.genres ?? []).join(", ") || "—"}</dd>
-              </dl>
-            </div>
-
-            <div className="col-span-1 flex flex-col gap-4 md:col-span-4">
-              <h2 className="text-lg font-semibold text-foreground">Synopsis</h2>
-              <p className="whitespace-pre-line text-sm leading-6 text-muted-foreground">
-                {media.description || "No synopsis is available for this title."}
-              </p>
-              {externalLinks.length > 0 && (
-                <>
-                  <h2 className="mt-4 text-lg font-semibold text-foreground">Links</h2>
-                  <div className="flex flex-wrap gap-2">
-                    {externalLinks.slice(0, 8).map((link) => (
-                      <a
-                        key={link.url}
-                        href={link.url ?? "#"}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="rounded-md border border-border px-3 py-1 text-xs text-muted-foreground hover:border-input hover:text-foreground"
-                      >
-                        {link.site || "Link"}
-                      </a>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
-          </TabsContent>
-
-          {!isFilm && (
-            <TabsContent value="episodes" className="mt-8">
-              <EpisodeList
-                titleKey={key ?? ""}
-                totalEpisodes={totalEpisodes}
-                currentEpisodeNumber={null}
-                episodeList={media.episodeList}
-              />
-            </TabsContent>
-          )}
-
-          {characters.length > 0 && (
-            <TabsContent value="characters" className="mt-8">
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
-                {characters.map((edge, index) => (
-                  <div key={`${edge.node?.id}-${index}`} className="flex flex-col items-center gap-2 text-center">
-                    <div className="relative h-24 w-24 overflow-hidden rounded-full bg-placeholder">
-                      {edge.node?.image?.large && (
-                        <Image src={edge.node.image.large} alt="" fill sizes="96px" className="object-cover" />
-                      )}
-                    </div>
-                    <p className="text-xs font-semibold text-foreground">{edge.node?.name?.full}</p>
-                    {edge.role && <p className="text-[11px] text-muted-foreground">{edge.role}</p>}
-                  </div>
-                ))}
+      {people.length > 0 && (
+        <section className="gutter flex flex-col gap-4 pt-10">
+          <SectionTitle>Cast</SectionTitle>
+          <div className="flex flex-wrap gap-x-6 gap-y-4">
+            {people.map((person, index) => (
+              <div key={`${person.name}-${index}`} className="flex w-full items-center gap-3 sm:w-[230px]">
+                <div className="relative size-[52px] shrink-0 overflow-hidden rounded-full bg-ink/10">
+                  {person.image && <Image src={person.image} alt="" fill sizes="52px" className="object-cover" />}
+                </div>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-ink">{person.name}</p>
+                  {person.role && <p className="truncate text-xs text-dim">{person.role}</p>}
+                </div>
               </div>
-            </TabsContent>
-          )}
-        </Tabs>
-
-        {relations.length > 0 && (
-          <div className="mt-12">
-            <MediaRow
-              title={site.relatedTitle}
-              media={relations.map(toRowMedia)}
-              hrefFor={(item) => titlePath(item.id)}
-            />
+            ))}
           </div>
-        )}
+        </section>
+      )}
 
-        {recommendations.length > 0 && (
-          <MediaRow
-            title={site.recommendedTitle}
-            media={recommendations.map(toRowMedia)}
-            hrefFor={(item) => titlePath(item.id)}
-          />
-        )}
-
-        <RelatedByGenre genres={media.genres} />
-      </Container>
-
-      {trailerOpen && trailerUrl && (
-        <div
-          className="fixed inset-0 z-[200] flex items-center justify-center bg-sunk/80 p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-label={`${title} trailer`}
-          onClick={() => setTrailerOpen(false)}
-        >
-          <div className="aspect-video w-full max-w-4xl overflow-hidden rounded-lg bg-sunk">
-            <iframe
-              src={trailerUrl}
-              title={`${title} trailer`}
-              className="h-full w-full"
-              allow="autoplay; encrypted-media"
-              allowFullScreen
-            />
-          </div>
-        </div>
+      <MediaRow title="Related" items={related} />
+      <MediaRow title="Recommended" items={recommended} />
+      {related.length === 0 && recommended.length === 0 && genre && (
+        <MediaRow title={`More ${genre}`} items={moreLike.filter((card) => card.id !== key)} />
       )}
     </div>
   );
 }
 
-// A row drawn from the title's own first genre, so every detail page has something
-// below it even when the provider supplies no relations or recommendations (TVMaze
-// supplies neither).
-function RelatedByGenre({ genres }: { genres: string[] | null }) {
-  const genre = genres?.[0];
-  const query = useMediaList({ genre, sort: "popularity", perPage: 20 }, Boolean(genre));
-  const results = query.data?.results ?? [];
-  if (!genre || results.length === 0) return null;
-
-  return (
-    <MediaRow title={`More ${genre}`} media={results} hrefFor={(item) => titlePath(item.id)} />
-  );
-}

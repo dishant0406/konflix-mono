@@ -1,8 +1,8 @@
 # Akidev frontend image.
 #
-# One image serves every hostname: the anime site, the TV site, and the service picker on
-# the bare zone. Which one a request gets is decided from its Host header at runtime (see
-# src/middleware.ts), so there is nothing per-site to bake in and only one build to make.
+# One image serves every hostname: the site on the bare zone, and the retired anime. and tv.
+# hosts, which the middleware (src/middleware.ts) redirects to it. There is nothing per-site
+# to bake in and only one build to make.
 #
 # The build context is the repository root, not this directory, because the frontend
 # is one workspace of a monorepo and installs from the shared lockfile.
@@ -32,9 +32,8 @@ COPY akidev-frontend ./akidev-frontend
 # Next inlines NEXT_PUBLIC_* into the browser bundle at build time, so both have to be
 # present now. Changing either therefore requires a rebuild, not a restart.
 #
-# NEXT_PUBLIC_SITE_DOMAIN is the zone the sites are served from. One value for the whole
-# deployment: which site a request belongs to is decided from the request's Host header
-# at runtime, not from this build argument, so one image serves every hostname.
+# NEXT_PUBLIC_SITE_DOMAIN is the zone the site is served from: the middleware redirects the
+# retired anime. and tv. hosts to it.
 ARG NEXT_PUBLIC_GRAPHQL_URI
 ARG NEXT_PUBLIC_SITE_DOMAIN=akidev.live
 ENV NEXT_PUBLIC_GRAPHQL_URI=$NEXT_PUBLIC_GRAPHQL_URI

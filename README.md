@@ -4,13 +4,13 @@
 
 <h1 align="center">Akidev</h1>
 
-Anime, series and films from one API, served as two sites.
+Anime, series and films from one API, served as one site.
 
 | Hostname | What it serves | Container |
 | --- | --- | --- |
-| `akidev.live` | The service picker: choose anime or TV | `frontend` |
-| `anime.akidev.live` | Anime (AniList) | `frontend` |
-| `tv.akidev.live` | Films and series (Cinemeta, with TVMaze and YTS as fallbacks) | `frontend` |
+| `akidev.live` | The site: Home, Anime, Series and Films | `frontend` |
+| `anime.akidev.live` | Retired: redirects to `akidev.live/anime` | `frontend` |
+| `tv.akidev.live` | Retired: redirects to `akidev.live/films` | `frontend` |
 | `api.akidev.live` | GraphQL, shared by all of them | `api` |
 
 | Directory | What it is | Port |
@@ -26,30 +26,21 @@ of which are gone. This version isolates every volatile upstream behind a
 replaceable module, so a broken source degrades the app instead of taking it down.
 Each app has its own README with the detail.
 
-The frontend's UI is derived from [Kitsune](https://github.com/Dovakiin0/Kitsune)
-(MIT); see [ATTRIBUTION.md](ATTRIBUTION.md) for exactly what was taken and what
-was deliberately left behind.
+The frontend's UI began as a derivative of [Kitsune](https://github.com/Dovakiin0/Kitsune)
+(MIT) and has since been redesigned to match the desktop app; see
+[ATTRIBUTION.md](ATTRIBUTION.md).
 
-## How one build serves every hostname
+## One site, and two retired hostnames
 
-There is **one frontend image and one frontend container**. Which site a request gets is
-decided from its `Host` header at runtime, by `siteForHost` in
-`akidev-frontend/src/constants/site.ts`. That function returns a config object holding
-everything that differs between sites: the content type sent to the API, the row titles,
-the genre list, the filter vocabulary, the attribution. Components read the site from
-context rather than branching on a name.
+There is **one frontend image and one frontend container**, and one site: Home, Anime,
+Series and Films tabs over the same catalogue the desktop app shows, with the same design
+(`akidev-frontend/src/constants/site.ts` holds the catalogues, sorts, genres and home rows,
+mirroring the app's).
 
-The bare zone belongs to no site, so it is the **service picker**. Middleware rewrites
-every request on that host to `/picker`, because the app's routes need a site to render.
-A rewrite replaces the URL the render sees, so the middleware also sets `x-akidev-picker`
-to mark it - otherwise the picker host would resolve to whichever site the rewritten
-address happens to map to.
-
-Inside a site, links go to `/home` rather than `/`, because `/` on the zone's own host is
-the picker and would bounce the visitor out of the service they are using.
-
-The one value baked in at build time is `NEXT_PUBLIC_SITE_DOMAIN`, the zone itself. It is
-identical for every site, which is why a single build can serve all of them.
+`anime.akidev.live` and `tv.akidev.live` are retired. The middleware
+(`akidev-frontend/src/middleware.ts`) redirects them with a 308 to `/anime` and `/films` on
+the bare zone, and keeps the path for anything deeper, so old title and watch links work.
+They still have to reach the container, which is why the tunnel keeps their hostnames.
 
 ## Content types
 
@@ -124,12 +115,11 @@ first page mixes 2020, 2025 and 2026 and its second repeats rows from its first 
 that row is read as a window and sorted and paged here. Paging it upstream produced six
 duplicate rows across two pages.
 
-**A search spans every catalogue the site carries.** The API's search is scoped to one
-content type, because a title is addressed by a provider-specific id, so a site declares
-its catalogues in `searchContentTypes` (`akidev-frontend/src/constants/site.ts`) and the
-search box and results page query each and interleave the answers. Searching one
-catalogue would silently hide half the site: on the TV site "Breaking Bad" is a series
-and "Dangal" is a film.
+**A search spans every catalogue.** The API's search is scoped to one content type, because
+a title is addressed by a provider-specific id, so the search box (Cmd/Ctrl-K) and the results
+page query anime, series and films and interleave the answers
+(`akidev-frontend/src/query/use-media.ts`). Searching one catalogue would silently hide a
+third of the site: "Breaking Bad" is a series and "Dangal" is a film.
 
 Results whose title starts with the term are moved ahead of fuzzy matches, because
 TVMaze's own search returned "D.N.Angel" above "Dangal". `akidev-frontend/src/lib/merge-search.ts`
@@ -269,12 +259,12 @@ One server runs both apps. Three containers, defined in `docker-compose.yml`:
 | --- | --- |
 | `cloudflared` | The only thing reachable from the internet, over an outbound tunnel |
 | `api` | GraphQL and the video relay (`:9000`, internal only) |
-| `frontend` | Next.js, every site (`:3000`, internal only) |
+| `frontend` | Next.js, the site (`:3000`, internal only) |
 
 Four hostnames reach the same tunnel and are routed by hostname in its ingress
 config: `anime.akidev.live`, `tv.akidev.live` and `akidev.live` all go to
-`frontend`, and `api.akidev.live` to the API. The tunnel does not need to know which
-site is which - the container reads the `Host` header and decides. **No reverse
+`frontend`, and `api.akidev.live` to the API. The two retired hosts have to reach the
+container so it can redirect them. **No reverse
 proxy**, because the tunnel already routes by hostname, and the browser loads the API
 directly so nothing sits in the video byte path.
 

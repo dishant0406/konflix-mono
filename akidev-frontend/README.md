@@ -3,8 +3,8 @@
 Next.js app (App Router, TypeScript) for Akidev. It talks to the Akidev API
 (`../akidev-api`) over GraphQL and plays the video URL the API returns.
 
-The UI is derived from [Kitsune](https://github.com/Dovakiin0/Kitsune) (MIT). See
-[../ATTRIBUTION.md](../ATTRIBUTION.md) for what was taken and what was left behind.
+The UI began as a derivative of [Kitsune](https://github.com/Dovakiin0/Kitsune) (MIT) and has
+since been redesigned to match the desktop app. See [../ATTRIBUTION.md](../ATTRIBUTION.md).
 
 ## Setup
 
@@ -30,13 +30,25 @@ The API must be running first. By default the frontend expects it at
 
 | Route | What it is |
 | --- | --- |
-| `/` | Hero, trending, new releases, featured collections, genre rows |
-| `/search` | Search with filters, and browsing when there is no term |
-| `/anime/[id]` | Details, episode list, characters, related, recommendations |
-| `/anime/watch/[animeID]/[id]` | The player, episode list and details |
+| `/` | The billboard, a "Continue watching" row (kept in the browser), then ten rows across all three catalogues |
+| `/anime`, `/series`, `/films` | One catalogue: sort tabs, a genre list, a grid that loads more |
+| `/search?q=` | The full results of a search, narrowed by an All / Anime / Series / Films tab |
+| `/title/[key]` | A title: banner, episodes, cast, related and recommended rows |
+| `/watch/[key]/[id]` | The player, over the whole window, with the episode panel |
 
-`/info/[id]` and `/watch/[animeID]/[id]` were the previous paths. They still exist
-and forward to the routes above, so old links and browser histories keep working.
+Search is also a panel over any page: Cmd/Ctrl-K, or the magnifier in the top bar.
+
+`/anime/[id]`, `/anime/watch/[animeID]/[id]` and `/info/[id]` were earlier paths. They forward
+to the routes above, so old links and browser histories keep working. `anime.akidev.live`
+and `tv.akidev.live` redirect to `/anime` and `/films` (see `src/middleware.ts`).
+
+## Design
+
+The look is the desktop app's (`../desktop/app/src/design/tokens.rs`): a near-black canvas,
+grey steps for surfaces, white for the one action on a screen and amber for progress and the
+active tab, in Inter. The colours are CSS variables in `src/app/globals.css` and Tailwind
+names in `tailwind.config.ts` (`canvas`, `surface`, `raised`, `line`, `ink`, `dim`, `faint`,
+`accent`).
 
 ## How data is fetched
 

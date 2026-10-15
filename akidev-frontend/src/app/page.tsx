@@ -1,72 +1,35 @@
 "use client";
 
-import { useMemo } from "react";
-
-import MediaRow from "@/components/media-row";
-import FeaturedCollection, { type FeaturedCategory } from "@/components/featured-collection";
-import HeroSection from "@/components/hero-section";
-import { titlePath } from "@/constants/routes";
-import { useSite } from "@/providers/site-provider";
-import { useMediaList, useMediaRows } from "@/query/use-media";
-import type { MediaList } from "@/types/media";
-
-const ROW_SIZE = 20;
+import Hero from "@/components/hero";
+import MediaRow from "@/components/row";
+import { watchPath } from "@/constants/routes";
+import { fraction, useRecent } from "@/lib/progress";
+import { useFeatured, useHomeRows } from "@/query/use-media";
 
 export default function HomePage() {
-  const site = useSite();
-  // The rows are declared in the site config, so the two sites differ by data rather
-  // than by conditionals here. Each row is one query; the config supplies the sort and
-  // the genre.
-  const rows = useMediaRows(site.rows, ROW_SIZE);
-
-  const spotlight = useMediaList({ sort: "trending", perPage: 6 });
-
-  const results = (page: { results?: MediaList[] | null } | undefined): MediaList[] => page?.results ?? [];
-
-  // The collage needs three distinct posters per card, so the rows it draws from
-  // are sliced rather than reused wholesale.
-  const featured = useMemo<FeaturedCategory[]>(() => {
-    const usable = rows.map((row, index) => ({
-      title: site.rows[index].title,
-      media: results(row.data),
-    }));
-    return usable.filter((entry) => entry.media.length >= 3).slice(0, 3);
-  }, [rows]);
-
-  // A row whose source is having a bad day renders as a heading with nothing under
-  // it, which reads as a broken page. Empty rows are dropped instead, so one failing
-  // provider cannot empty the whole site.
-  const filled = site.rows.map((row, index) => ({ row, query: rows[index] })).filter(
-    ({ query }) => query.isLoading || results(query.data).length > 0,
-  );
+  const featured = useFeatured();
+  const rows = useHomeRows();
+  const recent = useRecent();
 
   return (
-    <div className="flex flex-col pb-10">
-      <HeroSection media={results(spotlight.data).slice(0, 6)} loading={spotlight.isLoading} />
+    <div className="pb-8">
+      <Hero items={featured.items} loading={featured.loading} />
 
-      <div className="relative z-20 -mt-8">
-        {filled.slice(0, 2).map(({ row, query }) => (
-          <MediaRow
-            key={row.title}
-            title={row.title}
-            media={results(query.data)}
-            hrefFor={(item) => titlePath(item.id)}
-            loading={query.isLoading}
-          />
-        ))}
+      {recent.length > 0 && (
+        <MediaRow
+          title="Continue watching"
+          items={recent.map((entry) => entry.media)}
+          resume={recent.map((entry) => ({
+            fraction: fraction(entry),
+            href: watchPath(entry.media.id, entry.episodeId),
+          }))}
+        />
+      )}
 
-        <FeaturedCollection categories={featured} loading={rows[0]?.isLoading ?? false} />
-
-        {filled.slice(2).map(({ row, query }) => (
-          <MediaRow
-            key={row.title}
-            title={row.title}
-            media={results(query.data)}
-            hrefFor={(item) => titlePath(item.id)}
-            loading={query.isLoading}
-          />
-        ))}
-      </div>
+      {rows.map((row) => (
+        <MediaRow key={row.title} title={row.title} items={row.items} loading={row.loading} />
+      ))}
     </div>
   );
 }
+
