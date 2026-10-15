@@ -13,6 +13,11 @@ name: Deploy
 on:
   push:
     branches: [main]
+    # The desktop app is not part of what runs on the server.
+    paths-ignore:
+      - desktop/**
+      - branding/**
+      - .github/workflows/desktop*.yml
   # Allows a deploy of any branch or commit without pushing a new commit.
   workflow_dispatch:
 

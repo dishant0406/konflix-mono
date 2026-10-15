@@ -129,12 +129,24 @@ the engine ever fetches the whole file again, or if a read waits on an idle peer
 ## Packaging
 
 ```bash
-./scripts/bundle-macos.sh
+./scripts/bundle-macos.sh   # target/release/bundle/Akidev.app
+./scripts/dmg-macos.sh      # target/release/bundle/Akidev-<version>-<arch>.dmg
 ```
 
-Builds `target/release/bundle/Akidev.app` with libmpv and every library it loads copied
-inside, so it runs on a Mac without Homebrew. It is signed ad hoc, which is enough to run it
-locally. Distributing it needs a Developer ID signature and notarisation, which are not set up.
+`bundle-macos.sh` builds the app with libmpv and every library it loads copied inside, so it runs
+on a Mac without Homebrew, and with the Dock icon made from `assets/icon.png`. `dmg-macos.sh` packs
+it into a disk image with an Applications shortcut and a short note.
+
+The **Desktop release** workflow does this on GitHub: run it from the Actions tab, or push a tag
+named `desktop-v<version>` (the version in `app/Cargo.toml`), and the disk image is kept as the
+`akidev-macos-dmg` artifact for 30 days. It is for Apple silicon.
+
+The app is signed ad hoc, which is enough to run it locally. Without an Apple Developer ID
+signature and notarisation, macOS asks the first time it is opened from a download: press **Open
+Anyway** in System Settings > Privacy & Security, or run
+`xattr -dr com.apple.quarantine /Applications/Akidev.app`. Signing and notarising need a
+Developer ID certificate and an app-specific password as repository secrets, and a `codesign` and
+`notarytool` step in the workflow.
 
 libmpv is LGPL or GPL depending on how it was built. Homebrew's is built with GPL parts, so an
 app bundling it is covered by the GPL. This project is AGPL-3.0.
