@@ -210,8 +210,10 @@ impl Images {
     fn path(&self, url: &str, width: u32, quality: u8) -> PathBuf {
         let mut hasher = DefaultHasher::new();
         url.hash(&mut hasher);
+        // `v2`: the second way of making them (a PNG keeps its transparency as WebP). A change to
+        // how they are made needs a new prefix, or the files on disk from before are served for good.
         self.dir
-            .join(format!("{:016x}-{width}-{quality}", hasher.finish()))
+            .join(format!("v2-{:016x}-{width}-{quality}", hasher.finish()))
     }
 
     /// The picture, from disk when it was made before, otherwise fetched and made. Requests for the

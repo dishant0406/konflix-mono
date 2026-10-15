@@ -7,7 +7,13 @@ import type { Card } from "@/lib/media";
 import { cn } from "@/lib/utils";
 
 import { ErrorState, SectionTitle, Skeleton } from "./states";
-import Tile from "./tile";
+import Tile, { TILE_GAP, TILE_WIDTH } from "./tile";
+
+/** Tiles that have their picture before the row has been scrolled: what fits a wide screen, and a little over. */
+const FIRST_DRAWN = 10;
+/** How far past the visible part of a row pictures are drawn, so they are there as it arrives. */
+const AHEAD_PX = 480;
+const TILE_STRIDE = TILE_WIDTH + TILE_GAP;
 
 export interface ResumeFor {
   fraction: number;
@@ -33,6 +39,10 @@ export default function MediaRow({
 }) {
   const track = useRef<HTMLDivElement>(null);
   const [edges, setEdges] = useState({ left: false, right: false });
+  // How many tiles have their picture. A row is far wider than the screen, and the browser's own
+  // lazy loading reaches a thousand pixels past it, which is half the row: dozens of pictures per
+  // page that nobody has scrolled to. The rest get theirs as the row is scrolled towards them.
+  const [drawn, setDrawn] = useState(FIRST_DRAWN);
 
   const measure = useCallback(() => {
     const element = track.current;
@@ -41,6 +51,8 @@ export default function MediaRow({
       left: element.scrollLeft > 4,
       right: element.scrollLeft < element.scrollWidth - element.clientWidth - 4,
     });
+    const reached = Math.ceil((element.scrollLeft + element.clientWidth + AHEAD_PX) / TILE_STRIDE);
+    setDrawn((current) => Math.max(current, reached));
   }, []);
 
   useEffect(() => {
@@ -77,7 +89,7 @@ export default function MediaRow({
             className="no-scrollbar gutter flex gap-3 overflow-x-auto overscroll-x-contain scroll-smooth"
           >
             {items.map((card, index) => (
-              <Tile key={card.id} card={card} resume={resume?.[index]} />
+              <Tile key={card.id} card={card} resume={resume?.[index]} drawn={index < drawn} />
             ))}
           </div>
           <Edge side="left" visible={edges.left} onClick={() => page(-1)} />

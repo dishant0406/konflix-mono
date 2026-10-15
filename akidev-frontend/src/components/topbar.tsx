@@ -1,6 +1,7 @@
 "use client";
 
 import { ChevronLeft, Search } from "lucide-react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -10,7 +11,8 @@ import { ROUTES } from "@/constants/routes";
 import { cn } from "@/lib/utils";
 
 import { IconButton } from "./button";
-import Palette from "./palette";
+// Search is loaded the first time it is opened, not with every page.
+const Palette = dynamic(() => import("./palette"));
 
 /** The bar turns solid once the page has moved this far. */
 const SOLID_AFTER = 40;

@@ -1,6 +1,5 @@
 "use client";
 
-import Hls from "hls.js";
 import {
   Captions,
   ChevronLeft,
@@ -129,42 +128,53 @@ export default function Player({ src, streamType, subtitles = [], title, startAt
       };
     };
 
-    // Safari plays HLS natively, and on iOS MediaSource is unavailable.
-    if (!isHls || !Hls.isSupported()) {
-      const stop = plain();
-      return () => {
-        clearInterval(seekWhenReachable);
-        stop();
-      };
-    }
-
-    // A playlist that is still growing counts as live, and a live player starts near its end.
-    // This one starts at the beginning, whatever the conversion has got to.
-    const hls = new Hls({ enableWorker: true, maxBufferLength: 30, startPosition: 0 });
-    hls.on(Hls.Events.MANIFEST_PARSED, () => {
-      if (!cancelled) setReady(true);
-    });
-    hls.on(Hls.Events.ERROR, (_event, data) => {
-      // Only a fatal error means playback has stopped; hls.js recovers from the rest.
-      if (!data.fatal) return;
-      // A manifest that will not load cannot be fixed by loading it again: the usual cause
-      // is an expired session, which answers 404 every time.
-      if (data.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR) {
-        hls.destroy();
-        callbacks.current.onError("This stream has expired. Reload the episode to start it again.");
-      } else if (data.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad();
-      else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
-      else {
-        hls.destroy();
-        callbacks.current.onError("Playback failed. Reload the episode to try again.");
+    // hls.js is loaded only for a stream that needs it. A file a browser plays as it is, which is
+    // most films, never downloads its 150KB.
+    let stop: (() => void) | null = null;
+    const attach = async () => {
+      if (!isHls) {
+        stop = plain();
+        return;
       }
-    });
-    hls.loadSource(src);
-    hls.attachMedia(element);
+      const { default: Hls } = await import("hls.js");
+      if (cancelled) return;
+      // Safari plays HLS natively, and on iOS MediaSource is unavailable.
+      if (!Hls.isSupported()) {
+        stop = plain();
+        return;
+      }
+
+      // A playlist that is still growing counts as live, and a live player starts near its end.
+      // This one starts at the beginning, whatever the conversion has got to.
+      const hls = new Hls({ enableWorker: true, maxBufferLength: 30, startPosition: 0 });
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        if (!cancelled) setReady(true);
+      });
+      hls.on(Hls.Events.ERROR, (_event, data) => {
+        // Only a fatal error means playback has stopped; hls.js recovers from the rest.
+        if (!data.fatal) return;
+        // A manifest that will not load cannot be fixed by loading it again: the usual cause
+        // is an expired session, which answers 404 every time.
+        if (data.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR) {
+          hls.destroy();
+          callbacks.current.onError("This stream has expired. Reload the episode to start it again.");
+        } else if (data.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad();
+        else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
+        else {
+          hls.destroy();
+          callbacks.current.onError("Playback failed. Reload the episode to try again.");
+        }
+      });
+      hls.loadSource(src);
+      hls.attachMedia(element);
+      stop = () => hls.destroy();
+    };
+    void attach();
+
     return () => {
       cancelled = true;
       clearInterval(seekWhenReachable);
-      hls.destroy();
+      stop?.();
     };
   }, [src, isHls, startAt]);
 

@@ -36,11 +36,14 @@ export default function Tile({
   card,
   resume,
   priority,
+  drawn = true,
   className,
 }: {
   card: Card;
   resume?: { fraction: number; href: string };
   priority?: boolean;
+  /** False for a tile too far along its row to be worth fetching the picture of yet. */
+  drawn?: boolean;
   className?: string;
 }) {
   const router = useRouter();
@@ -65,7 +68,7 @@ export default function Tile({
       onMouseLeave={leave}
     >
       <div className="relative aspect-[2/3] w-full overflow-hidden rounded-lg border border-transparent bg-raised transition-colors group-hover/tile:border-ink/40">
-        {card.poster ? (
+        {card.poster && drawn ? (
           <Image
             src={card.poster}
             alt=""
@@ -75,11 +78,11 @@ export default function Tile({
             priority={priority}
             className="object-cover"
           />
-        ) : (
+        ) : !card.poster ? (
           <div className="flex size-full items-center justify-center p-4 text-center text-sm font-semibold text-dim">
             {card.title}
           </div>
-        )}
+        ) : null}
 
         {/* The whole tile is the link; the two round buttons sit above it. */}
         <Link href={click} aria-label={card.title} className="absolute inset-0" />

@@ -6,8 +6,15 @@
 // to the server on every view. The widths asked for here are the ones the server makes, see
 // `deviceSizes` and `imageSizes` in next.config.mjs.
 
+/**
+ * Changes whenever the server starts making pictures differently, which gives them new addresses.
+ * The edge and the browsers keep a picture for good, so a fix to how one is made reaches nobody
+ * until its address changes. The server ignores it.
+ */
+const MADE = 2;
+
 const BASE = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:9000").replace(/\/+$/, "");
 
 export default function imageLoader({ src, width, quality }: { src: string; width: number; quality?: number }): string {
-  return `${BASE}/v1/img?u=${encodeURIComponent(src)}&w=${width}&q=${quality ?? 75}`;
+  return `${BASE}/v1/img?u=${encodeURIComponent(src)}&w=${width}&q=${quality ?? 75}&v=${MADE}`;
 }
