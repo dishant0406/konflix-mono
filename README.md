@@ -120,7 +120,7 @@ Releases that need a re-encode (10-bit, HEVC) or that are too big to download fa
 A conversion runs a bounded distance ahead of the viewer (a quarter of an hour for a copy, one
 minute for an encode), so an episode that is abandoned halfway is not downloaded or written to the
 end. The lead is counted in bytes against the viewer's position, which does not lag the way counting
-finished segments does. Sessions are limited (two at once), shared between viewers of the same file,
+finished segments does. Sessions are limited (four at once), shared between viewers of the same file,
 destroyed after half an hour idle and counted against the disk budget, oldest first.
 
 This replaced a single live fragmented MP4, which could not be played on iOS at all: iOS requires a

@@ -30,7 +30,8 @@ pub struct Settings {
     pub indexer_timeout_ms: u64,
     /// Upload cap towards peers, bytes a second. A server has no use for seeding.
     pub upload_limit_bps: u32,
-    /// Conversions running at once. Each is an ffmpeg process.
+    /// Conversions running at once. Each is an ffmpeg process, and a copy costs disk and bandwidth
+    /// rather than CPU, so this can be higher than the number of encodes.
     pub max_hls_sessions: usize,
     /// Of those, how many may re-encode video, which is the one expensive thing here.
     pub max_video_transcodes: usize,
@@ -97,7 +98,7 @@ impl Settings {
             resolve_deadline_ms: number("RESOLVE_DEADLINE_MS", 75_000),
             indexer_timeout_ms: number("INDEXER_TIMEOUT_MS", 5_000),
             upload_limit_bps: number("UPLOAD_LIMIT_BPS", 256 * 1024),
-            max_hls_sessions: number("MAX_HLS_SESSIONS", 2),
+            max_hls_sessions: number("MAX_HLS_SESSIONS", 4),
             max_video_transcodes: number("MAX_VIDEO_TRANSCODES", 1),
             hls_session_ttl: Duration::from_secs(number("HLS_SESSION_TTL_MINUTES", 30u64) * 60),
             transcode_threads: number("TRANSCODE_THREADS", 2),
@@ -141,7 +142,7 @@ mod tests {
     fn a_bare_environment_gives_a_working_small_server() {
         let settings = Settings::from_env();
         assert_eq!(settings.max_torrents, 2);
-        assert_eq!(settings.max_hls_sessions, 2);
+        assert_eq!(settings.max_hls_sessions, 4);
         assert_eq!(settings.max_video_transcodes, 1);
         assert!(
             settings

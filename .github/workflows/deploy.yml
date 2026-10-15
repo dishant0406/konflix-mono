@@ -413,8 +413,18 @@ jobs:
           # debrid service and the torrent engine together, so it is checked with real
           # titles. Each is one POST; the answer names the source and the delivery.
           play() {
-            curl -sS --max-time 120 -X POST "$PUBLIC_URL/v1/play" \
-              -H 'Content-Type: application/json' -d "{\"id\":\"$1\",\"hevc\":false}"
+            local answer
+            for attempt in 1 2; do
+              answer=$(curl -sS --max-time 120 -X POST "$PUBLIC_URL/v1/play" \
+                -H 'Content-Type: application/json' -d "{\"id\":\"$1\",\"hevc\":false}")
+              # "busy" means the server is at its limit of conversions, which these checks can
+              # reach themselves: an idle one is released after a minute and a half.
+              case "$answer" in
+                *'"busy"'*) sleep 95 ;;
+                *) break ;;
+              esac
+            done
+            printf '%s' "$answer"
           }
 
           echo "Checking an episode resolves and can be fetched"
