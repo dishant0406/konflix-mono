@@ -113,10 +113,12 @@ jobs:
             echo
             echo "Download the **akidev-macos-dmg** artifact below, unzip it, open the disk image and drag"
             echo "Akidev onto Applications."
-            echo
-            echo "It is not signed with a Developer ID yet. The first time, macOS asks: open System"
-            echo "Settings > Privacy & Security and press **Open Anyway**, or run"
-            echo "\`xattr -dr com.apple.quarantine /Applications/Akidev.app\`."
+            if [ -z "${NOTARY_KEY_FILE:-}" ]; then
+              echo
+              echo "This build is not signed with a Developer ID. The first time, macOS asks: open System"
+              echo "Settings > Privacy & Security and press **Open Anyway**, or run"
+              echo "\`xattr -dr com.apple.quarantine /Applications/Akidev.app\`."
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
       # A tag also makes a public release, which is where akidev.live/download points.
@@ -126,5 +128,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           files=$(ls target/release/bundle/*.dmg target/release/bundle/*.dmg.sha256)
-          gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "Akidev for macOS ${GITHUB_REF_NAME##*-v}" --notes "Open the disk image and drag Akidev onto Applications. Not yet signed with an Apple Developer ID: see https://akidev.live/download." --verify-tag
+          gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "Akidev for macOS ${GITHUB_REF_NAME##*-v}" --notes "Open the disk image and drag Akidev onto Applications. Signed with an Apple Developer ID and notarised by Apple." --verify-tag
           gh release upload "$GITHUB_REF_NAME" $files --clobber
+          # A release whose tag was deleted and pushed again comes back as a draft.
+          gh release edit "$GITHUB_REF_NAME" --draft=false

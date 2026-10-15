@@ -61,8 +61,7 @@ export default async function DownloadPage() {
           and approver.
         </p>
         <p>
-          The macOS app is not signed with an Apple Developer ID yet. The first time, open System Settings, Privacy and
-          Security, and press Open Anyway.
+          The macOS app is signed with an Apple Developer ID and notarised by Apple, so it opens without a warning.
         </p>
       </Section>
 

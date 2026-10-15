@@ -19,6 +19,8 @@ STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
 cp -R "$APP" "$STAGE/Akidev.app"
 ln -s /Applications "$STAGE/Applications"
+# A signed and notarised app needs no explanation; an ad hoc one does.
+if [ -z "${NOTARY_KEY_FILE:-}" ]; then
 cat > "$STAGE/Read me first.txt" <<'NOTE'
 Akidev is not signed with an Apple Developer ID yet, so macOS stops it the first time.
 
@@ -29,6 +31,7 @@ Akidev is not signed with an Apple Developer ID yet, so macOS stops it the first
 
 After that it opens like any other app.
 NOTE
+fi
 
 rm -f "$DMG"
 hdiutil create -volname Akidev -srcfolder "$STAGE" -fs HFS+ -format UDZO -ov "$DMG" > /dev/null
