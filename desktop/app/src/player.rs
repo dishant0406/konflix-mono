@@ -148,6 +148,19 @@ impl Player {
                 ("input-default-bindings", "no"),
                 ("input-vo-keyboard", "no"),
                 ("osc", "no"),
+                // mpv's own Lua scripts (stats, console, the youtube-dl hook, ...) are not used,
+                // since the app draws its own controls. They run on LuaJIT, which writes machine
+                // code at run time, and a notarised app (hardened runtime) is killed for that.
+                ("load-scripts", "no"),
+                ("ytdl", "no"),
+                ("load-stats-overlay", "no"),
+                ("load-console", "no"),
+                ("load-auto-profiles", "no"),
+                ("load-select", "no"),
+                ("load-commands", "no"),
+                ("load-context-menu", "no"),
+                ("load-positioning", "no"),
+                ("config", "no"),
                 ("sub-auto", "no"),
                 ("slang", "eng,en"),
                 // How far ahead mpv reads. The torrent engine fetches only what is read, so

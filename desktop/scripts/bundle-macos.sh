@@ -90,7 +90,7 @@ if [ -n "${SIGN_IDENTITY:-}" ]; then
   for library in "$FRAMEWORKS"/*; do
     codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$library"
   done
-  codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$APP"
+  codesign --force --options runtime --timestamp --entitlements assets/entitlements.plist --sign "$SIGN_IDENTITY" "$APP"
 else
   for library in "$FRAMEWORKS"/*; do codesign --force --sign - "$library" 2>/dev/null; done
   codesign --force --sign - "$APP"
