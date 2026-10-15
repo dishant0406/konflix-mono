@@ -1,0 +1,87 @@
+name: Release desktop
+
+# One button for a desktop release. Run it from the Actions tab: type the version (or leave it
+# empty to raise the patch number by one) and choose the platforms. It sets the version in
+# desktop/Cargo.toml, commits that to main, tags it (desktop-mac-v<version> and
+# desktop-windows-v<version>), and then builds, signs and publishes each platform's release.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version, like 0.1.4. Empty raises the patch number by one."
+        required: false
+        type: string
+      platforms:
+        description: "Which platforms to release"
+        type: choice
+        options: [both, mac, windows]
+        default: both
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set the version and make the tags
+        id: version
+        env:
+          REQUESTED: ${{ inputs.version }}
+          PLATFORMS: ${{ inputs.platforms }}
+        run: |
+          current=$(sed -n 's/^version = "\(.*\)"/\1/p' desktop/Cargo.toml | head -n 1)
+          version="${REQUESTED:-}"
+          if [ -z "$version" ]; then
+            IFS=. read -r major minor patch <<< "$current"
+            version="$major.$minor.$((patch + 1))"
+          fi
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "\"$version\" is not a version like 0.1.4." >&2
+            exit 1
+          fi
+
+          tags=()
+          [ "$PLATFORMS" != windows ] && tags+=("desktop-mac-v$version")
+          [ "$PLATFORMS" != mac ] && tags+=("desktop-windows-v$version")
+          for tag in "${tags[@]}"; do
+            if git ls-remote --exit-code --tags origin "refs/tags/$tag" > /dev/null; then
+              echo "$tag already exists. Release a new version instead." >&2
+              exit 1
+            fi
+          done
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ "$version" != "$current" ]; then
+            sed -i "0,/^version = \".*\"/s//version = \"$version\"/" desktop/Cargo.toml
+            (cd desktop && cargo update --workspace)
+            git commit -am "Version $version"
+            git push origin HEAD
+          fi
+          for tag in "${tags[@]}"; do
+            git tag "$tag"
+            git push origin "$tag"
+          done
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  mac:
+    needs: tag
+    if: inputs.platforms != 'windows'
+    uses: ./.github/workflows/desktop-release.yml
+    with:
+      tag: desktop-mac-v${{ needs.tag.outputs.version }}
+    secrets: inherit
+
+  windows:
+    needs: tag
+    if: inputs.platforms != 'mac'
+    uses: ./.github/workflows/desktop-release-windows.yml
+    with:
+      tag: desktop-windows-v${{ needs.tag.outputs.version }}
+    secrets: inherit

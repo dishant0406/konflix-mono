@@ -136,6 +136,15 @@ From a Mac, `cargo xwin check -p akidev --target x86_64-pc-windows-msvc` (with `
 cargo-xwin`, `brew install llvm lld`) type-checks the Windows build. It cannot link it: GPUI's
 DirectX shaders are compiled by tools that only exist on Windows.
 
+## Releasing
+
+Run **Release desktop** from the repository's Actions tab: type a version such as `0.1.4` (empty
+raises the patch number by one) and choose Windows, macOS or both. It writes the version into
+`desktop/Cargo.toml`, commits it, tags `desktop-mac-v<version>` and `desktop-windows-v<version>`,
+builds each platform (signing and notarising the Mac app, and signing the Windows installer once
+SignPath is set up) and publishes a GitHub release for each. Pushing one of those tags by hand
+does the same for that platform, if the version in `Cargo.toml` already matches.
+
 ## Running
 
 ```bash

@@ -10,11 +10,22 @@ name: Desktop release (Windows)
 
 on:
   workflow_dispatch:
+  # Called by "Release desktop", which has made the tag already.
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
   push:
     tags: ["desktop-windows-v*"]
 
 permissions:
   contents: write
+
+# The tag being released: the one pushed, or the one "Release desktop" passes in. Empty on a
+# hand-started run, which builds without publishing.
+env:
+  TAG: ${{ inputs.tag || (startsWith(github.ref, 'refs/tags/') && github.ref_name) || '' }}
 
 jobs:
   zip:
@@ -24,14 +35,16 @@ jobs:
         working-directory: desktop
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
 
       - name: Check the tag names the version being built
-        if: startsWith(github.ref, 'refs/tags/')
+        if: env.TAG != ''
         shell: bash
         run: |
           version=$(cargo pkgid -p akidev | sed 's/.*[#@]//')
-          if [ "${GITHUB_REF_NAME}" != "desktop-windows-v${version}" ]; then
-            echo "The tag is ${GITHUB_REF_NAME}, but the app is version ${version}." >&2
+          if [ "${TAG}" != "desktop-windows-v${version}" ]; then
+            echo "The tag is ${TAG}, but the app is version ${version}." >&2
             exit 1
           fi
 
@@ -109,10 +122,10 @@ jobs:
 
       # A tag also makes a public release, which is where akidev.live/download points.
       - name: Publish the release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: env.TAG != ''
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "Akidev for Windows ${GITHUB_REF_NAME##*-v}" --notes "Run the installer. See https://akidev.live/download for how the installer is signed." --verify-tag
-          gh release upload "$GITHUB_REF_NAME" target/release/bundle/*-setup.exe target/release/bundle/Akidev-*-x86_64.zip --clobber
+          gh release view "$TAG" > /dev/null 2>&1 || gh release create "$TAG" --title "Akidev for Windows ${TAG##*-v}" --notes "Run the installer. See https://akidev.live/download for how the installer is signed." --verify-tag
+          gh release upload "$TAG" target/release/bundle/*-setup.exe target/release/bundle/Akidev-*-x86_64.zip --clobber
