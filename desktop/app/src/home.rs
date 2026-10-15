@@ -49,6 +49,31 @@ fn rows() -> Vec<RowSpec> {
     ]
 }
 
+/// The front of one catalogue, for the banner.
+async fn featured_from(kind: Kind) -> Vec<Media> {
+    let filters = Filters {
+        sort: Some(Sort::Trending),
+        page: 1,
+        per_page: 6,
+        ..Default::default()
+    };
+    providers::list(kind, &filters)
+        .await
+        .map(|page| page.results)
+        .unwrap_or_default()
+}
+
+/// Starts asking for what the home screen shows, before there is a window to show it in. The
+/// screen then finds the requests already on their way instead of making them itself.
+pub fn prefetch() {
+    for kind in Kind::ALL {
+        crate::runtime::spawn(featured_from(kind));
+    }
+    for spec in rows() {
+        crate::runtime::spawn(async move { providers::list(spec.kind, &spec.filters).await });
+    }
+}
+
 pub struct HomePage {
     hero: Entity<Hero>,
     rows: Vec<Entity<MediaRow>>,
@@ -73,21 +98,9 @@ impl HomePage {
         load(
             cx,
             async {
-                let filters = Filters {
-                    sort: Some(Sort::Trending),
-                    page: 1,
-                    per_page: 6,
-                    ..Default::default()
-                };
-                let lists = futures::future::join_all(Kind::ALL.map(|kind| {
-                    let filters = filters.clone();
-                    async move {
-                        providers::list(kind, &filters)
-                            .await
-                            .map(|page| page.results)
-                            .unwrap_or_default()
-                    }
-                }))
+                let lists = futures::future::join_all(
+                    Kind::ALL.map(|kind| async move { featured_from(kind).await }),
+                )
                 .await;
                 interleave(lists, 9)
                     .into_iter()

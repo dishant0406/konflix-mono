@@ -28,6 +28,39 @@ fn store() -> &'static Mutex<HashMap<String, Entry>> {
     STORE.get_or_init(Default::default)
 }
 
+/// The cached value for `key`, if there is a live one.
+pub fn peek<T: Clone + 'static>(key: &str) -> Option<T> {
+    let map = store().lock().unwrap();
+    let entry = map
+        .get(key)
+        .filter(|entry| entry.expires > Instant::now())?;
+    entry.value.downcast_ref::<T>().cloned()
+}
+
+/// Keeps `value` for `key` for `ttl`, replacing what was there.
+pub fn put<T: Clone + Send + Sync + 'static>(key: &str, value: T, ttl: Duration) {
+    let now = Instant::now();
+    let mut map = store().lock().unwrap();
+    map.insert(
+        key.to_string(),
+        Entry {
+            expires: now + ttl,
+            stored: now,
+            value: Arc::new(value),
+        },
+    );
+    while map.len() > MAX_ENTRIES {
+        let oldest = map
+            .iter()
+            .min_by_key(|(_, entry)| entry.stored)
+            .map(|(key, _)| key.clone());
+        match oldest {
+            Some(key) => map.remove(&key),
+            None => break,
+        };
+    }
+}
+
 /// Returns the cached value for `key`, or loads it. A failed load is not cached.
 /// `ttl_for` picks the lifetime from the loaded value, so an empty result can live
 /// shorter than a real one.
@@ -41,37 +74,11 @@ where
     F: FnOnce() -> Fut,
     Fut: Future<Output = anyhow::Result<T>>,
 {
-    {
-        let map = store().lock().unwrap();
-        if let Some(entry) = map.get(key)
-            && entry.expires > Instant::now()
-            && let Some(value) = entry.value.downcast_ref::<T>()
-        {
-            return Ok(value.clone());
-        }
+    if let Some(value) = peek::<T>(key) {
+        return Ok(value);
     }
-
     let value = load().await?;
-    let now = Instant::now();
-    let mut map = store().lock().unwrap();
-    map.insert(
-        key.to_string(),
-        Entry {
-            expires: now + ttl_for(&value),
-            stored: now,
-            value: Arc::new(value.clone()),
-        },
-    );
-    while map.len() > MAX_ENTRIES {
-        let oldest = map
-            .iter()
-            .min_by_key(|(_, entry)| entry.stored)
-            .map(|(key, _)| key.clone());
-        match oldest {
-            Some(key) => map.remove(&key),
-            None => break,
-        };
-    }
+    put(key, value.clone(), ttl_for(&value));
     Ok(value)
 }
 

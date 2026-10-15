@@ -147,6 +147,10 @@ pub fn poster_tile(key: &str, media: &Media, resume: Option<(f32, Route)>) -> St
         .flex_col()
         .gap_2()
         .cursor_pointer()
+        .on_hover({
+            let id = media.id.clone();
+            move |&on, _, cx| crate::prefetch::hovered(&id, on, cx)
+        })
         .on_click(move |_, _, cx| navigate(click_route.clone(), cx))
         .child(poster_box)
         .child(

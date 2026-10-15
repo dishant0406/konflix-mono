@@ -31,9 +31,8 @@ impl Backend {
         default_torrent_dir: PathBuf,
         sources_dir: PathBuf,
     ) -> Backend {
-        // The copy saved by an earlier run is used at once, and a newer one is fetched in
-        // the background: indexers move often, and a build is not needed to follow them.
-        akidev_core::sources::load_saved(&sources_dir);
+        // A newer copy of the definitions is fetched in the background (the saved one was read at
+        // start): indexers move often, and a build is not needed to follow them.
         crate::runtime::spawn(akidev_core::sources::keep_fresh(sources_dir));
 
         let config = Config::load(&config_path).unwrap_or_else(|error| {

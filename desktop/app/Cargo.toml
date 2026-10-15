@@ -10,7 +10,7 @@ gpui-kit = "=0.7.3"
 anyhow.workspace = true
 directories = "6"
 futures.workspace = true
-image = { version = "0.25", default-features = false }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 serde_json.workspace = true
 smallvec = "1"
 tokio.workspace = true

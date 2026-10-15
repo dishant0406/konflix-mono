@@ -8,6 +8,7 @@ mod home;
 mod images;
 mod palette;
 mod player;
+mod prefetch;
 mod progress;
 mod route;
 mod row;
@@ -38,7 +39,14 @@ fn main() {
     let progress_path = dirs.config_dir().join("progress.json");
     let torrent_cache = dirs.cache_dir().join("torrents");
     let sources_dir = dirs.cache_dir().join("sources");
+    akidev_core::providers::keep_answers_in(dirs.cache_dir().join("catalog"));
     let first = Route::from_args(std::env::args().skip(1));
+    // The definitions saved by an earlier run are used at once. What the home screen needs is
+    // asked for now, while the window is still being made.
+    akidev_core::sources::load_saved(&sources_dir);
+    if first == Route::Home {
+        home::prefetch();
+    }
 
     application().with_assets(assets::AllAssets).run(move |cx| {
         init(cx);

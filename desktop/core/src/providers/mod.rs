@@ -9,6 +9,7 @@
 
 mod card;
 mod detail;
+mod disk;
 mod fetch;
 mod list;
 #[cfg(test)]
@@ -17,6 +18,12 @@ mod read_tests;
 use crate::definition::ProviderDef;
 use crate::model::{Detail, Filters, Kind, Page};
 use crate::sources::{self, Sources};
+
+/// Keeps catalogue answers in `dir` between runs, so a start shows what the last one saw while
+/// the new answers come in.
+pub fn keep_answers_in(dir: std::path::PathBuf) {
+    disk::start(dir);
+}
 
 /// The providers that answer for a kind, in the order the definitions give.
 fn chain(sources: &Sources, kind: Kind) -> Vec<&ProviderDef> {

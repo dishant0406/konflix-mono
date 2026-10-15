@@ -209,6 +209,14 @@ fn adopt(sources: Sources) -> bool {
     true
 }
 
+/// Held by a test that changes the definitions in use, and by tests whose cache keys depend on
+/// them, so the two cannot run at the same time.
+#[cfg(test)]
+pub(crate) fn definitions_change_lock() -> &'static tokio::sync::Mutex<()> {
+    static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(Default::default)
+}
+
 const DOCUMENT: &str = "sources.json";
 const SIGNATURE: &str = "sources.sig";
 
@@ -501,6 +509,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_newer_signed_document_is_adopted_saved_and_reloaded_but_never_rolled_back() {
+        let _held = definitions_change_lock().lock().await;
         let dir = temp_dir("sources");
         let in_use = current().version;
 

@@ -120,7 +120,16 @@ pub async fn list(def: &ProviderDef, kind: Kind, filters: &Filters) -> anyhow::R
         async move {
             let request =
                 request.ok_or_else(|| anyhow::anyhow!("the request cannot be filled in"))?;
-            get(&def.id, kind, request, list.check.as_ref(), ttl, &list.rows).await
+            get(
+                &def.id,
+                kind,
+                request,
+                list.check.as_ref(),
+                ttl,
+                &list.rows,
+                true,
+            )
+            .await
         }
     }))
     .await;
@@ -346,6 +355,7 @@ pub async fn search(def: &ProviderDef, kind: Kind, term: &str) -> anyhow::Result
         search.check.as_ref(),
         ttl,
         &search.rows,
+        false,
     )
     .await?;
     Ok(body

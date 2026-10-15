@@ -158,7 +158,8 @@ app bundling it is covered by the GPL. This project is AGPL-3.0.
 | Settings | `~/Library/Application Support/live.akidev.Akidev/config.toml` (a file that cannot be read is kept as `config.toml.broken` and defaults are used) |
 | Where you are in each title | `~/Library/Application Support/live.akidev.Akidev/progress.json` |
 | Indexer and provider definitions | `~/Library/Caches/live.akidev.Akidev/sources/` (the last signed copy fetched; the built-in one is used when it is missing or older) |
-| Posters | `~/Library/Caches/live.akidev.Akidev/images/` (files downloaded more than 30 days ago are removed at start) |
+| Posters | `~/Library/Caches/live.akidev.Akidev/images/` (files downloaded more than 30 days ago are removed at start; shrunk to the size they are shown at before they are kept) |
+| Catalogue answers | `~/Library/Caches/live.akidev.Akidev/catalog/` (lists and title pages; shown at once for up to 24 hours while a newer copy is fetched, pruned after 2 days) |
 | Torrent downloads | `<cache>/torrents/akidev-torrents/`, emptied at start and on quit and capped by the settings. It holds what was fetched while watching: the part played so far plus a little ahead, not the whole file. A `cache_dir` in `config.toml` moves the base directory; only the `akidev-torrents` folder inside it is ever deleted |
 
 Every setting has a default, so no file is needed. The limits apply after a restart. A setting from
@@ -179,3 +180,10 @@ an older version that no longer exists, such as a list of turned-off indexers, i
   keyboard navigation of rows yet.
 - The banner does not tint itself to the artwork's colours.
 - macOS only so far. The code is not macOS specific, but Linux and Windows have not been built.
+
+## Performance
+
+- Home requests are prefetched at launch, and a title is prefetched when the pointer rests on its tile.
+- Identical requests made together are sent once.
+- Rows and tiles outside the screen are not built, so scrolling stays light and memory stays low.
+- Posters are shrunk and re-encoded once, then served from disk.

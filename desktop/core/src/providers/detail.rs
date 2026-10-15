@@ -35,6 +35,7 @@ pub async fn detail(
         detail.check.as_ref(),
         TTL,
         &detail.root,
+        true,
     )
     .await?
     else {
@@ -55,10 +56,18 @@ pub async fn detail(
         let Some(request) = asking.prepare(request) else {
             continue;
         };
-        *slot = get(&def.id, kind, request, list.check.as_ref(), TTL, &list.rows)
-            .await
-            .ok()
-            .flatten();
+        *slot = get(
+            &def.id,
+            kind,
+            request,
+            list.check.as_ref(),
+            TTL,
+            &list.rows,
+            false,
+        )
+        .await
+        .ok()
+        .flatten();
     }
     Ok(read(
         def,
