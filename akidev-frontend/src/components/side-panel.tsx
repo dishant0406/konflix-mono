@@ -7,8 +7,7 @@ import { IconButton } from "./button";
 
 /**
  * The player's side panel, for the episodes and the sources: one header (title and close) and a
- * body that scrolls. A sheet over the whole screen on a phone, a card at the right edge above the
- * control bar elsewhere. The caller's `className` moves it, for the places with no control bar.
+ * body that scrolls. A sheet over the whole screen on a phone, a strip down the right edge, as in the desktop app, elsewhere. The caller's `className` moves it, for the places with no control bar.
  */
 export function SidePanel({
   title,
@@ -25,7 +24,7 @@ export function SidePanel({
     <aside
       aria-label={title}
       className={cn(
-        "absolute inset-0 z-10 flex flex-col overflow-hidden bg-surface sm:inset-auto sm:bottom-28 sm:right-4 sm:top-4 sm:w-[380px] sm:rounded-2xl sm:border sm:border-line sm:shadow-2xl sm:shadow-black/50",
+        "absolute inset-0 z-10 flex flex-col overflow-hidden bg-surface/[0.98] sm:left-auto sm:w-[400px] sm:border-l sm:border-line",
         className,
       )}
     >

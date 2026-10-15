@@ -34,6 +34,7 @@ const IDLE_FOR = 3000;
 const REPORT_EVERY = 5000;
 /** How far the captions rise to stay clear of the control bar while it is showing. */
 const CUES_LIFT = "5.5rem";
+type Panel = "episodes" | "sources" | "subtitles";
 const NO_SUBTITLES: SubtitleOption[] = [];
 
 // A live HLS playlist has no total length, so the element reports Infinity. That is not a
@@ -110,9 +111,8 @@ export default function Player({
   const [muted, setMuted] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [visible, setVisible] = useState(true);
-  const [panel, setPanel] = useState<"episodes" | "sources" | null>(null);
+  const [panel, setPanel] = useState<Panel | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [captions, setCaptions] = useState(false);
   /** The subtitle file showing; null is off. */
   const [active, setActive] = useState<SubtitleOption | null>(null);
   /** Set once the viewer's remembered language has been looked at, or they have chosen themselves. */
@@ -215,7 +215,6 @@ export default function Player({
     (option: SubtitleOption | null) => {
       decided.current = true;
       setActive(option);
-      setCaptions(false);
       writeChoice(option?.lang ?? "off");
       say(option ? `Subtitles: ${option.language}` : "Subtitles off");
     },
@@ -347,9 +346,8 @@ export default function Player({
             void toggleFullscreen();
             return true;
           case "Escape":
-            if (captions) setCaptions(false);
-            else if (panel) setPanel(null);
-            return captions || panel !== null;
+            if (panel) setPanel(null);
+            return panel !== null;
           default:
             return false;
         }
@@ -361,13 +359,12 @@ export default function Player({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [captions, panel, seekBy, toggle, toggleFullscreen, wake]);
+  }, [panel, seekBy, toggle, toggleFullscreen, wake]);
 
   const remaining = Math.max(duration - position, 0);
   const offerNext = Boolean(onNext) && duration > 0 && remaining <= NEXT_OFFER;
-  const shown = visible || !playing || panel !== null || captions;
-  const togglePanel = (which: "episodes" | "sources") => {
-    setCaptions(false);
+  const shown = visible || !playing || panel !== null;
+  const togglePanel = (which: Panel) => {
     setPanel((open) => (open === which ? null : which));
   };
 
@@ -491,20 +488,14 @@ export default function Player({
 
               <div className="flex-1" />
 
-              <div className="relative">
-                <IconButton
-                  label="Captions"
-                  title={subtitles.length > 0 ? "Captions" : subtitlesLoading ? "Looking for subtitles" : "No subtitles found"}
-                  disabled={subtitles.length === 0}
-                  onClick={() => {
-                    setPanel(null);
-                    setCaptions((open) => !open);
-                  }}
-                >
-                  <Captions className="size-[18px]" />
-                </IconButton>
-                {captions && subtitles.length > 0 && <CaptionsMenu subtitles={subtitles} active={active} onChoose={choose} />}
-              </div>
+              <IconButton
+                label="Captions"
+                title={subtitles.length > 0 ? "Subtitles" : subtitlesLoading ? "Looking for subtitles" : "No subtitles found"}
+                disabled={subtitles.length === 0}
+                onClick={() => togglePanel("subtitles")}
+              >
+                <Captions className="size-[18px]" />
+              </IconButton>
               {sources && (
                 <IconButton label="Sources" title="Sources" onClick={() => togglePanel("sources")}>
                   <Layers className="size-[18px]" />
@@ -547,6 +538,11 @@ export default function Player({
       {episodes && panel === "episodes" && (
         <SidePanel title="Episodes" onClose={() => setPanel(null)}>
           {episodes}
+        </SidePanel>
+      )}
+      {panel === "subtitles" && subtitles.length > 0 && (
+        <SidePanel title="Subtitles" onClose={() => setPanel(null)}>
+          <CaptionsMenu subtitles={subtitles} active={active} onChoose={choose} />
         </SidePanel>
       )}
       {sources && panel === "sources" && (
