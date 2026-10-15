@@ -85,3 +85,27 @@ jobs:
     with:
       tag: desktop-windows-v${{ needs.tag.outputs.version }}
     secrets: inherit
+
+  # The Homebrew cask points at the new disk image, so `brew install --cask akidev` gets it.
+  cask:
+    needs: [tag, mac]
+    if: inputs.platforms != 'windows'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Point the cask at the new release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.tag.outputs.version }}
+        run: |
+          gh release download "desktop-mac-v${VERSION}" -p '*.dmg.sha256' -D "$RUNNER_TEMP"
+          sha=$(cut -d' ' -f1 "$RUNNER_TEMP/Akidev-${VERSION}-arm64.dmg.sha256")
+          [[ "$sha" =~ ^[0-9a-f]{64}$ ]] || { echo "No checksum for ${VERSION}." >&2; exit 1; }
+          sed -i "s/^  version \".*\"/  version \"${VERSION}\"/; s/^  sha256 \".*\"/  sha256 \"${sha}\"/" Casks/akidev.rb
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "Cask: Akidev ${VERSION}"
+          git pull --rebase origin main
+          git push origin HEAD:main
