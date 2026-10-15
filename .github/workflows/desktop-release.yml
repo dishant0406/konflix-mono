@@ -2,7 +2,7 @@ name: Desktop release
 
 # Builds the macOS app and packs it into a disk image, kept as a workflow artifact.
 #
-# Run it by hand from the Actions tab, or push a tag named desktop-v<version> (the version in
+# Run it by hand from the Actions tab, or push a tag named desktop-mac-v<version> (the version in
 # desktop/app/Cargo.toml). The app is signed ad hoc: there is no Apple Developer ID yet, so
 # macOS asks the first time it is opened, and the image carries a note that says how to
 # answer. The image is for Apple silicon, because that is what the runner and its libmpv are.
@@ -10,7 +10,7 @@ name: Desktop release
 on:
   workflow_dispatch:
   push:
-    tags: ["desktop-v*"]
+    tags: ["desktop-mac-v*"]
 
 permissions:
   contents: read
@@ -28,7 +28,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         run: |
           version=$(cargo pkgid -p akidev | sed 's/.*[#@]//')
-          if [ "${GITHUB_REF_NAME}" != "desktop-v${version}" ]; then
+          if [ "${GITHUB_REF_NAME}" != "desktop-mac-v${version}" ]; then
             echo "The tag is ${GITHUB_REF_NAME}, but the app is version ${version}." >&2
             exit 1
           fi

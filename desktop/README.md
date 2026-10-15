@@ -129,7 +129,7 @@ buttons, shortcuts use Ctrl where macOS uses Cmd, and the exe carries the icon. 
 The script (run from a Visual Studio developer prompt) downloads libmpv, makes its import
 library, builds and zips. The **Desktop** workflow runs it on every change, tests the code on
 Windows, starts the app once and keeps a screenshot (artifact `akidev-windows`); the **Desktop
-release (Windows)** workflow does the same for a `desktop-v<version>` tag. The app is not signed,
+release (Windows)** workflow does the same for a `desktop-windows-v<version>` tag. The app is not signed,
 so SmartScreen asks the first time ("More info", then "Run anyway").
 
 From a Mac, `cargo xwin check -p akidev --target x86_64-pc-windows-msvc` (with `cargo install
@@ -174,7 +174,7 @@ on a Mac without Homebrew, and with the Dock icon made from `assets/icon.png`. `
 it into a disk image with an Applications shortcut and a short note.
 
 The **Desktop release** workflow does this on GitHub: run it from the Actions tab, or push a tag
-named `desktop-v<version>` (the version in `app/Cargo.toml`), and the disk image is kept as the
+named `desktop-mac-v<version>` (the version in `app/Cargo.toml`), and the disk image is kept as the
 `akidev-macos-dmg` artifact for 30 days. It is for Apple silicon.
 
 The app is signed ad hoc, which is enough to run it locally. Without an Apple Developer ID

@@ -3,14 +3,14 @@ name: Desktop release (Windows)
 # Builds the Windows app and packs it into a zip, kept as a workflow artifact, then starts it
 # once and keeps a screenshot as proof that it opens.
 #
-# Run it by hand from the Actions tab, or push a tag named desktop-v<version> (the version in
+# Run it by hand from the Actions tab, or push a tag named desktop-windows-v<version> (the version in
 # desktop/Cargo.toml). The app is not signed with a code-signing certificate, so SmartScreen
 # says so the first time; the zip carries a note about it.
 
 on:
   workflow_dispatch:
   push:
-    tags: ["desktop-v*"]
+    tags: ["desktop-windows-v*"]
 
 permissions:
   contents: read
@@ -23,6 +23,17 @@ jobs:
         working-directory: desktop
     steps:
       - uses: actions/checkout@v4
+
+      - name: Check the tag names the version being built
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          version=$(cargo pkgid -p akidev | sed 's/.*[#@]//')
+          if [ "${GITHUB_REF_NAME}" != "desktop-windows-v${version}" ]; then
+            echo "The tag is ${GITHUB_REF_NAME}, but the app is version ${version}." >&2
+            exit 1
+          fi
+
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
