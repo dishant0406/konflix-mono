@@ -86,7 +86,9 @@ jobs:
       tag: desktop-windows-v${{ needs.tag.outputs.version }}
     secrets: inherit
 
-  # The Homebrew cask points at the new disk image, so `brew install --cask akidev` gets it.
+  # The Homebrew cask, in the dishant0406/homebrew-akidev tap, points at the new disk image, so
+  # `brew install --cask dishant0406/akidev/akidev` gets it. A deploy key limited to that repo
+  # (secret TAP_DEPLOY_KEY) lets this workflow push to it.
   cask:
     needs: [tag, mac]
     if: inputs.platforms != 'windows'
@@ -94,10 +96,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          repository: dishant0406/homebrew-akidev
+          ssh-key: ${{ secrets.TAP_DEPLOY_KEY }}
       - name: Point the cask at the new release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           VERSION: ${{ needs.tag.outputs.version }}
         run: |
           gh release download "desktop-mac-v${VERSION}" -p '*.dmg.sha256' -D "$RUNNER_TEMP"
@@ -106,6 +110,5 @@ jobs:
           sed -i "s/^  version \".*\"/  version \"${VERSION}\"/; s/^  sha256 \".*\"/  sha256 \"${sha}\"/" Casks/akidev.rb
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -am "Cask: Akidev ${VERSION}"
-          git pull --rebase origin main
+          git commit -am "Akidev ${VERSION}"
           git push origin HEAD:main

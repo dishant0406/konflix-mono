@@ -171,13 +171,22 @@ Two environment variables exist for testing the whole flow without a real instal
 `AKIDEV_UPDATE_CURRENT=0.0.1` makes the app believe it is that version, and
 `AKIDEV_UPDATE_BUNDLE=/path/to/Akidev.app` replaces that bundle instead of the running one.
 
+## Installing with Homebrew
+
+```bash
+brew install --cask dishant0406/akidev/akidev
+```
+
+The cask lives in [dishant0406/homebrew-akidev](https://github.com/dishant0406/homebrew-akidev), and the
+release workflow updates it. The app updates itself, so `brew upgrade` is not needed.
+
 ## Releasing
 
 Run **Release desktop** from the repository's Actions tab: type a version such as `0.1.4` (empty
 raises the patch number by one) and choose Windows, macOS or both. It writes the version into
 `desktop/Cargo.toml`, commits it, tags `desktop-mac-v<version>` and `desktop-windows-v<version>`,
 builds each platform (signing and notarising the Mac app, and signing the Windows installer once
-SignPath is set up) and publishes a GitHub release for each. Pushing one of those tags by hand
+SignPath is set up) and publishes a GitHub release for each, and points the Homebrew cask at the new Mac build. Pushing one of those tags by hand
 does the same for that platform, if the version in `Cargo.toml` already matches.
 
 ## Running

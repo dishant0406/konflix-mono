@@ -37,6 +37,7 @@ export default async function DownloadPage() {
         detail="macOS 12 or later, Apple silicon. Open the disk image and drag Akidev to Applications."
         download={downloads.mac}
         label="Download disk image"
+        command="brew install --cask dishant0406/akidev/akidev"
       />
 
       <Section title="Code signing">
@@ -84,18 +85,26 @@ function Platform({
   download,
   label,
   primary,
+  command,
 }: {
   name: string;
   detail: string;
   download: Download | null;
   label: string;
   primary?: boolean;
+  /** A terminal command that installs it too. */
+  command?: string;
 }) {
   return (
     <section className="flex flex-col gap-5 border-b border-line py-8 sm:flex-row sm:items-center sm:justify-between sm:gap-10">
       <div className="max-w-md">
         <h2 className="text-xl font-bold text-ink">{name}</h2>
         <p className="mt-1.5 text-sm leading-6 text-dim">{detail}</p>
+        {command && (
+          <p className="mt-3 text-xs text-faint">
+            Or with Homebrew: <code className="select-all rounded bg-ink/[0.07] px-1.5 py-0.5 text-dim">{command}</code>
+          </p>
+        )}
       </div>
       <div className="flex shrink-0 flex-col gap-1.5 sm:items-end">
         <Button href={download?.url ?? RELEASES} look={primary ? "primary" : "secondary"}>
