@@ -15,11 +15,11 @@ use crate::media::{self, Delivery as Plan};
 use crate::origin::Origin;
 use crate::sources::{archive, debrid::Debrid};
 use akidev_core::model::Release;
-use akidev_core::stream::Streamer;
+use akidev_core::stream::{Choice, Streamer};
 use futures::FutureExt;
 use futures::future::{BoxFuture, Shared};
 use regex::Regex;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use tokio::sync::Semaphore;
@@ -75,6 +75,27 @@ impl Player {
         })
     }
 
+    /// Every release that fits an episode or a film, for a viewer to pick from, and which of them the
+    /// debrid service already holds (those start at once). `None` for that when there is no such
+    /// service or it could not be asked.
+    pub async fn releases(
+        &self,
+        id: &str,
+    ) -> Result<(Vec<Choice>, Option<HashSet<String>>), String> {
+        let Some(streamer) = &self.streamer else {
+            return Err("This server has no torrent engine.".into());
+        };
+        let plan = streamer.plan(id).await?;
+        let held = match &self.debrid {
+            Some(debrid) => {
+                let all: Vec<Release> = plan.ranked.iter().chain(&plan.extra).cloned().collect();
+                debrid.holds(&all).await
+            }
+            None => None,
+        };
+        Ok((plan.choices(), held))
+    }
+
     pub fn sources(&self) -> Vec<String> {
         self.settings.stream_sources.clone()
     }
@@ -85,7 +106,13 @@ impl Player {
 
     /// Finds a playable source. `hevc` says the browser can play HEVC, which lets that video be
     /// kept as it is rather than converted.
-    pub async fn play(self: &Arc<Self>, id: &str, hevc: bool, start: Option<f64>) -> Outcome {
+    pub async fn play(
+        self: &Arc<Self>,
+        id: &str,
+        hevc: bool,
+        start: Option<f64>,
+        release: Option<String>,
+    ) -> Outcome {
         // A resume is part of the request, but only to the minute: it decides how far a conversion
         // may run, not what is found.
         let key = format!(
@@ -99,9 +126,10 @@ impl Player {
             } else {
                 let player = self.clone();
                 let id = id.to_string();
+                let release = release.clone();
                 let forget = key.clone();
                 let flight = async move {
-                    let outcome = player.resolve(&id, hevc, start).await;
+                    let outcome = player.resolve(&id, hevc, start, release.as_deref()).await;
                     player.flights.lock().unwrap().remove(&forget);
                     outcome
                 }
@@ -114,7 +142,13 @@ impl Player {
         flight.await
     }
 
-    async fn resolve(self: &Arc<Self>, id: &str, hevc: bool, start: Option<f64>) -> Outcome {
+    async fn resolve(
+        self: &Arc<Self>,
+        id: &str,
+        hevc: bool,
+        start: Option<f64>,
+        release: Option<&str>,
+    ) -> Outcome {
         let Ok(Ok(_slot)) =
             tokio::time::timeout(QUEUE_FOR, self.slots.clone().acquire_owned()).await
         else {
@@ -128,6 +162,18 @@ impl Player {
             Ok(plan) => plan,
             Err(reason) => return Outcome::Unavailable(reason),
         };
+        // A viewer who picked a release gets that one and no other: it is what they asked for, and
+        // a different one played in its place would be the opposite of choosing.
+        if let Some(hash) = release {
+            plan = match plan.only(hash) {
+                Some(only) => only,
+                None => {
+                    return Outcome::Unavailable(
+                        "That release is no longer listed. Pick another.".into(),
+                    );
+                }
+            };
+        }
         // What costs this server least is tried first: a release a browser can play without a
         // re-encode (10-bit H.264 is the common one it cannot), and one light enough to download
         // faster than it plays (a REMUX is not). The order is otherwise the library's own.

@@ -64,10 +64,11 @@ A title in full. 404 when the id is unknown.
 
 ## `POST /v1/play`
 
-Body `{ "id": "series-tt0903747-s1e1", "hevc": false, "start": 1200 }`. `hevc` says the browser
+Body `{ "id": "series-tt0903747-s1e1", "hevc": false, "start": 1200, "release": "<info hash>" }`. `hevc` says the browser
 can play HEVC; the server then keeps HEVC video as it is, and converts it otherwise. `start` is
 where the viewer means to begin, in seconds, and lets a conversion run that far ahead for a
-resume. Both optional.
+resume. `release` is the `id` of a release the viewer picked from `GET /v1/releases`: that one is
+played, and no other (`{ "available": false }` with a reason when it cannot be). All three are optional.
 
 Finding a source searches indexers and can take up to a minute, so the request stays open.
 
@@ -81,9 +82,52 @@ or `{ "available": false, "reason": "No torrent found for \"...\"." }`. The reas
 viewer. `503` with `{ "error": "busy" }` when the server is at its limits; try again shortly.
 
 `stream_type` is `file` (give `url` to a `<video>` element) or `hls` (attach hls.js to `url`;
-Safari plays it natively). `duration` is seconds when known. `subtitles` is empty when there
-are none. The URL is valid for a few hours; an expired one answers 404 and the player starts
+Safari plays it natively). `duration` is seconds when known. `subtitles` is always empty now (kept so older clients parse the reply); use
+`GET /v1/subtitles` instead. The URL is valid for a few hours; an expired one answers 404 and the player starts
 over with a new `POST /v1/play`.
+
+## `GET /v1/releases?id=<episode or film id>`
+
+Every release found for an episode or a film, for a viewer to pick one: the best first, in the
+order they would be tried, then the ones with a codec that may not decode where it is shown
+(`uncommon`). The first call searches the indexers and can take ten seconds; later ones are kept.
+
+```json
+{ "releases": [{
+    "id": "ab12...40 hex characters (the info hash; pass it to /v1/play as `release`)",
+    "title": "Show S01E01 1080p WEB-DL x264 AAC",
+    "size_bytes": 1400000000, "seeders": 66, "source": "knaben",
+    "resolution": 1080, "codec": "h264", "audio": "compressed",
+    "pack": false, "uncommon": false, "cached": true } ] }
+```
+
+`resolution` is 480, 720, 1080 or 2160; `codec` is `h264`, `hevc` or `av1`; `audio` is `lossless`
+(FLAC, DTS, AC-3) or `compressed` (AAC, MP3, Opus); any of them may be `null` when the name does
+not say. `size_bytes` may be `null`. `pack` is a whole season in one torrent. `cached` is whether the
+debrid service already holds the release (it starts at once; the others wait for a swarm) and is
+`null` when there is no such service or it could not be asked.
+
+## `GET /v1/subtitles?id=<episode or film id>`
+
+The subtitles there are for it, from the sources in the signed definitions (`subtitles` in
+`sources.json`): a few per language, English first and then by language name.
+
+```json
+{ "subtitles": [{ "id": "opensubtitles:30949", "provider": "OpenSubtitles",
+    "lang": "en", "language": "English", "label": "Show.S01E01.DVDRip.srt",
+    "hearing_impaired": false,
+    "url": "https://api.akidev.live/v1/subtitles/file/<token>.vtt" }] }
+```
+
+`lang` is a two-letter code (`pt-BR` and `zh-TW` where the region matters), `language` its name in
+English. `url` is the file as WebVTT, on this server: give it to a `<track>` element. The list is
+empty when no source has any, and an anime is looked up only when it is short and not a later season
+(a source numbers the episodes of a long or later-season show differently).
+
+## `GET /v1/subtitles/file/{token}.vtt`
+
+What `url` above points at: `text/vtt`, kept for good. `404` when the token was not listed (ask for
+the list again).
 
 ## `GET /s/{token}`, `/s/{token}/{file}`
 

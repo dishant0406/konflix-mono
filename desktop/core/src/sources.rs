@@ -7,7 +7,7 @@
 //! otherwise the app keeps what it has. Nothing here runs downloaded code: a definition only
 //! says which requests to make and which fields to read.
 
-use crate::definition::{IndexerDef, ProviderDef};
+use crate::definition::{IndexerDef, ProviderDef, SubtitleDef};
 use crate::model::Kind;
 use anyhow::{Context, ensure};
 use ed25519_dalek::{Signature, VerifyingKey};
@@ -44,6 +44,9 @@ pub struct Sources {
     pub trackers: Vec<String>,
     pub indexers: Vec<IndexerDef>,
     pub providers: Vec<ProviderDef>,
+    /// Where subtitle files come from. Absent in a document from before there were any.
+    #[serde(default)]
+    pub subtitles: Vec<SubtitleDef>,
     /// Which providers answer for each kind, in order.
     pub chains: BTreeMap<Kind, Vec<String>>,
 }
@@ -106,6 +109,19 @@ impl Sources {
             provider
                 .check()
                 .with_context(|| format!("provider {}", provider.id))?;
+        }
+        ensure!(self.subtitles.len() <= 16, "too many subtitle sources");
+        for (index, source) in self.subtitles.iter().enumerate() {
+            ensure!(
+                self.subtitles[..index]
+                    .iter()
+                    .all(|other| other.id != source.id),
+                "subtitle source {} appears twice",
+                source.id
+            );
+            source
+                .check()
+                .with_context(|| format!("subtitle source {}", source.id))?;
         }
         for kind in Kind::ALL {
             let chain = self.chain(kind);

@@ -16,6 +16,10 @@ pub struct Backend {
     /// Where torrents download. Deleted on quit.
     pub downloads_dir: PathBuf,
     pub progress: crate::progress::Progress,
+    /// The subtitle language the viewer last chose.
+    pub subtitle_language: crate::captions::Remembered,
+    /// Downloaded subtitle files, which mpv reads from.
+    pub subtitles_dir: PathBuf,
     /// The volume the viewer left the last video at, so the next episode starts there.
     pub volume: f64,
     pub muted: bool,
@@ -28,9 +32,12 @@ impl Backend {
     pub fn start(
         config_path: PathBuf,
         progress_path: PathBuf,
+        subtitle_language_path: PathBuf,
+        subtitles_dir: PathBuf,
         default_torrent_dir: PathBuf,
         sources_dir: PathBuf,
     ) -> Backend {
+        crate::captions::prune(&subtitles_dir);
         // A newer copy of the definitions is fetched in the background (the saved one was read at
         // start): indexers move often, and a build is not needed to follow them.
         crate::runtime::spawn(akidev_core::sources::keep_fresh(sources_dir));
@@ -61,6 +68,8 @@ impl Backend {
             config_path,
             downloads_dir,
             progress: crate::progress::Progress::load(progress_path),
+            subtitle_language: crate::captions::Remembered::load(subtitle_language_path),
+            subtitles_dir,
             volume: 100.,
             muted: false,
         }

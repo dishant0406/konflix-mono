@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "version": 3,
+  "version": 4,
   "trackers": [
     "udp://tracker.opentrackr.org:1337/announce",
     "udp://open.stealth.si:80/announce",
@@ -1175,6 +1175,59 @@
           },
           "rows": "data.movies",
           "limit": 12
+        }
+      }
+    }
+  ],
+  "subtitles": [
+    {
+      "id": "opensubtitles",
+      "name": "OpenSubtitles",
+      "kinds": [
+        "series",
+        "movie",
+        "anime"
+      ],
+      "hosts": [
+        "https://opensubtitles-v3.strem.io"
+      ],
+      "file_hosts": [
+        "strem.io"
+      ],
+      "lookup": {
+        "kinds": [
+          "anime"
+        ],
+        "url": "https://v3-cinemeta.strem.io/catalog/series/top/search={term}.json",
+        "rows": "metas",
+        "value": "imdb_id",
+        "max_episodes": 30,
+        "skip_title": "(?i)(season\\s*\\d|\\d(?:st|nd|rd|th)\\s+season|part\\s*\\d|cour\\s*\\d|final\\s+season|\\bii+\\b|\\bs\\d\\b)"
+      },
+      "request": {
+        "path": {
+          "$kind": {
+            "movie": "/subtitles/movie/{imdb}.json",
+            "series": "/subtitles/series/{imdb}:{season}:{episode}.json",
+            "anime": "/subtitles/series/{imdb}:1:{episode}.json"
+          }
+        }
+      },
+      "response": {
+        "rows": "subtitles",
+        "fields": {
+          "id": "id",
+          "url": "url",
+          "lang": "lang",
+          "label": {
+            "coalesce": [
+              "subtitleFileName",
+              "movieReleaseName"
+            ]
+          },
+          "format": {
+            "const": "srt"
+          }
         }
       }
     }

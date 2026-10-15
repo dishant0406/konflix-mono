@@ -32,10 +32,24 @@ pub struct PlayerState {
     /// The subtitle and audio track in use, as a short label ("ENG", "Off").
     pub subtitle: String,
     pub audio: String,
-    /// How many tracks the file has, so the controls only offer a choice that exists.
-    pub subtitle_tracks: u32,
+    /// The subtitle track in use, if any (mpv's track id).
+    pub sid: Option<i64>,
+    /// Every subtitle track mpv knows: the file's own and any loaded from outside.
+    pub subtitle_list: Vec<SubtitleTrack>,
+    /// How many audio tracks the file has, so the controls only offer a choice that exists.
     pub audio_tracks: u32,
     pub error: Option<String>,
+}
+
+/// One subtitle track of the loaded video.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SubtitleTrack {
+    pub id: i64,
+    /// As the file spells it ("eng"), empty when it does not say.
+    pub lang: String,
+    pub title: String,
+    /// Loaded by the app from a downloaded file, not part of the video.
+    pub external: bool,
 }
 
 impl Default for PlayerState {
@@ -51,7 +65,8 @@ impl Default for PlayerState {
             muted: false,
             subtitle: "Off".into(),
             audio: String::new(),
-            subtitle_tracks: 0,
+            sid: None,
+            subtitle_list: Vec::new(),
             audio_tracks: 0,
             error: None,
         }
@@ -103,6 +118,7 @@ const VOLUME: u64 = 7;
 const MUTE: u64 = 8;
 const SUBTITLE_TRACK: u64 = 9;
 const AUDIO_TRACK: u64 = 10;
+const TRACK_COUNT: u64 = 11;
 
 /// Frames are never larger than this, whatever the window: software rendering costs CPU
 /// in proportion to its area, and GPUI scales the image up to the window.
@@ -161,6 +177,8 @@ impl Player {
                 (MUTE, "mute", mpv_format_MPV_FORMAT_FLAG),
                 (SUBTITLE_TRACK, "sid", mpv_format_MPV_FORMAT_INT64),
                 (AUDIO_TRACK, "aid", mpv_format_MPV_FORMAT_INT64),
+                // A subtitle loaded after the file started shows up here, not at file load.
+                (TRACK_COUNT, "track-list/count", mpv_format_MPV_FORMAT_INT64),
             ] {
                 let name = CString::new(name).expect("static name");
                 mpv_observe_property(handle, id, name.as_ptr(), format);
@@ -245,6 +263,23 @@ impl Player {
         self.command(&["cycle", "sub"]);
     }
 
+    /// Shows the subtitle track with this id, or none.
+    pub fn select_subtitle(&self, id: Option<i64>) {
+        match id {
+            Some(id) => self.command(&["set", "sid", &id.to_string()]),
+            None => self.command(&["set", "sid", "no"]),
+        }
+    }
+
+    /// Loads a subtitle file and shows it. `title` and `lang` are what mpv reports for it.
+    pub fn add_subtitle(&self, path: &str, title: &str, lang: &str) {
+        self.command(&["sub-add", path, "select", title, lang]);
+    }
+
+    pub fn remove_subtitle(&self, id: i64) {
+        self.command(&["sub-remove", &id.to_string()]);
+    }
+
     pub fn cycle_audio(&self) {
         self.command(&["cycle", "audio"]);
     }
@@ -305,15 +340,26 @@ fn property_string(mpv: &Mpv, name: &str) -> Option<String> {
     }
 }
 
-/// How many subtitle and audio tracks the loaded file has.
-fn count_tracks(mpv: &Mpv) -> (u32, u32) {
+/// The subtitle tracks of the loaded file, and how many audio tracks it has.
+fn read_tracks(mpv: &Mpv) -> (Vec<SubtitleTrack>, u32) {
     let count: u32 = property_string(mpv, "track-list/count")
         .and_then(|text| text.parse().ok())
         .unwrap_or(0);
-    let (mut subtitles, mut audio) = (0, 0);
+    let (mut subtitles, mut audio) = (Vec::new(), 0);
     for index in 0..count {
-        match property_string(mpv, &format!("track-list/{index}/type")).as_deref() {
-            Some("sub") => subtitles += 1,
+        let field = |name: &str| property_string(mpv, &format!("track-list/{index}/{name}"));
+        match field("type").as_deref() {
+            Some("sub") => {
+                let Some(id) = field("id").and_then(|id| id.parse().ok()) else {
+                    continue;
+                };
+                subtitles.push(SubtitleTrack {
+                    id,
+                    lang: field("lang").unwrap_or_default(),
+                    title: field("title").unwrap_or_default(),
+                    external: field("external").as_deref() == Some("yes"),
+                });
+            }
             Some("audio") => audio += 1,
             _ => {}
         }
@@ -396,7 +442,11 @@ unsafe fn handle_events(mpv: &Mpv, shared: &Shared) {
                 if property.data.is_null() {
                     // A track property with no value means no track is selected.
                     match event.reply_userdata {
-                        SUBTITLE_TRACK => shared.state.lock().unwrap().subtitle = "Off".into(),
+                        SUBTITLE_TRACK => {
+                            let mut state = shared.state.lock().unwrap();
+                            state.subtitle = "Off".into();
+                            state.sid = None;
+                        }
                         AUDIO_TRACK => shared.state.lock().unwrap().audio.clear(),
                         _ => {}
                     }
@@ -407,6 +457,7 @@ unsafe fn handle_events(mpv: &Mpv, shared: &Shared) {
                     .then(|| track_label(mpv, "sub").unwrap_or_else(|| "Track".into()));
                 let audio = (event.reply_userdata == AUDIO_TRACK)
                     .then(|| track_label(mpv, "audio").unwrap_or_else(|| "Track".into()));
+                let tracks = (event.reply_userdata == TRACK_COUNT).then(|| read_tracks(mpv));
                 let mut state = shared.state.lock().unwrap();
                 unsafe {
                     match event.reply_userdata {
@@ -418,6 +469,7 @@ unsafe fn handle_events(mpv: &Mpv, shared: &Shared) {
                         ENDED => state.ended = *(property.data as *const i32) != 0,
                         VOLUME => state.volume = *(property.data as *const f64),
                         MUTE => state.muted = *(property.data as *const i32) != 0,
+                        SUBTITLE_TRACK => state.sid = Some(*(property.data as *const i64)),
                         _ => {}
                     }
                 }
@@ -427,11 +479,15 @@ unsafe fn handle_events(mpv: &Mpv, shared: &Shared) {
                 if let Some(audio) = audio {
                     state.audio = audio;
                 }
+                if let Some((subtitles, audio)) = tracks {
+                    state.subtitle_list = subtitles;
+                    state.audio_tracks = audio;
+                }
             }
             id if id == mpv_event_id_MPV_EVENT_FILE_LOADED => {
-                let (subtitles, audio) = count_tracks(mpv);
+                let (subtitles, audio) = read_tracks(mpv);
                 let mut state = shared.state.lock().unwrap();
-                state.subtitle_tracks = subtitles;
+                state.subtitle_list = subtitles;
                 state.audio_tracks = audio;
             }
             id if id == mpv_event_id_MPV_EVENT_START_FILE => {

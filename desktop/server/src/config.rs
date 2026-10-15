@@ -142,6 +142,10 @@ impl Settings {
         self.cache_dir.join("img")
     }
 
+    pub fn subtitles_dir(&self) -> PathBuf {
+        self.cache_dir.join("subs")
+    }
+
     pub fn catalogue_dir(&self) -> PathBuf {
         self.cache_dir.join("catalog")
     }

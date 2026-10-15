@@ -6,6 +6,8 @@ import { useCallback, useMemo, useState } from "react";
 import { Button } from "@/components/button";
 import Episodes from "@/components/episodes";
 import Player from "@/components/player";
+import { SidePanel } from "@/components/side-panel";
+import Sources from "@/components/sources";
 import { ErrorState, Spinner } from "@/components/states";
 import { ROUTES, titlePath, watchPath } from "@/constants/routes";
 import { episodeCount, neighbour, titleLine } from "@/lib/episodes";
@@ -14,6 +16,14 @@ import { playErrorMessage } from "@/lib/play";
 import { record, resumeAt } from "@/lib/progress";
 import { useDetail } from "@/query/use-media";
 import { usePlay } from "@/query/use-play";
+import { useSubtitles } from "@/query/use-subtitles";
+import type { Release } from "@/types/media";
+
+/** A release the viewer picked for one episode, and where they were in it. */
+type Pick = { episode: string; release: Release; start: number | null };
+
+/** Before this many seconds into an episode there is nothing to resume. */
+const RESUME_AFTER = 5;
 
 export default function WatchPage() {
   const params = useParams();
@@ -26,7 +36,14 @@ export default function WatchPage() {
   const detail = useDetail(key);
   // Read once per episode: the position it was left at.
   const startAt = useMemo(() => (id ? resumeAt(id) : null), [id]);
-  const stream = usePlay(id, startAt);
+  // A picked release belongs to the episode it was picked for; moving to another one forgets it.
+  const [picked, setPicked] = useState<Pick | null>(null);
+  const pick = picked && picked.episode === id ? picked : null;
+  const resumeFrom = pick ? pick.start : startAt;
+  const stream = usePlay(id, resumeFrom, pick?.release.id);
+  const subtitles = useSubtitles(id);
+  /** The episode whose source picker is open over the "no source" screen. */
+  const [choosing, setChoosing] = useState<string | null>(null);
   const [playbackError, setPlaybackError] = useState<{ id: string; message: string } | null>(null);
 
   const data = detail.data;
@@ -58,6 +75,16 @@ export default function WatchPage() {
   const link = stream.data;
   const error = playbackError && playbackError.id === id ? playbackError.message : null;
 
+  // Picking a release plays that one, from where the viewer was.
+  const choose = useCallback(
+    (release: Release, position: number) => {
+      if (!id) return;
+      setChoosing(null);
+      setPicked({ episode: id, release, start: position >= RESUME_AFTER ? Math.floor(position) : null });
+    },
+    [id],
+  );
+
   const status = (children: React.ReactNode) => (
     <div className="fixed inset-0 z-[60] flex flex-col items-center justify-center gap-3 bg-black px-6 text-center">
       <button
@@ -68,6 +95,11 @@ export default function WatchPage() {
         ← Back
       </button>
       {children}
+      {choosing === id && (
+        <SidePanel title="Sources" onClose={() => setChoosing(null)} className="sm:bottom-4 sm:top-14">
+          <Sources id={id} picked={null} playedTitle={null} onPick={(release) => choose(release, 0)} />
+        </SidePanel>
+      )}
     </div>
   );
 
@@ -75,14 +107,17 @@ export default function WatchPage() {
     return status(
       <>
         <Spinner />
-        <p className="text-[15px] font-semibold text-ink">Finding the best source</p>
+        <p className="text-[15px] font-semibold text-ink">{pick ? "Finding this source" : "Finding the best source"}</p>
         <p className="text-[13px] text-dim">This can take up to a minute.</p>
       </>,
     );
   }
 
   const neighbours = (
-    <div className="flex gap-3 pt-3">
+    <div className="flex flex-wrap justify-center gap-3 pt-3">
+      <Button look="secondary" onClick={() => setChoosing(id ?? null)}>
+        Choose another source
+      </Button>
       {previous && (
         <Button look="secondary" onClick={() => go(previous)}>
           Previous episode
@@ -131,13 +166,26 @@ export default function WatchPage() {
         key={id}
         src={link.url}
         streamType={link.stream_type}
-        subtitles={link.subtitles}
+        subtitles={subtitles.subtitles}
+        subtitlesLoading={subtitles.loading}
         title={titleLine(data, id)}
-        startAt={startAt}
+        startAt={resumeFrom}
         onBack={leave}
         onError={(message) => id && setPlaybackError({ id, message })}
         onProgress={onProgress}
         onNext={next ? onNext : undefined}
+        sources={({ position, close }) => (
+          <Sources
+            id={id}
+            picked={pick?.release.id ?? null}
+            playedTitle={link.release}
+            onPick={(release) => {
+              close();
+              // The one already playing is not started over.
+              if (release.id !== pick?.release.id && (pick || release.title !== link.release)) choose(release, position());
+            }}
+          />
+        )}
         episodes={
           !isFilm && key && data ? (
             <Episodes titleKey={key} count={count} list={data.episodes} currentId={id} compact />

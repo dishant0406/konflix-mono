@@ -14,5 +14,6 @@ pub mod search;
 pub mod serve;
 pub mod sources;
 pub mod stream;
+pub mod subtitles;
 pub mod template;
 pub mod torrent;

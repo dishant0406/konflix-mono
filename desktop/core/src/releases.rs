@@ -654,11 +654,23 @@ pub fn rank_movie_releases(
     title: &str,
     titles: &[String],
 ) -> Vec<Release> {
+    rank_movie_releases_by(releases, year, title, titles, true)
+}
+
+/// `rank_movie_releases`, with a say in whether a codec the browser player could not handle is
+/// left out. A viewer choosing for themselves is shown those too.
+pub fn rank_movie_releases_by(
+    releases: &[Release],
+    year: Option<u32>,
+    title: &str,
+    titles: &[String],
+    playable_codecs_only: bool,
+) -> Vec<Release> {
     let known = known_titles(title, titles);
 
     let usable: Vec<&Release> = releases
         .iter()
-        .filter(|release| is_playable_codec(&release.title))
+        .filter(|release| !playable_codecs_only || is_playable_codec(&release.title))
         .filter(|release| matches_any_title(&release.title, &known))
         // A series episode is not a film, and this is a hard filter: without it a
         // season pack or a stray episode outranks the film itself. The year is passed
@@ -850,6 +862,19 @@ pub fn rank_releases(
     titles: &[String],
     season: Option<u32>,
 ) -> Vec<Release> {
+    rank_releases_by(releases, episode, title, titles, season, true)
+}
+
+/// `rank_releases`, with a say in whether a codec the browser player could not handle is left
+/// out. A viewer choosing for themselves is shown those too.
+pub fn rank_releases_by(
+    releases: &[Release],
+    episode: u32,
+    title: &str,
+    titles: &[String],
+    season: Option<u32>,
+    playable_codecs_only: bool,
+) -> Vec<Release> {
     let titles = known_titles(title, titles);
 
     // When no title can be compared against a release name, relevance passes
@@ -861,7 +886,7 @@ pub fn rank_releases(
 
     let usable: Vec<&Release> = releases
         .iter()
-        .filter(|release| is_playable_codec(&release.title))
+        .filter(|release| !playable_codecs_only || is_playable_codec(&release.title))
         .filter(|release| matches_any_title(&release.title, &titles))
         .filter(|release| matches_episode(&release.title, episode, season))
         .filter(|release| !require_named_episode || parse_episode(&release.title) == Some(episode))

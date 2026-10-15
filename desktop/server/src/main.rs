@@ -14,6 +14,7 @@ mod media;
 mod origin;
 mod play;
 mod sources;
+mod subs;
 
 #[cfg(test)]
 mod e2e;
@@ -95,6 +96,7 @@ async fn run() -> anyhow::Result<()> {
     );
     let registry = Arc::new(deliver::Registry::default());
     let images = img::Images::new(settings.images_dir(), settings.image_hosts.clone());
+    let subs = Arc::new(subs::Subs::new(settings.subtitles_dir()));
 
     let wants_debrid = settings
         .stream_sources
@@ -131,6 +133,7 @@ async fn run() -> anyhow::Result<()> {
         limiter: Arc::new(limits::Limiter::default()),
         engine: Some(engine.clone()),
         images: images.clone(),
+        subs: subs.clone(),
         ffmpeg,
     };
 
@@ -143,6 +146,17 @@ async fn run() -> anyhow::Result<()> {
             loop {
                 images.prune(limit).await;
                 tokio::time::sleep(Duration::from_secs(600)).await;
+            }
+        });
+    }
+
+    {
+        // Converted subtitles are small, and kept in the same way.
+        let subs = subs.clone();
+        tokio::spawn(async move {
+            loop {
+                subs.prune(64 * 1024 * 1024).await;
+                tokio::time::sleep(Duration::from_secs(3600)).await;
             }
         });
     }

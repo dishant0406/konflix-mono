@@ -1,20 +1,25 @@
 //! The watch page: the video fills the window, and its controls come and go.
 
 use crate::backend::Backend;
+use crate::captions::{self, Group, Start};
 use crate::design::button::{control_button, icon_button, secondary_button};
 use crate::design::state::{error_state, skeleton};
 use crate::design::tokens::{
     ACCENT, CANVAS, GUTTER, LINE, SURFACE, TEXT, TEXT_DIM, TOP_BAR, color,
 };
 use crate::episodes::EpisodeList;
-use crate::player::{MAX_WIDTH, Player, PlayerState};
+use crate::panels::{
+    self, SourceAction, SourcesView, SubtitleAction, SubtitleMenu, back_to_sources,
+};
+use crate::player::{MAX_WIDTH, Player, PlayerState, SubtitleTrack};
 use crate::progress::Entry;
 use crate::route::{Route, replace};
 use crate::runtime;
 use akidev_core::media_id::{self, MediaId, anime_episode_id};
 use akidev_core::model::{Detail, Kind};
 use akidev_core::providers;
-use akidev_core::stream::{Resolution, StreamId};
+use akidev_core::stream::{Choice, Resolution, StreamId};
+use akidev_core::subtitles::{self, Subtitle};
 use akidev_core::torrent::StreamStats;
 use futures::StreamExt as _;
 use futures::channel::mpsc;
@@ -24,6 +29,7 @@ use gpui_kit::component::{InteractiveElementExt as _, TitleBar};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::cell::Cell;
+use std::path::Path;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -37,6 +43,23 @@ const SAVE_EVERY: Duration = Duration::from_secs(10);
 const MESSAGE_FOR: Duration = Duration::from_millis(1400);
 /// "Next episode" is offered this many seconds before the end.
 const NEXT_OFFER: f64 = 40.;
+/// How long to wait for the subtitle sites. Playback never waits for them.
+const SUBTITLES_WAIT: Duration = Duration::from_secs(8);
+
+/// The side panels. One is open at a time.
+#[derive(Clone, Copy, PartialEq)]
+enum Panel {
+    Episodes,
+    Sources,
+    Subtitles,
+}
+
+/// The releases the source picker lists. The first call takes seconds, so it has a state.
+enum Sources {
+    Loading,
+    Ready(Vec<Choice>),
+    Failed(String),
+}
 
 enum Phase {
     Resolving,
@@ -110,7 +133,22 @@ pub struct WatchPage {
     parsed: Option<MediaId>,
     detail: Option<Detail>,
     episodes: Option<Entity<EpisodeList>>,
-    episodes_open: bool,
+    panel: Option<Panel>,
+    /// Asked for the first time the picker opens.
+    sources: Option<Sources>,
+    /// The subtitles found online, by language. Empty until (and unless) the sites answer.
+    online: Vec<Group>,
+    /// The sites have answered (or failed to), so "nothing in that language" is known.
+    online_ready: bool,
+    /// The viewer's language has been looked for in this video, so it is done only once.
+    subtitles_started: bool,
+    /// The online subtitle on screen, by id.
+    online_in_use: Option<String>,
+    /// The language in the subtitle panel whose options are showing.
+    language_open: Option<String>,
+    /// Where to carry on after the viewer switches release: the same moment, even when it is
+    /// too early in the video for progress to offer to resume it.
+    resume_from: Option<f64>,
     phase: Phase,
     player: Option<Rc<Player>>,
     video: Option<Entity<VideoView>>,
@@ -159,6 +197,7 @@ impl WatchPage {
                     if detail.is_none() {
                         crate::route::toast("Couldn't load this title's details.", cx);
                     }
+                    page.find_subtitles(detail.as_ref(), cx);
                     page.detail = detail;
                     cx.notify();
                 },
@@ -185,7 +224,14 @@ impl WatchPage {
             parsed,
             detail: None,
             episodes: None,
-            episodes_open: false,
+            panel: None,
+            sources: None,
+            online: Vec::new(),
+            online_ready: false,
+            subtitles_started: false,
+            online_in_use: None,
+            language_open: None,
+            resume_from: None,
             phase: Phase::Resolving,
             player: None,
             video: None,
@@ -212,7 +258,23 @@ impl WatchPage {
     /// Looks for a source and starts playing it. `fresh` forgets a torrent that already
     /// failed, for a retry.
     fn start(&mut self, fresh: bool, cx: &mut Context<Self>) {
+        self.begin(None, fresh, cx);
+    }
+
+    /// Plays the release with this info hash, from where the viewer is.
+    fn play_release(&mut self, info_hash: String, cx: &mut Context<Self>) {
+        self.panel = None;
+        self.begin(Some(info_hash), false, cx);
+    }
+
+    /// Opens a release and plays it: the one asked for, or else the best that works.
+    fn begin(&mut self, release: Option<String>, fresh: bool, cx: &mut Context<Self>) {
         self.save_progress(cx);
+        if release.is_some() && self.state.position > 0. {
+            self.resume_from = Some(self.state.position);
+        }
+        self.online_in_use = None;
+        self.subtitles_started = false;
         self.player = None;
         self.video = None;
         self.stream = None;
@@ -230,7 +292,12 @@ impl WatchPage {
             }
         };
         let id = self.id.clone();
-        let handle = runtime::spawn(async move { streamer.resolve(&id, fresh).await });
+        let handle = runtime::spawn(async move {
+            match release {
+                Some(info_hash) => streamer.resolve_release(&id, &info_hash).await,
+                None => streamer.resolve(&id, fresh).await,
+            }
+        });
         self.resolving = Some(AbortOnDrop(handle.abort_handle()));
         cx.spawn(async move |page, cx| {
             // An aborted task means the page was left, so there is nobody to tell.
@@ -254,7 +321,10 @@ impl WatchPage {
             }
         };
         let backend = cx.global::<Backend>();
-        let resume = backend.progress.resume_at(&self.id);
+        let resume = self
+            .resume_from
+            .take()
+            .or_else(|| backend.progress.resume_at(&self.id));
         let (volume, muted) = (backend.volume, backend.muted);
         let (sender, receiver) = mpsc::channel::<()>(1);
         match Player::start(&url, resume, volume, muted, sender) {
@@ -307,7 +377,7 @@ impl WatchPage {
             && !self.state.paused
             && !self.state.buffering
             && self.scrubbing.is_none()
-            && !self.episodes_open;
+            && self.panel.is_none();
         if hide && self.controls_visible {
             self.controls_visible = false;
             changed = true;
@@ -320,6 +390,7 @@ impl WatchPage {
             self.message = None;
             changed = true;
         }
+        self.start_subtitles(cx);
         if self.last_saved.elapsed() > SAVE_EVERY && !self.state.paused {
             self.save_progress(cx);
         }
@@ -480,23 +551,224 @@ impl WatchPage {
             "m" => self.with_player(cx, Player::toggle_mute),
             "c" => self.with_player(cx, Player::cycle_subtitles),
             "a" => self.with_player(cx, Player::cycle_audio),
-            "e" if self.episodes.is_some() => {
-                self.episodes_open = !self.episodes_open;
-                cx.notify();
-            }
+            "e" if self.episodes.is_some() => self.toggle_panel(Panel::Episodes, cx),
             "n" => {
                 if let Some(next) = self.neighbour(1) {
                     replace(Route::Watch { id: next }, cx);
                 }
             }
             "f" => window.toggle_fullscreen(),
-            "escape" if self.episodes_open => {
-                self.episodes_open = false;
+            "escape" if self.panel.is_some() => {
+                self.panel = None;
                 cx.notify();
             }
             "escape" if window.is_fullscreen() => window.toggle_fullscreen(),
             _ => {}
         }
+    }
+
+    /// Opens a panel, or closes it if it is the one showing. Opening one closes the other.
+    fn toggle_panel(&mut self, panel: Panel, cx: &mut Context<Self>) {
+        self.panel = (self.panel != Some(panel)).then_some(panel);
+        if self.panel == Some(Panel::Sources) && self.sources.is_none() {
+            self.load_sources(cx);
+        }
+        self.activity(cx);
+        cx.notify();
+    }
+
+    /// Asks for every release of this episode or film. It runs in the background: the first
+    /// call searches the indexers and takes several seconds.
+    fn load_sources(&mut self, cx: &mut Context<Self>) {
+        let streamer = match &cx.global::<Backend>().streamer {
+            Ok(streamer) => streamer.clone(),
+            Err(error) => {
+                self.sources = Some(Sources::Failed(format!(
+                    "Streaming could not start: {error}"
+                )));
+                return;
+            }
+        };
+        self.sources = Some(Sources::Loading);
+        let id = self.id.clone();
+        crate::task::load(
+            cx,
+            async move { streamer.plan(&id).await.map(|plan| plan.choices()) },
+            |page, plan, cx| {
+                page.sources = Some(match plan {
+                    Ok(choices) => Sources::Ready(choices),
+                    Err(reason) => Sources::Failed(reason),
+                });
+                cx.notify();
+            },
+        );
+    }
+
+    /// Looks for subtitles on the sites. Playback does not wait for this, and when it fails
+    /// or finds nothing the menu simply has no online section.
+    fn find_subtitles(&mut self, detail: Option<&Detail>, cx: &mut Context<Self>) {
+        let (Some(detail), Some(parsed)) = (detail, &self.parsed) else {
+            return;
+        };
+        let query = subtitles::query_for(detail, parsed);
+        crate::task::load(
+            cx,
+            async move { subtitles::find(&query, SUBTITLES_WAIT).await },
+            |page, found, cx| {
+                page.online = captions::group(found);
+                page.online_ready = true;
+                cx.notify();
+            },
+        );
+    }
+
+    /// Once the picture is up, starts the subtitles in the language the viewer chose last.
+    ///
+    /// A track inside the file in that language is used. An online subtitle is used only when
+    /// the file has none in it: a track made for this very release is a better fit than one
+    /// from the sites, and needs no download. When neither exists, mpv's own choice stands.
+    fn start_subtitles(&mut self, cx: &mut Context<Self>) {
+        if self.subtitles_started || !self.state.video_ready {
+            return;
+        }
+        let Some(language) = cx
+            .global::<Backend>()
+            .subtitle_language
+            .language()
+            .map(str::to_string)
+        else {
+            self.subtitles_started = true;
+            return;
+        };
+        let embedded: Vec<&SubtitleTrack> = self
+            .state
+            .subtitle_list
+            .iter()
+            .filter(|track| !track.external)
+            .collect();
+        let start = captions::start_with(&language, &embedded, &self.online);
+        match start {
+            Some(Start::Embedded(id)) => {
+                let name = self
+                    .state
+                    .subtitle_list
+                    .iter()
+                    .find(|track| track.id == id)
+                    .map(captions::track_name)
+                    .unwrap_or_default();
+                self.subtitles_started = true;
+                self.use_embedded(id, &name, cx);
+            }
+            Some(Start::Online(subtitle)) => {
+                let subtitle = subtitle.clone();
+                self.subtitles_started = true;
+                self.use_online(subtitle, false, cx);
+            }
+            // The sites may still answer.
+            None if !self.online_ready => {}
+            None => self.subtitles_started = true,
+        }
+    }
+
+    fn use_embedded(&mut self, id: i64, name: &str, cx: &mut Context<Self>) {
+        if let Some(player) = &self.player {
+            player.select_subtitle(Some(id));
+        }
+        self.online_in_use = None;
+        self.say(format!("Subtitles: {name}"), cx);
+    }
+
+    /// Downloads an online subtitle and has mpv show it. `remember` is for the viewer's own
+    /// choice; the one picked for them at the start does not change what they chose.
+    fn use_online(&mut self, subtitle: Subtitle, remember: bool, cx: &mut Context<Self>) {
+        let dir = cx.global::<Backend>().subtitles_dir.clone();
+        self.online_in_use = Some(subtitle.id.clone());
+        crate::task::load(
+            cx,
+            captions::download(dir, subtitle.url.clone()),
+            move |page, file, cx| match file {
+                Ok(path) => page.show_subtitle_file(&path, &subtitle, remember, cx),
+                Err(error) => {
+                    tracing::warn!("[subtitles] {}: {error}", subtitle.id);
+                    if page.online_in_use.as_deref() == Some(subtitle.id.as_str()) {
+                        page.online_in_use = None;
+                    }
+                    page.say("Couldn't load that subtitle", cx);
+                }
+            },
+        );
+    }
+
+    fn show_subtitle_file(
+        &mut self,
+        path: &Path,
+        subtitle: &Subtitle,
+        remember: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(player) = self.player.clone() else {
+            return;
+        };
+        // One downloaded track at a time: the last one stays loaded in mpv otherwise, and
+        // cycling with the key would walk through all of them.
+        for track in self
+            .state
+            .subtitle_list
+            .iter()
+            .filter(|track| track.external)
+        {
+            player.remove_subtitle(track.id);
+        }
+        player.add_subtitle(&path.to_string_lossy(), &subtitle.language, &subtitle.lang);
+        if remember {
+            cx.global_mut::<Backend>()
+                .subtitle_language
+                .set(Some(subtitle.lang.clone()));
+        }
+        self.say(format!("Subtitles: {}", subtitle.language), cx);
+    }
+
+    fn subtitle_action(&mut self, action: SubtitleAction, cx: &mut Context<Self>) {
+        match action {
+            SubtitleAction::Language(code) => {
+                self.language_open =
+                    (self.language_open.as_deref() != Some(code.as_str())).then_some(code);
+            }
+            SubtitleAction::Off => {
+                if let Some(player) = &self.player {
+                    player.select_subtitle(None);
+                }
+                self.online_in_use = None;
+                // Off is a choice too: the next video does not start with subtitles.
+                cx.global_mut::<Backend>().subtitle_language.set(None);
+                self.panel = None;
+                self.say("Subtitles: Off", cx);
+            }
+            SubtitleAction::Embedded(id) => {
+                let name = self
+                    .state
+                    .subtitle_list
+                    .iter()
+                    .find(|track| track.id == id)
+                    .map(captions::track_name)
+                    .unwrap_or_default();
+                self.panel = None;
+                self.use_embedded(id, &name, cx);
+            }
+            SubtitleAction::Online(id) => {
+                let found = self
+                    .online
+                    .iter()
+                    .flat_map(|group| &group.options)
+                    .find(|option| option.id == id)
+                    .cloned();
+                if let Some(subtitle) = found {
+                    self.panel = None;
+                    self.use_online(subtitle, true, cx);
+                }
+            }
+        }
+        cx.notify();
     }
 
     /// "Breaking Bad · S1 E3 · Gray Matter".
@@ -720,16 +992,12 @@ impl WatchPage {
                         cx.listener(|page, _, _, cx| page.with_player(cx, Player::toggle_mute)),
                     ))
                     .child(div().flex_1())
-                    .when(state.subtitle_tracks > 0, |row| {
-                        row.child(control_button(
-                            "subtitles",
-                            IconName::Captions,
-                            Some(state.subtitle.clone()),
-                            cx.listener(|page, _, _, cx| {
-                                page.with_player(cx, Player::cycle_subtitles)
-                            }),
-                        ))
-                    })
+                    .child(control_button(
+                        "subtitles",
+                        IconName::Captions,
+                        Some(state.subtitle.clone()),
+                        cx.listener(|page, _, _, cx| page.toggle_panel(Panel::Subtitles, cx)),
+                    ))
                     .when(state.audio_tracks > 1, |row| {
                         row.child(control_button(
                             "audio",
@@ -738,14 +1006,16 @@ impl WatchPage {
                             cx.listener(|page, _, _, cx| page.with_player(cx, Player::cycle_audio)),
                         ))
                     })
+                    .child(icon_button(
+                        "sources",
+                        IconName::Layers,
+                        cx.listener(|page, _, _, cx| page.toggle_panel(Panel::Sources, cx)),
+                    ))
                     .when(self.episodes.is_some(), |row| {
                         row.child(icon_button(
                             "episodes",
                             IconName::List,
-                            cx.listener(|page, _, _, cx| {
-                                page.episodes_open = !page.episodes_open;
-                                cx.notify();
-                            }),
+                            cx.listener(|page, _, _, cx| page.toggle_panel(Panel::Episodes, cx)),
                         ))
                     })
                     .children(next.map(|id| {
@@ -799,54 +1069,62 @@ impl WatchPage {
         )
     }
 
-    fn episodes_panel(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
-        let list = self.episodes.clone().filter(|_| self.episodes_open)?;
-        Some(
-            div()
-                .occlude()
-                .absolute()
-                .top(px(TOP_BAR))
-                .right_0()
-                .bottom_0()
-                .w(px(400.))
-                .flex()
-                .flex_col()
-                .bg(color(SURFACE).opacity(0.97))
-                .border_l_1()
-                .border_color(color(LINE))
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .justify_between()
-                        .px_4()
-                        .py_3()
-                        .child(
-                            div()
-                                .text_size(px(16.))
-                                .font_weight(FontWeight::BOLD)
-                                .text_color(color(TEXT))
-                                .child("Episodes"),
-                        )
-                        .child(icon_button(
-                            "close-episodes",
-                            IconName::X,
-                            cx.listener(|page, _, _, cx| {
-                                page.episodes_open = false;
-                                cx.notify();
-                            }),
-                        )),
-                )
-                .child(
-                    div()
-                        .id("episodes-scroll")
-                        .flex_1()
-                        .min_h_0()
-                        .overflow_y_scroll()
-                        .restrict_scroll_to_axis()
-                        .child(list),
-                ),
-        )
+    /// The panel on the right, if one is open.
+    fn side_panel(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+        let panel = self.panel?;
+        let page = cx.entity();
+        let close = cx.listener(|page, _, _, cx| {
+            page.panel = None;
+            cx.notify();
+        });
+        Some(match panel {
+            Panel::Episodes => {
+                let list = self.episodes.clone()?;
+                panels::shell("Episodes", close, list)
+            }
+            Panel::Sources => {
+                let view = match &self.sources {
+                    None | Some(Sources::Loading) => SourcesView::Loading,
+                    Some(Sources::Failed(reason)) => SourcesView::Failed(reason),
+                    Some(Sources::Ready(choices)) => SourcesView::Ready(choices),
+                };
+                let playing = self.stream.as_ref().map(|stream| stream.info_hash.as_str());
+                let act = Rc::new(move |action: SourceAction, cx: &mut App| {
+                    page.update(cx, |page, cx| match action {
+                        SourceAction::Pick(info_hash) => page.play_release(info_hash, cx),
+                        SourceAction::Retry => {
+                            page.load_sources(cx);
+                            cx.notify();
+                        }
+                    })
+                });
+                panels::shell("Sources", close, panels::sources_body(view, playing, act))
+            }
+            Panel::Subtitles => {
+                let on_screen = self.state.sid.is_some_and(|sid| {
+                    self.state
+                        .subtitle_list
+                        .iter()
+                        .any(|track| track.id == sid && track.external)
+                });
+                let menu = SubtitleMenu {
+                    selected: self.state.sid,
+                    embedded: self
+                        .state
+                        .subtitle_list
+                        .iter()
+                        .filter(|track| !track.external)
+                        .collect(),
+                    online: &self.online,
+                    online_in_use: self.online_in_use.as_deref().filter(|_| on_screen),
+                    expanded: self.language_open.as_deref(),
+                };
+                let act = Rc::new(move |action: SubtitleAction, cx: &mut App| {
+                    page.update(cx, |page, cx| page.subtitle_action(action, cx))
+                });
+                panels::shell("Subtitles", close, panels::subtitles_body(menu, act))
+            }
+        })
     }
 
     /// What fills the window: a status while looking, the picture while playing.
@@ -888,6 +1166,9 @@ impl WatchPage {
                     div()
                         .flex()
                         .gap_3()
+                        .child(back_to_sources(cx.listener(|page, _, _, cx| {
+                            page.toggle_panel(Panel::Sources, cx)
+                        })))
                         .children(self.neighbour(-1).map(|id| {
                             secondary_button(
                                 "try-previous",
@@ -1049,7 +1330,7 @@ impl Render for WatchPage {
                             .child(text.clone()),
                     )
             }))
-            .children(self.episodes_panel(cx))
+            .children(self.side_panel(cx))
             .when(self.detail.is_none() && !playing, |page| {
                 page.child(
                     div()

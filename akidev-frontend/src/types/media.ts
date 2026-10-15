@@ -62,9 +62,38 @@ export interface Detail {
   recommended: Media[];
 }
 
-export interface Subtitle {
-  label: string;
+/** One release of an episode or film, from `GET /v1/releases`. Any field the name does not say is null. */
+export interface Release {
+  /** The info hash; sent to /v1/play as `release` to play exactly this one. */
+  id: string;
+  title: string;
+  size_bytes: number | null;
+  seeders: number;
+  source: string;
+  /** 480, 720, 1080 or 2160. */
+  resolution: number | null;
+  codec: "h264" | "hevc" | "av1" | null;
+  /** "lossless" is FLAC, DTS, AC-3; "compressed" is AAC, MP3, Opus. */
+  audio: "lossless" | "compressed" | null;
+  /** A whole season in one torrent. */
+  pack: boolean;
+  /** A codec that may not decode where it is shown (HEVC, AV1). */
+  uncommon: boolean;
+  /** Whether the debrid service already holds it; null when there is none or it could not be asked. */
+  cached: boolean | null;
+}
+
+/** One subtitle file for an episode or film, from `GET /v1/subtitles`. */
+export interface SubtitleOption {
+  id: string;
+  provider: string;
+  /** Two letters, or "pt-BR" / "zh-TW" where the region matters. */
   lang: string;
+  /** The language's name in English. */
+  language: string;
+  label: string;
+  hearing_impaired: boolean;
+  /** The WebVTT file, on the API's origin. */
   url: string;
 }
 
@@ -78,7 +107,6 @@ export type PlayResult =
       source: string | null;
       /** Seconds, when known. */
       duration: number | null;
-      subtitles: Subtitle[];
     }
   | { available: false; reason: string };
 

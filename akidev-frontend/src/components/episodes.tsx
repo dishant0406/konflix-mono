@@ -2,7 +2,7 @@
 
 import { Play } from "lucide-react";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type Ref } from "react";
 
 import { watchPath } from "@/constants/routes";
 import { animeEpisodeId, parseMediaId } from "@/lib/media-id";
@@ -17,7 +17,8 @@ import { SectionTitle } from "./states";
  * anime has a flat count, so its episodes are numbered tiles. A film has none.
  *
  * `compact` is the watch page's side panel: it swaps the episode in place, so Back still
- * leaves the show, and drops the heading.
+ * leaves the show. The panel has its own header, so there is no heading here, only the season
+ * tabs; the current episode is scrolled into view when it opens.
  */
 export default function Episodes({
   titleKey,
@@ -43,33 +44,56 @@ export default function Episodes({
   const [chosen, setChosen] = useState<number | null>(null);
   const season = chosen ?? currentSeason ?? seasons[0];
 
+  // Opening the panel on episode 40 of 60 should show episode 40, not the top of the list.
+  const current = useRef<HTMLAnchorElement>(null);
+  useEffect(() => {
+    if (compact) current.current?.scrollIntoView({ block: "center" });
+  }, [compact, season]);
+
   if (!parsed || parsed.contentType === "movie") return null;
 
   const heading = !compact && <SectionTitle>Episodes</SectionTitle>;
-  const note = (text: string) => <p className="text-sm text-dim">{text}</p>;
-  const wrap = (children: React.ReactNode) => (
-    <section className={cn("flex flex-col gap-4", !compact && "gutter pt-10")}>{children}</section>
-  );
+  const note = (text: string) => <p className={cn("text-sm text-dim", compact && "px-4 py-8 text-center")}>{text}</p>;
+  const wrap = (children: React.ReactNode) =>
+    compact ? <div className="flex flex-col">{children}</div> : <section className="gutter flex flex-col gap-4 pt-10">{children}</section>;
 
   if (list?.length) {
+    const tabs = seasons.map((each) => (
+      <Tab key={each} active={each === season} onClick={() => setChosen(each)} className="shrink-0">
+        Season {each}
+      </Tab>
+    ));
     return wrap(
       <>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          {heading}
-          <div className="flex flex-wrap gap-x-5">
-            {seasons.map((each) => (
-              <Tab key={each} active={each === season} onClick={() => setChosen(each)}>
-                Season {each}
-              </Tab>
-            ))}
+        {compact ? (
+          // Stays at the top while the rows scroll under it. Only worth showing for more than one season.
+          seasons.length > 1 && (
+            <div className="no-scrollbar sticky top-0 z-10 flex gap-5 overflow-x-auto border-b border-line bg-surface px-4 pt-1">
+              {tabs}
+            </div>
+          )
+        ) : (
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            {heading}
+            <div className="flex flex-wrap gap-x-5">{tabs}</div>
           </div>
-        </div>
-        <div className="flex flex-col">
+        )}
+        <div className={cn("flex flex-col", compact && "p-2")}>
           {list
             .filter((episode) => episode.season === season)
-            .map((episode) => (
-              <EpisodeRow key={episode.id} titleKey={titleKey} episode={episode} current={episode.id === currentId} />
-            ))}
+            .map((episode) => {
+              const here = episode.id === currentId;
+              return (
+                <EpisodeRow
+                  key={episode.id}
+                  anchor={here ? current : undefined}
+                  titleKey={titleKey}
+                  episode={episode}
+                  current={here}
+                  compact={compact}
+                />
+              );
+            })}
         </div>
       </>,
     );
@@ -82,7 +106,11 @@ export default function Episodes({
   return wrap(
     <>
       {heading}
-      <div className="flex flex-wrap gap-2">
+      <div
+        className={cn(
+          compact ? "grid grid-cols-[repeat(auto-fill,minmax(3.25rem,1fr))] gap-2 px-4 py-3" : "flex flex-wrap gap-2",
+        )}
+      >
         {Array.from({ length: count }, (_, index) => {
           const number = index + 1;
           const id = animeEpisodeId(parsed.mediaId, number);
@@ -90,12 +118,14 @@ export default function Episodes({
           return (
             <Link
               key={id}
+              ref={selected ? current : undefined}
               href={watchPath(titleKey, id)}
               replace={compact}
               aria-current={selected ? "true" : undefined}
               className={cn(
-                "flex h-11 w-14 items-center justify-center rounded-md text-sm font-semibold transition-colors",
-                selected ? "bg-ink text-canvas" : "bg-ink/[0.08] text-dim hover:bg-ink/[0.16] hover:text-ink",
+                "flex items-center justify-center rounded-md text-sm font-semibold transition-colors",
+                compact ? "h-10" : "h-11 w-14",
+                selected ? "bg-accent text-canvas" : "bg-ink/[0.08] text-dim hover:bg-ink/[0.16] hover:text-ink",
               )}
             >
               {number}
@@ -107,23 +137,50 @@ export default function Episodes({
   );
 }
 
-function EpisodeRow({ titleKey, episode, current }: { titleKey: string; episode: Episode; current: boolean }) {
+function EpisodeRow({
+  titleKey,
+  episode,
+  current,
+  compact,
+  anchor,
+}: {
+  titleKey: string;
+  episode: Episode;
+  current: boolean;
+  compact: boolean;
+  /** Set on the current episode, so the panel can scroll to it. */
+  anchor?: Ref<HTMLAnchorElement>;
+}) {
   return (
     <Link
+      ref={anchor}
       href={watchPath(titleKey, episode.id)}
+      replace={compact}
+      aria-current={current ? "true" : undefined}
       className={cn(
-        "group/episode flex items-center gap-5 rounded-lg border-b border-ink/[0.06] px-4 py-3.5 transition-colors hover:bg-ink/[0.07]",
+        "group/episode flex items-center rounded-lg border-b border-ink/[0.06] transition-colors hover:bg-ink/[0.07]",
+        compact ? "gap-3 border-b-0 px-3 py-2.5" : "gap-5 px-4 py-3.5",
         current && "bg-ink/[0.07]",
       )}
     >
-      <span className={cn("w-10 shrink-0 text-[22px] font-bold", current ? "text-accent" : "text-faint")}>
+      <span
+        className={cn(
+          "shrink-0 font-bold tabular-nums",
+          compact ? "w-8 text-lg" : "w-10 text-[22px]",
+          current ? "text-accent" : "text-faint",
+        )}
+      >
         {episode.number}
       </span>
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="truncate text-[15px] font-semibold text-ink">{episode.name || `Episode ${episode.number}`}</span>
+        <span className={cn("truncate font-semibold text-ink", compact ? "text-sm" : "text-[15px]")}>
+          {episode.name || `Episode ${episode.number}`}
+        </span>
         {episode.airdate && <span className="text-xs text-dim">{episode.airdate.slice(0, 10)}</span>}
       </span>
-      <Play className="size-4 shrink-0 text-ink opacity-0 transition-opacity group-hover/episode:opacity-100" />
+      {!compact && (
+        <Play className="size-4 shrink-0 text-ink opacity-0 transition-opacity group-hover/episode:opacity-100" />
+      )}
     </Link>
   );
 }

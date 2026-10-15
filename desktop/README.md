@@ -27,11 +27,11 @@ it. The bar is transparent over artwork and turns solid once a page scrolls.
 | Anime, Series, Films | One catalogue with sort and genre filters |
 | Search (⌘K) | Results as you type, across all three catalogues. Enter opens the best match, or the full results page when nothing is highlighted |
 | Title | Banner, facts, Play and Trailer, episodes by season, cast, related and recommended titles |
-| Watch | The picture fills the window. Controls hide after three seconds. Seek bar, ±10 seconds, volume, subtitle and audio tracks (the buttons show the current one), an episode panel, next episode, fullscreen, and an offer of the next episode near the end |
+| Watch | The picture fills the window. Controls hide after three seconds. Seek bar, ±10 seconds, volume, a source picker (every release found, play any), subtitles from the file and from online providers, audio tracks, an episode panel, next episode, fullscreen, and an offer of the next episode near the end |
 | Settings | Two sliders: how much disk the torrents may use, and how many are kept at once. Saved as soon as you let go |
 
 Keys on the watch page: `space` pause, `←` `→` seek 10 seconds, `↑` `↓` volume, `m` mute,
-`c` subtitles, `a` audio, `e` episodes, `n` next episode, `f` fullscreen, `esc` leave
+`c` cycle subtitles, `a` audio, `e` episodes, `n` next episode, `f` fullscreen, `esc` leave
 fullscreen or close the panel. Anywhere: `⌘K` search, `⌘Q` quit.
 
 Progress is remembered per title, so opening an episode you left part way resumes it, and a

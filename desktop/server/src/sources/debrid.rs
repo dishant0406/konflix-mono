@@ -232,6 +232,12 @@ impl Debrid {
             .unwrap_or_default())
     }
 
+    /// Which of these releases the service holds, for showing a viewer which will start at once.
+    /// Nothing is cached when the service cannot be reached: that is an unknown, not a no.
+    pub async fn holds(&self, releases: &[Release]) -> Option<HashSet<String>> {
+        self.cached_hashes(releases, self.timeout).await.ok()
+    }
+
     /// The account's own entry for a torrent: `mylist` is the only route that returns the numeric
     /// torrent and file ids `requestdl` needs.
     async fn account_entry(

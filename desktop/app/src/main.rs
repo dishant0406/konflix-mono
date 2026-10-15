@@ -1,12 +1,15 @@
 mod app;
 mod backend;
 mod browse;
+mod captions;
+mod choices;
 mod design;
 mod episodes;
 mod hero;
 mod home;
 mod images;
 mod palette;
+mod panels;
 mod player;
 mod prefetch;
 mod progress;
@@ -37,6 +40,8 @@ fn main() {
     let image_cache = dirs.cache_dir().join("images");
     let config_path = dirs.config_dir().join("config.toml");
     let progress_path = dirs.config_dir().join("progress.json");
+    let subtitle_language_path = dirs.config_dir().join("subtitles.json");
+    let subtitles_dir = dirs.cache_dir().join("subtitles");
     let torrent_cache = dirs.cache_dir().join("torrents");
     let sources_dir = dirs.cache_dir().join("sources");
     akidev_core::providers::keep_answers_in(dirs.cache_dir().join("catalog"));
@@ -53,6 +58,8 @@ fn main() {
         cx.set_global(backend::Backend::start(
             config_path,
             progress_path,
+            subtitle_language_path,
+            subtitles_dir,
             torrent_cache,
             sources_dir,
         ));

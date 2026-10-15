@@ -31,6 +31,7 @@ pub struct AppState {
     pub limiter: Arc<Limiter>,
     pub engine: Option<Arc<akidev_core::torrent::Engine>>,
     pub images: Arc<crate::img::Images>,
+    pub subs: Arc<crate::subs::Subs>,
     pub ffmpeg: bool,
 }
 
@@ -145,6 +146,9 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/search", get(search_route))
         .route("/v1/titles/{id}", get(title))
         .route("/v1/img", get(image))
+        .route("/v1/releases", get(releases))
+        .route("/v1/subtitles", get(subtitle_list))
+        .route("/v1/subtitles/file/{token}", get(subtitle_file))
         .route("/v1/play", post(play))
         .layer(CompressionLayer::new().gzip(true))
         .with_state(state.clone());
@@ -477,6 +481,9 @@ struct PlayBody {
     hevc: bool,
     /// Where the viewer means to start, in seconds.
     start: Option<f64>,
+    /// The info hash of a release the viewer picked from `/v1/releases`. That one is played, and
+    /// no other.
+    release: Option<String>,
 }
 
 async fn play(
@@ -498,7 +505,19 @@ async fn play(
         Some(parsed) if parsed.kind == Kind::Movie || parsed.episode.is_some() => {}
         _ => return error(StatusCode::BAD_REQUEST, "That is not an episode or a film."),
     }
-    match state.player.play(&body.id, body.hevc, body.start).await {
+    if let Some(release) = &body.release
+        && !(release.len() == 40 && release.bytes().all(|b| b.is_ascii_hexdigit()))
+    {
+        return error(
+            StatusCode::BAD_REQUEST,
+            "release must be a 40 character info hash.",
+        );
+    }
+    match state
+        .player
+        .play(&body.id, body.hevc, body.start, body.release)
+        .await
+    {
         Outcome::Ready(ready) => {
             ([(header::CACHE_CONTROL, "no-store")], Json(ready)).into_response()
         }
@@ -508,5 +527,135 @@ async fn play(
         )
             .into_response(),
         Outcome::Busy => error(StatusCode::SERVICE_UNAVAILABLE, "busy"),
+    }
+}
+
+/// What an episode or a film can be played from, for a viewer to pick. Which of them the debrid
+/// service holds is said, because those start at once and the others wait for a swarm.
+async fn releases(
+    State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Query(query): Query<IdQuery>,
+) -> Response {
+    let client = client_of(&headers, Some(peer));
+    // Finding them searches every indexer the first time, so this has an allowance like a play.
+    if !state.limiter.allow(
+        &client,
+        "releases",
+        state.settings.play_limit * 2,
+        Duration::from_secs(600),
+    ) {
+        return too_many();
+    }
+    match media_id::parse(&query.id) {
+        Some(parsed) if parsed.kind == Kind::Movie || parsed.episode.is_some() => {}
+        _ => return error(StatusCode::BAD_REQUEST, "That is not an episode or a film."),
+    }
+    match state.player.releases(&query.id).await {
+        Ok((choices, held)) => {
+            let list: Vec<serde_json::Value> = choices
+                .into_iter()
+                .map(|choice| {
+                    let cached = held.as_ref().map(|held| held.contains(&choice.id));
+                    let mut value = serde_json::to_value(&choice).unwrap_or_default();
+                    value["cached"] = json!(cached);
+                    value
+                })
+                .collect();
+            // Searches are kept for ten minutes in the library, so a short life here is enough.
+            (
+                [(header::CACHE_CONTROL, "private, max-age=120")],
+                Json(json!({ "releases": list })),
+            )
+                .into_response()
+        }
+        Err(reason) => error(StatusCode::NOT_FOUND, &reason),
+    }
+}
+
+#[derive(Deserialize)]
+struct IdQuery {
+    id: String,
+}
+
+/// The subtitles there are for an episode or a film, a few per language, as a menu: where each came
+/// from, what it is for, and an address on this server for the file as WebVTT.
+async fn subtitle_list(
+    State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Query(query): Query<IdQuery>,
+) -> Response {
+    if !within_api_limit(&state, &headers, peer) {
+        return too_many();
+    }
+    let parsed = match media_id::parse(&query.id) {
+        Some(parsed) if parsed.kind == Kind::Movie || parsed.episode.is_some() => parsed,
+        _ => return error(StatusCode::BAD_REQUEST, "That is not an episode or a film."),
+    };
+    let Some(detail) = providers::detail(&parsed.key()).await else {
+        return error(StatusCode::NOT_FOUND, "That title is not in the catalogue.");
+    };
+    let found = akidev_core::subtitles::find(
+        &akidev_core::subtitles::query_for(&detail, &parsed),
+        Duration::from_secs(8),
+    )
+    .await;
+    let public = &state.settings.public_url;
+    let mut list = Vec::with_capacity(found.len());
+    for subtitle in found {
+        let token = state.subs.register(&subtitle.url).await;
+        list.push(json!({
+            "id": subtitle.id,
+            "provider": subtitle.provider,
+            "lang": subtitle.lang,
+            "language": subtitle.language,
+            "label": subtitle.label,
+            "hearing_impaired": subtitle.hearing_impaired,
+            "url": format!("{public}/v1/subtitles/file/{token}.vtt"),
+        }));
+    }
+    let policy = if list.is_empty() {
+        // Nothing yet may be something soon, and a source that was down should not be remembered.
+        "public, max-age=60"
+    } else {
+        "public, max-age=600, stale-while-revalidate=3600"
+    };
+    (
+        [(header::CACHE_CONTROL, policy)],
+        Json(json!({ "subtitles": list })),
+    )
+        .into_response()
+}
+
+async fn subtitle_file(
+    State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Path(token): Path<String>,
+) -> Response {
+    if !within_api_limit(&state, &headers, peer) {
+        return too_many();
+    }
+    let token = token.strip_suffix(".vtt").unwrap_or(&token);
+    match state.subs.vtt(token).await {
+        Ok(text) => (
+            [
+                (header::CONTENT_TYPE, "text/vtt; charset=utf-8"),
+                // A file never changes under its token, so it is kept for good.
+                (header::CACHE_CONTROL, "public, max-age=604800, immutable"),
+            ],
+            text,
+        )
+            .into_response(),
+        Err(crate::subs::Error::Unknown) => error(
+            StatusCode::NOT_FOUND,
+            "That subtitle is not listed. Ask for the list again.",
+        ),
+        Err(crate::subs::Error::Unavailable) => error(
+            StatusCode::BAD_GATEWAY,
+            "The subtitle could not be fetched.",
+        ),
     }
 }

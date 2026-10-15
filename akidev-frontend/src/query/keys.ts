@@ -4,4 +4,6 @@ export const QUERY_KEYS = {
   SEARCH: "search",
   DETAIL: "detail",
   PLAY: "play",
+  RELEASES: "releases",
+  SUBTITLES: "subtitles",
 };

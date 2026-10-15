@@ -8,7 +8,9 @@ use crate::indexers::{SearchOptions, search_all};
 use crate::media_id::{self, MediaId};
 use crate::model::{Detail, Kind, Release};
 use crate::releases::{
-    movie_search_terms, rank_movie_releases, rank_releases, search_terms, series_search_terms,
+    Audio, Codec, is_batch, movie_search_terms, parse_audio, parse_codec, parse_resolution,
+    rank_movie_releases, rank_movie_releases_by, rank_releases, rank_releases_by, search_terms,
+    series_search_terms,
 };
 use crate::torrent::{Engine, StreamStats};
 use crate::{providers, serve};
@@ -31,7 +33,7 @@ const STAGGER: Duration = Duration::from_secs(6);
 /// How many ranked releases a plan offers. More than a torrent is tried with, because a
 /// debrid source only needs one of them to be cached and checking a hash is cheap, while
 /// opening a torrent is not.
-pub const OFFERED: usize = 10;
+pub const OFFERED: usize = 24;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Resolution {
@@ -93,11 +95,27 @@ impl Streamer {
     /// retry: it drops what is cached for the releases about to be tried, so a swarm
     /// that died is joined again instead of handing back the same dead torrent.
     pub async fn resolve(&self, id: &str, fresh: bool) -> Resolution {
+        match self.plan(id).await {
+            Ok(plan) => self.resolve_plan(&plan, fresh).await,
+            Err(reason) => unavailable(&reason),
+        }
+    }
+
+    /// Plays the release a viewer picked from `Plan::choices`, and no other. Never fails.
+    pub async fn resolve_release(&self, id: &str, info_hash: &str) -> Resolution {
         let plan = match self.plan(id).await {
             Ok(plan) => plan,
             Err(reason) => return unavailable(&reason),
         };
-        match self.open_best(&plan, fresh).await {
+        match plan.only(info_hash) {
+            Some(only) => self.resolve_plan(&only, false).await,
+            None => unavailable("That release is no longer listed. Pick another."),
+        }
+    }
+
+    /// Opens the best of a plan's releases and says where to play it.
+    pub async fn resolve_plan(&self, plan: &Plan, fresh: bool) -> Resolution {
+        match self.open_best(plan, fresh).await {
             Ok((release, playable)) => Resolution::Ready {
                 url: serve::url(
                     self.address,
@@ -130,13 +148,14 @@ impl Streamer {
         let Some(detail) = providers::detail(&parsed.key()).await else {
             return Err("Unknown title.".into());
         };
-        let (terms, ranked) = find_releases(&config, &parsed, &detail).await;
+        let (terms, ranked, extra) = find_releases(&config, &parsed, &detail).await;
         Ok(Plan {
             id: id.to_string(),
             parsed,
             detail,
             terms,
             ranked,
+            extra,
         })
     }
 
@@ -244,6 +263,9 @@ pub struct Plan {
     pub terms: Vec<String>,
     /// Releases found and ranked, best first. A source decides how many to try.
     pub ranked: Vec<Release>,
+    /// Releases that fit the title and the episode but that the player cannot be counted on to
+    /// decode (HEVC, AV1). Never tried on their own; offered when a viewer picks for themselves.
+    pub extra: Vec<Release>,
 }
 
 /// The releases worth trying, best first. A count of zero may only mean the indexer does
@@ -260,12 +282,13 @@ fn unavailable(reason: &str) -> Resolution {
     }
 }
 
-/// The search terms, and the releases they found, best first.
+/// The search terms, the releases they found that can be played, best first, and the others
+/// that fit but may not decode.
 async fn find_releases(
     config: &Config,
     parsed: &MediaId,
     detail: &Detail,
-) -> (Vec<String>, Vec<Release>) {
+) -> (Vec<String>, Vec<Release>, Vec<Release>) {
     let media = &detail.media;
     let titles = if media.title_variants.is_empty() {
         vec![media.title.clone()]
@@ -282,29 +305,110 @@ async fn find_releases(
         episode: parsed.episode,
     };
 
-    let (terms, mut ranked) = match (parsed.kind, parsed.episode) {
+    let (terms, mut ranked, mut all) = match (parsed.kind, parsed.episode) {
         (Kind::Movie, _) => {
             let terms = movie_search_terms(&titles, year);
             let found = search_all(config, &terms, &options).await;
             let ranked = rank_movie_releases(&found, year, &media.title, &titles);
-            (terms, ranked)
+            let all = rank_movie_releases_by(&found, year, &media.title, &titles, false);
+            (terms, ranked, all)
         }
         (Kind::Series, Some(episode)) => {
             let terms = series_search_terms(&titles, parsed.season, Some(episode));
             let found = search_all(config, &terms, &options).await;
             let ranked = rank_releases(&found, episode, &media.title, &titles, parsed.season);
-            (terms, ranked)
+            let all =
+                rank_releases_by(&found, episode, &media.title, &titles, parsed.season, false);
+            (terms, ranked, all)
         }
         (Kind::Anime, Some(episode)) => {
             let terms = search_terms(&titles, Some(episode));
             let found = search_all(config, &terms, &options).await;
             let ranked = rank_releases(&found, episode, &media.title, &titles, parsed.season);
-            (terms, ranked)
+            let all =
+                rank_releases_by(&found, episode, &media.title, &titles, parsed.season, false);
+            (terms, ranked, all)
         }
-        (_, None) => (Vec::new(), Vec::new()),
+        (_, None) => (Vec::new(), Vec::new(), Vec::new()),
     };
     ranked.truncate(config.max_candidates.max(OFFERED));
-    (terms, ranked)
+    all.retain(|release| {
+        !ranked
+            .iter()
+            .any(|kept| kept.info_hash == release.info_hash)
+    });
+    all.truncate(OFFERED);
+    (terms, ranked, all)
+}
+
+/// One release a viewer may pick, with what can be told from its name.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct Choice {
+    /// The info hash, which is what picking one passes back.
+    pub id: String,
+    pub title: String,
+    pub size_bytes: Option<u64>,
+    pub seeders: u32,
+    /// Which indexer found it.
+    pub source: String,
+    /// 480, 720, 1080, 2160.
+    pub resolution: Option<u32>,
+    /// `h264`, `hevc`, `av1`.
+    pub codec: Option<&'static str>,
+    /// `lossless` (FLAC, DTS, AC-3...) or `compressed` (AAC, MP3, Opus).
+    pub audio: Option<&'static str>,
+    /// A whole season or series in one torrent, of which the episode is one file.
+    pub pack: bool,
+    /// Not played unless picked: a codec that may not decode where it is shown.
+    pub uncommon: bool,
+}
+
+fn choice(release: &Release, uncommon: bool) -> Choice {
+    Choice {
+        id: release.info_hash.clone(),
+        title: release.title.clone(),
+        size_bytes: release.size_bytes,
+        seeders: release.seeders,
+        source: release.source.clone(),
+        resolution: parse_resolution(&release.title),
+        codec: parse_codec(&release.title).map(|codec| match codec {
+            Codec::H264 => "h264",
+            Codec::Hevc => "hevc",
+            Codec::Av1 => "av1",
+        }),
+        audio: parse_audio(&release.title).map(|audio| match audio {
+            Audio::Lossless => "lossless",
+            Audio::Compressed => "compressed",
+        }),
+        pack: is_batch(&release.title),
+        uncommon,
+    }
+}
+
+impl Plan {
+    /// Every release that fits, in the order they would be tried, and then the ones with a codec
+    /// that may not decode. For a viewer who wants to pick one.
+    pub fn choices(&self) -> Vec<Choice> {
+        self.ranked
+            .iter()
+            .map(|release| choice(release, false))
+            .chain(self.extra.iter().map(|release| choice(release, true)))
+            .collect()
+    }
+
+    /// The plan with only the release a viewer chose, wherever it was listed.
+    pub fn only(&self, info_hash: &str) -> Option<Plan> {
+        let release = self
+            .ranked
+            .iter()
+            .chain(&self.extra)
+            .find(|release| release.info_hash.eq_ignore_ascii_case(info_hash))?;
+        Some(Plan {
+            ranked: vec![release.clone()],
+            extra: Vec::new(),
+            ..self.clone()
+        })
+    }
 }
 
 #[cfg(test)]
@@ -359,5 +463,96 @@ mod tests {
         ];
         assert_eq!(titles(candidates(&ranked, 2)), ["a", "b"]);
         assert!(candidates(&[], 3).is_empty());
+    }
+
+    fn plan_with(ranked: Vec<Release>, extra: Vec<Release>) -> Plan {
+        use crate::model::Media;
+        Plan {
+            id: "series-1-s1e1".into(),
+            parsed: media_id::parse("series-1-s1e1").unwrap(),
+            detail: Detail {
+                media: Media {
+                    id: "series-1".into(),
+                    kind: Kind::Series,
+                    title: "Show".into(),
+                    title_variants: Vec::new(),
+                    poster: None,
+                    banner: None,
+                    description: None,
+                    format: None,
+                    year: None,
+                    episodes: None,
+                    runtime_minutes: None,
+                    status: None,
+                    score: None,
+                    popularity: 0,
+                    genres: Vec::new(),
+                    is_adult: false,
+                },
+                studios: Vec::new(),
+                trailer: None,
+                episodes: Vec::new(),
+                cast: Vec::new(),
+                related: Vec::new(),
+                recommended: Vec::new(),
+                imdb_id: None,
+            },
+            terms: Vec::new(),
+            ranked,
+            extra,
+        }
+    }
+
+    fn named(title: &str, hash: char) -> Release {
+        Release {
+            info_hash: hash.to_string().repeat(40),
+            ..release(title, 3)
+        }
+    }
+
+    #[test]
+    fn what_can_be_told_from_a_name_is_listed_and_the_uncommon_come_last() {
+        let plan = plan_with(
+            vec![named("Show S01E01 1080p WEB-DL x264 AAC", 'a')],
+            vec![named("Show S01E01 2160p HEVC FLAC", 'b')],
+        );
+        let choices = plan.choices();
+        assert_eq!(choices.len(), 2);
+        assert_eq!(
+            (
+                choices[0].resolution,
+                choices[0].codec,
+                choices[0].audio,
+                choices[0].uncommon
+            ),
+            (Some(1080), Some("h264"), Some("compressed"), false)
+        );
+        assert_eq!(
+            (
+                choices[1].resolution,
+                choices[1].codec,
+                choices[1].audio,
+                choices[1].uncommon
+            ),
+            (Some(2160), Some("hevc"), Some("lossless"), true)
+        );
+        assert_eq!(choices[0].id, "a".repeat(40));
+    }
+
+    #[test]
+    fn a_release_that_was_picked_is_the_only_one_tried_wherever_it_was_listed() {
+        let plan = plan_with(
+            vec![named("one", 'a'), named("two", 'b')],
+            vec![named("three hevc", 'c')],
+        );
+        for (hash, title) in [('b', "two"), ('c', "three hevc")] {
+            let only = plan
+                .only(&hash.to_string().repeat(40).to_uppercase())
+                .unwrap();
+            assert_eq!(only.ranked.len(), 1);
+            assert_eq!(only.ranked[0].title, title);
+            assert!(only.extra.is_empty());
+        }
+        assert!(plan.only(&"d".repeat(40)).is_none());
     }
 }

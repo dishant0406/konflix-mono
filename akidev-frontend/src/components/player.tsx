@@ -3,6 +3,7 @@
 import {
   Captions,
   ChevronLeft,
+  Layers,
   List,
   Maximize,
   Minimize,
@@ -13,14 +14,16 @@ import {
   SkipForward,
   Volume2,
   VolumeX,
-  X,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
+import { optionForChoice, readChoice, writeChoice } from "@/lib/subtitles";
 import { cn, formatSeconds } from "@/lib/utils";
-import type { Subtitle } from "@/types/media";
+import type { SubtitleOption } from "@/types/media";
 
 import { Button, IconButton } from "./button";
+import CaptionsMenu from "./captions-menu";
+import { SidePanel } from "./side-panel";
 import { Spinner } from "./states";
 
 /** "Next episode" is offered this many seconds before the end. */
@@ -29,6 +32,9 @@ const NEXT_OFFER = 40;
 const IDLE_FOR = 3000;
 /** How often the position is reported. */
 const REPORT_EVERY = 5000;
+/** How far the captions rise to stay clear of the control bar while it is showing. */
+const CUES_LIFT = "5.5rem";
+const NO_SUBTITLES: SubtitleOption[] = [];
 
 // A live HLS playlist has no total length, so the element reports Infinity. That is not a
 // duration, and using it makes the seek bar's maths invalid.
@@ -41,8 +47,10 @@ type Props = {
   src: string;
   /** "hls" when the API had to convert the container, "file" when the browser plays it directly. */
   streamType: string | null;
-  /** The caption tracks the API found; empty when there are none. */
-  subtitles?: Subtitle[];
+  /** The subtitle files the API found; empty when there are none. */
+  subtitles?: SubtitleOption[];
+  /** Still looking for them, so the captions button says so instead of "none". */
+  subtitlesLoading?: boolean;
   /** The line in the top bar: title, episode, name. */
   title: string;
   /** Where to start, in seconds, when the viewer left part way. */
@@ -55,6 +63,11 @@ type Props = {
   onNext?: () => void;
   /** The episode list, shown in a side panel from the list button. Absent for a film. */
   episodes?: ReactNode;
+  /**
+   * The source list, shown in a side panel from the sources button. It is given where playback is
+   * now (so a different release can resume there) and a way to close the panel.
+   */
+  sources?: (controls: { position: () => number; close: () => void }) => ReactNode;
 };
 
 /**
@@ -67,7 +80,20 @@ type Props = {
  *         HLS playlist. Chrome and Firefox need hls.js; Safari plays it natively.
  *   file  bytes the browser plays on its own, set as the element's src.
  */
-export default function Player({ src, streamType, subtitles = [], title, startAt, onBack, onError, onProgress, onNext, episodes }: Props) {
+export default function Player({
+  src,
+  streamType,
+  subtitles = NO_SUBTITLES,
+  subtitlesLoading = false,
+  title,
+  startAt,
+  onBack,
+  onError,
+  onProgress,
+  onNext,
+  episodes,
+  sources,
+}: Props) {
   const video = useRef<HTMLVideoElement>(null);
   const frame = useRef<HTMLDivElement>(null);
   const idle = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -84,11 +110,13 @@ export default function Player({ src, streamType, subtitles = [], title, startAt
   const [muted, setMuted] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [visible, setVisible] = useState(true);
-  const [panel, setPanel] = useState(false);
+  const [panel, setPanel] = useState<"episodes" | "sources" | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [captions, setCaptions] = useState(false);
-  /** The caption track showing, as an index into `subtitles`; -1 is off. */
-  const [track, setTrack] = useState(-1);
+  /** The subtitle file showing; null is off. */
+  const [active, setActive] = useState<SubtitleOption | null>(null);
+  /** Set once the viewer's remembered language has been looked at, or they have chosen themselves. */
+  const decided = useRef(false);
 
   const isHls = streamType === "hls";
 
@@ -178,19 +206,52 @@ export default function Player({ src, streamType, subtitles = [], title, startAt
     };
   }, [src, isHls, startAt]);
 
-  // The element's own text tracks follow the choice: one showing, the rest off.
-  useEffect(() => {
-    const tracks = video.current?.textTracks;
-    if (!tracks) return;
-    for (let index = 0; index < tracks.length; index += 1) {
-      tracks[index].mode = index === track ? "showing" : "disabled";
-    }
-  }, [track, subtitles.length]);
-
   const say = useCallback((text: string) => {
     setMessage(text);
     window.setTimeout(() => setMessage((current) => (current === text ? null : current)), 1400);
   }, []);
+
+  const choose = useCallback(
+    (option: SubtitleOption | null) => {
+      decided.current = true;
+      setActive(option);
+      setCaptions(false);
+      writeChoice(option?.lang ?? "off");
+      say(option ? `Subtitles: ${option.language}` : "Subtitles off");
+    },
+    [say],
+  );
+
+  // The list can arrive after the picture has started. The language the viewer last chose is
+  // switched on once, when it is offered here; after that only they change it.
+  useEffect(() => {
+    if (decided.current || subtitles.length === 0) return;
+    decided.current = true;
+    const option = optionForChoice(subtitles, readChoice());
+    if (option) {
+      setActive(option);
+      say(`Subtitles: ${option.language}`);
+    }
+  }, [subtitles, say]);
+
+  // A <track> added after the element exists is not in `textTracks` until the next tick, and a
+  // track nobody switched on stays hidden, so the one chosen is found by its id and shown.
+  useEffect(() => {
+    const element = video.current;
+    if (!element) return undefined;
+    const apply = () => {
+      for (let index = 0; index < element.textTracks.length; index += 1) {
+        const track = element.textTracks[index];
+        track.mode = active && track.id === active.id ? "showing" : "disabled";
+      }
+    };
+    const timer = window.setTimeout(apply, 0);
+    element.textTracks.addEventListener("addtrack", apply);
+    return () => {
+      window.clearTimeout(timer);
+      element.textTracks.removeEventListener("addtrack", apply);
+    };
+  }, [active]);
 
   const toggle = useCallback(() => {
     const element = video.current;
@@ -287,8 +348,8 @@ export default function Player({ src, streamType, subtitles = [], title, startAt
             return true;
           case "Escape":
             if (captions) setCaptions(false);
-            else if (panel) setPanel(false);
-            return captions || panel;
+            else if (panel) setPanel(null);
+            return captions || panel !== null;
           default:
             return false;
         }
@@ -304,13 +365,18 @@ export default function Player({ src, streamType, subtitles = [], title, startAt
 
   const remaining = Math.max(duration - position, 0);
   const offerNext = Boolean(onNext) && duration > 0 && remaining <= NEXT_OFFER;
-  const shown = visible || !playing || panel || captions;
+  const shown = visible || !playing || panel !== null || captions;
+  const togglePanel = (which: "episodes" | "sources") => {
+    setCaptions(false);
+    setPanel((open) => (open === which ? null : which));
+  };
 
   return (
     <div
       ref={frame}
       onMouseMove={wake}
       onTouchStart={wake}
+      style={{ "--cues-lift": shown ? CUES_LIFT : "0px" } as CSSProperties}
       className={cn("fixed inset-0 z-[60] overflow-hidden bg-black", !shown && "cursor-none")}
     >
       <video
@@ -360,9 +426,7 @@ export default function Player({ src, streamType, subtitles = [], title, startAt
           );
         }}
       >
-        {subtitles.map((subtitle) => (
-          <track key={subtitle.url} kind="subtitles" src={subtitle.url} srcLang={subtitle.lang} label={subtitle.label} />
-        ))}
+        {active && <track key={active.id} id={active.id} kind="subtitles" src={active.url} srcLang={active.lang} label={active.language} />}
       </video>
 
       {!ready && (
@@ -427,46 +491,29 @@ export default function Player({ src, streamType, subtitles = [], title, startAt
 
               <div className="flex-1" />
 
-              {subtitles.length > 0 && (
-                <div className="relative">
-                  <IconButton label="Captions" onClick={() => setCaptions((open) => !open)}>
-                    <Captions className="size-[18px]" />
-                  </IconButton>
-                  {captions && (
-                    <div
-                      role="menu"
-                      className="absolute bottom-full right-0 mb-2 flex min-w-[160px] flex-col rounded-xl border border-line bg-surface/[0.97] p-1"
-                    >
-                      {[{ label: "Off", url: "off" }, ...subtitles].map((option, index) => {
-                        const selected = index - 1 === track;
-                        return (
-                          <button
-                            key={option.url}
-                            type="button"
-                            role="menuitemradio"
-                            aria-checked={selected}
-                            onClick={() => {
-                              setTrack(index - 1);
-                              setCaptions(false);
-                            }}
-                            className={cn(
-                              "flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-ink/[0.08]",
-                              selected ? "font-semibold text-ink" : "text-dim",
-                            )}
-                          >
-                            <span className={cn("size-[5px] shrink-0 rounded-full", selected && "bg-accent")} />
-                            {option.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
+              <div className="relative">
+                <IconButton
+                  label="Captions"
+                  title={subtitles.length > 0 ? "Captions" : subtitlesLoading ? "Looking for subtitles" : "No subtitles found"}
+                  disabled={subtitles.length === 0}
+                  onClick={() => {
+                    setPanel(null);
+                    setCaptions((open) => !open);
+                  }}
+                >
+                  <Captions className="size-[18px]" />
+                </IconButton>
+                {captions && subtitles.length > 0 && <CaptionsMenu subtitles={subtitles} active={active} onChoose={choose} />}
+              </div>
+              {sources && (
+                <IconButton label="Sources" title="Sources" onClick={() => togglePanel("sources")}>
+                  <Layers className="size-[18px]" />
+                </IconButton>
               )}
               {episodes && (
                 <button
                   type="button"
-                  onClick={() => setPanel((open) => !open)}
+                  onClick={() => togglePanel("episodes")}
                   className="flex h-9 cursor-pointer items-center gap-1.5 rounded-full px-2.5 text-xs font-semibold text-ink transition-colors hover:bg-ink/[0.14]"
                 >
                   <List className="size-[18px]" />
@@ -486,7 +533,7 @@ export default function Player({ src, streamType, subtitles = [], title, startAt
         </div>
       </div>
 
-      {offerNext && !panel && onNext && (
+      {offerNext && panel === null && onNext && (
         <div className="gutter absolute bottom-[150px] right-0 flex justify-end">
           <div className="flex items-center gap-4 rounded-xl border border-line bg-surface/95 px-4 py-3">
             <span className="text-sm font-semibold text-ink">Next episode</span>
@@ -497,16 +544,15 @@ export default function Player({ src, streamType, subtitles = [], title, startAt
         </div>
       )}
 
-      {episodes && panel && (
-        <aside className="absolute bottom-28 right-0 top-14 flex w-full max-w-[400px] flex-col border-l border-line bg-surface/[0.97]">
-          <div className="flex items-center justify-between px-4 py-3">
-            <h2 className="text-base font-bold text-ink">Episodes</h2>
-            <IconButton label="Close episodes" onClick={() => setPanel(false)}>
-              <X className="size-[18px]" />
-            </IconButton>
-          </div>
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">{episodes}</div>
-        </aside>
+      {episodes && panel === "episodes" && (
+        <SidePanel title="Episodes" onClose={() => setPanel(null)}>
+          {episodes}
+        </SidePanel>
+      )}
+      {sources && panel === "sources" && (
+        <SidePanel title="Sources" onClose={() => setPanel(null)}>
+          {sources({ position: () => video.current?.currentTime ?? 0, close: () => setPanel(null) })}
+        </SidePanel>
       )}
     </div>
   );

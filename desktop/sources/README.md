@@ -35,7 +35,7 @@ that gets through is undone by publishing a corrected copy with a higher version
 ## Format
 
 `schema` is the version of this format (an app ignores a document with a higher one),
-`version` is the version of the content. `trackers` are added to every magnet. `chains` list
+`version` is the version of the content. `trackers` are added to every magnet. `subtitles` are the subtitle sources. `chains` list
 the providers that answer for each kind, in order: the next answers when the first has
 nothing or fails.
 
@@ -111,6 +111,29 @@ nothing or fails.
 - Expressions are the same as for indexers, plus `const`, `by_kind`, `year`, `minutes`, `scale`,
   `add`, `positive`, `map` and `plain_text`. A template reads the row with `{path}`, the row around
   it with `{^.path}` and the kind with `{@kind}`.
+
+### Subtitles
+
+```json
+{ "id": "opensubtitles", "name": "OpenSubtitles", "kinds": ["series", "movie", "anime"],
+  "hosts": ["https://opensubtitles-v3.strem.io"], "file_hosts": ["strem.io"],
+  "lookup": { "kinds": ["anime"], "url": "https://v3-cinemeta.strem.io/catalog/series/top/search={term}.json",
+              "rows": "metas", "value": "imdb_id", "max_episodes": 30, "skip_title": "(?i)season\\s*\\d" },
+  "request":  { "path": { "$kind": { "movie": "/subtitles/movie/{imdb}.json",
+                                      "series": "/subtitles/series/{imdb}:{season}:{episode}.json" } } },
+  "response": { "rows": "subtitles", "fields": { "id": "id", "url": "url", "lang": "lang",
+                "label": "subtitleFileName", "format": { "const": "srt" } } } }
+```
+
+- `hosts`, `cooldown_secs`, `request` and the expressions in `response.fields` work as for
+  indexers. `fields` are `url` and `lang` (required), `id`, `label`, `format` (`srt`, `vtt` or
+  `ass`) and `hearing_impaired`.
+- `lookup` finds an IMDb id for a title that has none (anime): it asks `url` with `{term}`, reads
+  `rows`, takes `value` from the first. It is skipped for titles with more than `max_episodes`
+  episodes or whose name matches `skip_title`, since such a title's numbering would not match.
+- `file_hosts` are the only hosts a subtitle file is fetched from, whatever a reply names:
+  a host is allowed when it is one of them or a subdomain of one.
+- A subtitle is converted to WebVTT, which both the web player and mpv read.
 
 A service that needs something these cannot say needs a change to the engine in
 `core/src/providers/`, and so a new build.

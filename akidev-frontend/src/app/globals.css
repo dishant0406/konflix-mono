@@ -84,3 +84,17 @@
     }
   }
 }
+
+/* Captions: white on a soft dark box, readable over any picture. */
+video::cue {
+  color: #fff;
+  background-color: rgb(0 0 0 / 0.6);
+  font-family: inherit;
+}
+
+/* They rise with the control bar while it shows, so the two never overlap (Chrome and Safari;
+   Firefox keeps them where they are). */
+video::-webkit-media-text-track-container {
+  transform: translateY(calc(-1 * var(--cues-lift, 0px)));
+  transition: transform 0.3s;
+}

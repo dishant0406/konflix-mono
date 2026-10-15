@@ -66,6 +66,7 @@ async fn rig(name: &str, tweak: impl FnOnce(&mut Settings)) -> Option<Rig> {
         registry,
         limiter: Arc::new(Limiter::default()),
         engine: None,
+        subs: Arc::new(crate::subs::Subs::new(dir.join("subs"))),
         images: crate::img::Images::for_tests(dir.join("img"), vec!["127.0.0.1".into()]),
         ffmpeg: true,
     };
@@ -595,5 +596,66 @@ async fn a_picture_from_an_unlisted_host_is_refused() {
         let (status, _, body) = get(&rig.router, url, None).await;
         assert_eq!(status, StatusCode::BAD_REQUEST, "{url}");
         assert!(String::from_utf8_lossy(&body).contains("error"));
+    }
+}
+
+#[tokio::test]
+async fn the_release_and_subtitle_routes_refuse_what_is_not_an_episode_or_a_film() {
+    let Some(rig) = rig("lists", |_| {}).await else {
+        return;
+    };
+    for url in [
+        "/v1/releases?id=series-tt0903747",
+        "/v1/releases?id=nonsense",
+        "/v1/subtitles?id=anime-16498",
+        "/v1/subtitles?id=../../etc",
+    ] {
+        let (status, _, body) = get(&rig.router, url, None).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{url}");
+        assert!(String::from_utf8_lossy(&body).contains("error"), "{url}");
+    }
+    // A token the server never listed is not a file, and its shape is checked before it is used.
+    let (status, _, _) = get(
+        &rig.router,
+        &format!("/v1/subtitles/file/{}.vtt", "0".repeat(32)),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _, _) = get(&rig.router, "/v1/subtitles/file/..%2F..%2Fetc.vtt", None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn a_release_to_play_must_be_an_info_hash() {
+    let Some(rig) = rig("release", |s| s.play_limit = 50).await else {
+        return;
+    };
+    let post = |body: String| {
+        let router = rig.router.clone();
+        async move {
+            let mut request = Request::builder()
+                .method("POST")
+                .uri("/v1/play")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(body))
+                .unwrap();
+            request
+                .extensions_mut()
+                .insert(ConnectInfo("192.0.2.9:1".parse::<SocketAddr>().unwrap()));
+            router.oneshot(request).await.unwrap().status()
+        }
+    };
+    for bad in [
+        "nothex",
+        "abc",
+        "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+        "../../../etc/passwd",
+    ] {
+        assert_eq!(
+            post(format!(r#"{{"id":"movie-tt0111161","release":"{bad}"}}"#)).await,
+            StatusCode::BAD_REQUEST,
+            "{bad}"
+        );
     }
 }

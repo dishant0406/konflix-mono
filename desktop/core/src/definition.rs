@@ -358,6 +358,129 @@ impl IndexerDef {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Subtitles
+// ---------------------------------------------------------------------------------------------
+
+/// One source of subtitle files: where it is, how to ask it for the subtitles of an episode or
+/// a film, and how to read the answer. The holes of the request: `{imdb}`, `{season}`,
+/// `{episode}`, `{term}` (the title) and `{year}`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SubtitleDef {
+    /// Shown as where a subtitle came from.
+    pub id: String,
+    pub name: String,
+    pub kinds: Vec<Kind>,
+    /// Mirrors of one service, tried in order.
+    pub hosts: Vec<String>,
+    #[serde(default = "a_minute")]
+    pub cooldown_secs: u64,
+    /// Where the subtitle files themselves are kept. A file is fetched only from these hosts (an
+    /// entry matches that host and its subdomains), because the address comes from an answer.
+    pub file_hosts: Vec<String>,
+    /// How to find the IMDb id of a title that has none, which is an anime: AniList has no such id,
+    /// and most subtitle services are keyed by it.
+    #[serde(default)]
+    pub lookup: Option<SubtitleLookup>,
+    pub request: RequestDef,
+    pub response: SubtitleResponse,
+}
+
+/// Looks a title up by name, in a catalogue that knows IMDb ids, for the kinds that lack one.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SubtitleLookup {
+    /// The kinds it is for.
+    pub kinds: Vec<Kind>,
+    /// The address, with `{term}` filled in.
+    pub url: String,
+    /// Where the rows are in the answer, and what in the first of them is the id.
+    #[serde(default)]
+    pub rows: String,
+    pub value: Expression,
+    /// Its episodes number on from one in every season, which is only how the subtitle service
+    /// numbers a show that has a single one, so a longer show is left alone.
+    #[serde(default)]
+    pub max_episodes: Option<u32>,
+    /// A title matching this is a later season of a show, whose episodes the subtitle service would
+    /// number differently, and is left alone.
+    #[serde(default)]
+    pub skip_title: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SubtitleResponse {
+    /// Where the rows are in the answer.
+    #[serde(default)]
+    pub rows: String,
+    pub fields: SubtitleFields,
+    #[serde(default)]
+    pub drop: Vec<Condition>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SubtitleFields {
+    /// What tells one subtitle from another within the service.
+    pub id: Expression,
+    /// The address of the file.
+    pub url: Expression,
+    /// A language code, two or three letters.
+    pub lang: Expression,
+    /// What the viewer reads: usually the release the subtitle was made for.
+    #[serde(default)]
+    pub label: Option<Expression>,
+    /// `srt`, `ass` or `vtt`. Read from the file itself when it is not said.
+    #[serde(default)]
+    pub format: Option<Expression>,
+    /// Whether it is for the hard of hearing: anything but empty, false or 0 says so.
+    #[serde(default)]
+    pub hearing_impaired: Option<Expression>,
+}
+
+impl SubtitleDef {
+    pub fn check(&self) -> anyhow::Result<()> {
+        ensure!(!self.id.is_empty(), "a subtitle source has no id");
+        ensure!(!self.kinds.is_empty(), "serves no kind");
+        ensure!(
+            (1..=8).contains(&self.hosts.len()),
+            "needs between 1 and 8 hosts"
+        );
+        ensure!(
+            (1..=16).contains(&self.file_hosts.len()),
+            "needs between 1 and 16 file hosts"
+        );
+        ensure!(self.cooldown_secs <= 3600, "rests longer than an hour");
+        for host in &self.hosts {
+            check_url(host)?;
+        }
+        for host in &self.file_hosts {
+            ensure!(
+                !host.is_empty() && !host.contains('/') && !host.contains(':'),
+                "\"{host}\" is not a bare host name"
+            );
+        }
+        let fields = &self.response.fields;
+        for expression in [&fields.id, &fields.url, &fields.lang].into_iter().chain(
+            [&fields.label, &fields.format, &fields.hearing_impaired]
+                .into_iter()
+                .flatten(),
+        ) {
+            expression.check()?;
+        }
+        for condition in &self.response.drop {
+            condition.check()?;
+        }
+        if let Some(lookup) = &self.lookup {
+            check_url(&lookup.url)?;
+            lookup.value.check()?;
+            if let Some(skip) = &lookup.skip_title {
+                crate::expression::pattern(skip)?;
+            }
+            ensure!(!lookup.kinds.is_empty(), "the lookup is for no kind");
+        }
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
 // Providers
 // ---------------------------------------------------------------------------------------------
 
