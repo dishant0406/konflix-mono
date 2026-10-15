@@ -3,6 +3,10 @@
 # so the app runs on a Mac that has no Homebrew.
 #
 # Needs: `brew install mpv`, and Xcode's command line tools (otool, install_name_tool, codesign).
+#
+# SIGN_IDENTITY, when set (for example "Developer ID Application: Name (TEAMID)"), signs the app
+# and every library in it with that identity, with the hardened runtime and a timestamp, as
+# notarisation requires. Without it the bundle is signed ad hoc, which is enough to run locally.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -80,8 +84,16 @@ bundle_dependencies() {
 
 bundle_dependencies "$APP/Contents/MacOS/Akidev"
 
-# Rewriting load paths invalidates signatures; an ad-hoc one is enough to run locally.
-for library in "$FRAMEWORKS"/*; do codesign --force --sign - "$library" 2>/dev/null; done
-codesign --force --sign - "$APP"
+# Rewriting load paths invalidates signatures, so everything is signed again, libraries first
+# because the app's signature covers them.
+if [ -n "${SIGN_IDENTITY:-}" ]; then
+  for library in "$FRAMEWORKS"/*; do
+    codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$library"
+  done
+  codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$APP"
+else
+  for library in "$FRAMEWORKS"/*; do codesign --force --sign - "$library" 2>/dev/null; done
+  codesign --force --sign - "$APP"
+fi
 
 echo "Built $APP ($(du -sh "$APP" | cut -f1))"

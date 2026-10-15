@@ -2,8 +2,10 @@
 # Packs target/release/bundle/Akidev.app into a disk image to hand to someone: open it, drag the
 # app onto Applications. Builds the app first when it is not there.
 #
-# The app is signed ad hoc, not with a Developer ID, and is not notarised. macOS therefore
-# asks the first time it is opened; see the note the image carries.
+# With SIGN_IDENTITY set the image is signed too, and with the App Store Connect API key
+# (NOTARY_KEY_FILE, NOTARY_KEY_ID, NOTARY_ISSUER) Apple is asked to notarise it and the result is
+# stapled to it, so macOS opens the app with no warning. Without them the app is signed ad hoc
+# and macOS asks the first time it is opened; see the note the image carries.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -30,4 +32,12 @@ NOTE
 
 rm -f "$DMG"
 hdiutil create -volname Akidev -srcfolder "$STAGE" -fs HFS+ -format UDZO -ov "$DMG" > /dev/null
+if [ -n "${SIGN_IDENTITY:-}" ]; then
+  codesign --force --timestamp --sign "$SIGN_IDENTITY" "$DMG"
+  if [ -n "${NOTARY_KEY_FILE:-}" ]; then
+    xcrun notarytool submit "$DMG" --key "$NOTARY_KEY_FILE" --key-id "$NOTARY_KEY_ID" \
+      --issuer "$NOTARY_ISSUER" --wait --timeout 30m
+    xcrun stapler staple "$DMG"
+  fi
+fi
 echo "Built $DMG ($(du -h "$DMG" | cut -f1))"
