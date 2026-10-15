@@ -1,4 +1,8 @@
-# Akidev Desktop
+<p align="center">
+  <img src="../branding/akidev-icon.svg" alt="Akidev" width="128">
+</p>
+
+<h1 align="center">Akidev Desktop</h1>
 
 A native macOS app for the same catalogue as the web sites: anime, series and films in one
 window, with no hostnames, no modes and no server to run. The backend is a Rust library inside

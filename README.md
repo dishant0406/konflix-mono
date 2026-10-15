@@ -1,4 +1,8 @@
-# Akidev
+<p align="center">
+  <img src="branding/akidev-icon.svg" alt="Akidev" width="128">
+</p>
+
+<h1 align="center">Akidev</h1>
 
 Anime, series and films from one API, served as two sites.
 
