@@ -46,6 +46,20 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
+# The file a load path names. Newer Homebrew libraries refer to each other as `@rpath/<name>`,
+# which only means something to the loader, so those are looked for in Homebrew's lib folders.
+resolve_library() {
+  case "$1" in
+    @rpath/*)
+      local name="${1#@rpath/}" prefix found
+      prefix=$(brew --prefix)
+      found=$(ls "$prefix"/lib/"$name" "$prefix"/opt/*/lib/"$name" 2>/dev/null | head -n 1)
+      [ -n "$found" ] || { echo "cannot find $1" >&2; return 1; }
+      realpath "$found" ;;
+    *) realpath "$1" ;;
+  esac
+}
+
 # Copies every non-system library `$1` loads into Frameworks, then does the same for each of
 # those, and points every reference at the copy.
 bundle_dependencies() {
@@ -54,7 +68,7 @@ bundle_dependencies() {
     case "$dependency" in /usr/lib/* | /System/*) continue ;; esac
     name=$(basename "$dependency")
     if [ ! -e "$FRAMEWORKS/$name" ]; then
-      cp "$(realpath "$dependency")" "$FRAMEWORKS/$name"
+      cp "$(resolve_library "$dependency")" "$FRAMEWORKS/$name"
       chmod u+w "$FRAMEWORKS/$name"
       codesign --remove-signature "$FRAMEWORKS/$name" 2>/dev/null || true
       install_name_tool -id "@executable_path/../Frameworks/$name" "$FRAMEWORKS/$name"
