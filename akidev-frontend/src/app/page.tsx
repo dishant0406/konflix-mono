@@ -1,5 +1,5 @@
 import HomeView from "@/components/home-view";
-import { serverGet } from "@/lib/api-server";
+import { isClientNavigation, serverGet } from "@/lib/api-server";
 import type { HomeResponse } from "@/types/media";
 
 // Rendered for each request, with the home page's data already in it, so the first paint does not
@@ -8,6 +8,6 @@ import type { HomeResponse } from "@/types/media";
 export const dynamic = "force-dynamic";
 
 export default async function Page() {
-  const home = await serverGet<HomeResponse>("/v1/home", 60);
+  const home = (await isClientNavigation()) ? null : await serverGet<HomeResponse>("/v1/home", 60);
   return <HomeView initial={home ?? undefined} />;
 }

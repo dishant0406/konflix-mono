@@ -55,7 +55,11 @@ export default function Tile({
   const click = resume ? play : open;
 
   const rest = () => {
-    timer.current = setTimeout(() => void client.prefetchQuery(detailQueryOptions(card.id)), RESTS_FOR);
+    timer.current = setTimeout(() => {
+      // The page and its data, so the click finds both already here and the title appears in place.
+      router.prefetch(open);
+      void client.prefetchQuery(detailQueryOptions(card.id));
+    }, RESTS_FOR);
   };
   const leave = () => {
     if (timer.current) clearTimeout(timer.current);

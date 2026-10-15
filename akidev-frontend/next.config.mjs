@@ -1,12 +1,17 @@
 /** @type {import('next').NextConfig} */
 // What the edge may keep of a page. The pages are the same for everyone (what is personal, the
 // viewer's history, is read in the browser), so Cloudflare serves them from near the visitor for
-// half a minute and refreshes them in the background for the next five. A short life because a
+// half a minute and refreshes them in the background for the minute after. A short life because a
 // deploy changes the scripts a page names, and an old page must not outlive them for long.
-const pageCache = [{ key: "Cache-Control", value: "public, max-age=0, s-maxage=30, stale-while-revalidate=300" }];
+const pageCache = [{ key: "Cache-Control", value: "public, max-age=0, s-maxage=30, stale-while-revalidate=60" }];
 
 const nextConfig = {
   reactStrictMode: true,
+  experimental: {
+    // A page the router has fetched is kept for half a minute, so going back and forth between
+    // two pages asks the server once, and a link that has been hovered is already there on click.
+    staleTimes: { dynamic: 30, static: 180 },
+  },
   // A self-contained server bundle, so the runtime image does not need the full
   // workspace tree.
   output: "standalone",

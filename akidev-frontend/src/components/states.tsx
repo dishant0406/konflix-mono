@@ -53,12 +53,13 @@ export function ErrorState({ title, detail, onRetry }: { title: string; detail: 
   );
 }
 
+/** A small ring, for the places something is genuinely being waited for (a stream being found). */
 export function Spinner({ className }: { className?: string }) {
   return (
     <div
       role="status"
       aria-label="Loading"
-      className={cn("size-9 animate-spin rounded-full border-2 border-ink/20 border-t-ink", className)}
+      className={cn("size-5 animate-spin rounded-full border-[1.5px] border-ink/15 border-t-ink/70", className)}
     />
   );
 }

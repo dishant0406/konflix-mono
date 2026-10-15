@@ -79,6 +79,8 @@ export default function TopBar() {
               <Link
                 key={tab.href}
                 href={tab.href}
+                // Fetched ahead, so a tab opens the moment it is pressed.
+                prefetch
                 aria-current={active(tab.href) ? "page" : undefined}
                 className={cn(
                   "flex flex-col items-center gap-1 px-1 py-1 text-sm transition-colors",
