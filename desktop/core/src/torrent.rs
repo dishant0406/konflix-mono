@@ -134,19 +134,33 @@ impl Engine {
         let dir = Engine::downloads_dir(base);
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
-        let session = Session::new_with_opts(
-            dir,
-            SessionOptions {
-                persistence: None,
-                fastresume: false,
-                ratelimits: librqbit::limits::LimitsConfig {
-                    upload_bps: config.upload_limit_bps.and_then(std::num::NonZeroU32::new),
-                    download_bps: None,
-                },
-                ..Default::default()
+        let options = |dht: Option<librqbit::DhtSessionConfig>| SessionOptions {
+            dht,
+            persistence: None,
+            fastresume: false,
+            ratelimits: librqbit::limits::LimitsConfig {
+                upload_bps: config.upload_limit_bps.and_then(std::num::NonZeroU32::new),
+                download_bps: None,
             },
-        )
-        .await?;
+            ..Default::default()
+        };
+        // The DHT remembers the port it used and binds it again, in a file every copy of the
+        // library on the machine shares. A second window, or the server beside the app on a
+        // developer's machine, then fails to start with "address already in use", and nothing
+        // can be played. When the remembered port is taken the DHT takes any free one instead.
+        let session =
+            match Session::new_with_opts(dir.clone(), options(Some(Default::default()))).await {
+                Ok(session) => session,
+                Err(error) => {
+                    tracing::warn!("[torrent] the DHT could not start as it was: {error:#}");
+                    let own_port = librqbit::DhtSessionConfig {
+                        port: None,
+                        persistence: None,
+                        ..Default::default()
+                    };
+                    Session::new_with_opts(dir, options(Some(own_port))).await?
+                }
+            };
         Ok(Engine::new(session, config))
     }
 
