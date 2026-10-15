@@ -1,89 +1,41 @@
 "use client";
 
 import { useMemo } from "react";
-import { useInfiniteQuery, useQueries, useQuery } from "react-query";
+import { useInfiniteQuery, useQuery } from "react-query";
 
-import { CONTENT_TYPES, HOME_ROWS, type ContentType } from "@/constants/site";
-import { request } from "@/lib/api";
-import { toCards, type Card } from "@/lib/media";
-import { interleaveResults, preferTitleMatches } from "@/lib/merge-search";
-import { parseMediaId } from "@/lib/media-id";
-import { GET_MEDIA_DETAIL, GET_MEDIA_LIST, GET_MEDIA_SEARCH, GET_WATCH_METADATA } from "@/lib/queries";
-import type { MediaFull, MediaPage } from "@/types/media";
+import type { ContentType } from "@/constants/site";
+import { ApiError, get } from "@/lib/api";
+import type { Card } from "@/lib/media";
+import type { Detail, HomeResponse, Media, Page } from "@/types/media";
 import { QUERY_KEYS } from "./keys";
 
-/** A page of one catalogue. The content type is what selects the provider. */
-function listQuery(kind: ContentType, sort: string | undefined, genre: string | undefined, perPage: number, page = 1) {
-  return request<{ mediaList: MediaPage }>(GET_MEDIA_LIST, {
-    input: { contentType: kind, sort, genre, perPage, page },
-  }).then((data) => data.mediaList);
-}
-
 const MINUTE = 60 * 1000;
-
-/** The home page's rows, one query each. A row that fails is left out rather than blanking the page. */
-export function useHomeRows() {
-  const queries = useQueries(
-    HOME_ROWS.map((row) => ({
-      queryKey: [QUERY_KEYS.MEDIA_LIST, row.kind, row.sort, row.genre, 24],
-      queryFn: () => listQuery(row.kind, row.sort, row.genre, 24),
-      staleTime: 5 * MINUTE,
-    })),
-  );
-  return HOME_ROWS.map((row, index) => ({
-    ...row,
-    loading: queries[index].isLoading,
-    items: toCards(queries[index].data?.results),
-  }));
-}
+const NONE: Media[] = [];
 
 /**
- * The banner's titles: the front of each catalogue, so it features all three, and only titles
- * that have wide art.
+ * The home page: the banner's titles and every row, in one request. A row whose provider
+ * failed comes back empty and is left out rather than blanking the page.
  */
-export function useFeatured() {
-  const queries = useQueries(
-    CONTENT_TYPES.map((kind) => ({
-      queryKey: [QUERY_KEYS.MEDIA_LIST, kind, "trending", undefined, 6],
-      queryFn: () => listQuery(kind, "trending", undefined, 6),
-      staleTime: 5 * MINUTE,
-    })),
-  );
-  const pages = queries.map((query) => query.data);
-  const items = useMemo(
-    () =>
-      interleaveResults(
-        pages.map((page) => page?.results ?? []),
-        9,
-      )
-        .flatMap((media) => toCards([media]))
-        .filter((card) => card.banner),
-    // `pages` is a fresh array each render; its contents are what matter.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [queries.map((query) => query.dataUpdatedAt).join(",")],
-  );
-  return { items, loading: queries.every((query) => query.isLoading) };
+export function useHome() {
+  const query = useQuery([QUERY_KEYS.HOME], () => get<HomeResponse>("/v1/home"), { staleTime: 5 * MINUTE });
+  const rows = useMemo(() => (query.data?.rows ?? []).filter((row) => row.items.length > 0), [query.data]);
+  return {
+    featured: query.data?.featured ?? NONE,
+    rows,
+    loading: query.isLoading,
+  };
 }
 
 /**
- * A catalogue, or all three, a page at a time. With no kind the three are asked together and
- * interleaved, so the grid is a mix rather than all anime first.
+ * A catalogue, or all three, a page at a time. With no kind the server asks the three together
+ * and interleaves them, so the grid is a mix rather than all anime first.
  */
 export function useBrowse(kind: ContentType | null, sort: string, genre: string | undefined) {
-  const kinds = kind ? [kind] : CONTENT_TYPES;
   const query = useInfiniteQuery(
-    [QUERY_KEYS.MEDIA_LIST, "browse", kind, sort, genre],
-    async ({ pageParam = 1 }) => {
-      const settled = await Promise.allSettled(kinds.map((each) => listQuery(each, sort, genre, 24, pageParam)));
-      const answered = settled.flatMap((result) => (result.status === "fulfilled" ? [result.value] : []));
-      if (answered.length === 0) throw new Error("no catalogue answered");
-      return {
-        results: toCards(interleaveResults(answered.map((page) => page.results ?? []), Number.MAX_SAFE_INTEGER)),
-        hasNext: answered.some((page) => page.hasNextPage),
-      };
-    },
+    [QUERY_KEYS.CATALOGUE, "browse", kind, sort, genre],
+    ({ pageParam = 1 }) => get<Page>("/v1/catalogue", { kind: kind ?? "all", sort, genre, page: pageParam }),
     {
-      getNextPageParam: (last, pages) => (last.hasNext ? pages.length + 1 : undefined),
+      getNextPageParam: (last, pages) => (last.has_next ? pages.length + 1 : undefined),
       keepPreviousData: true,
       staleTime: 5 * MINUTE,
     },
@@ -115,74 +67,44 @@ export function useBrowse(kind: ContentType | null, sort: string, genre: string 
   };
 }
 
-/** Matches for a term from every catalogue, merged: nobody knows which provider holds a title. */
-export function useSearch(term: string, limit: number, perKind = limit) {
+/** Matches for a term from every catalogue, merged by the server: nobody knows which provider holds a title. */
+export function useSearch(term: string, limit: number) {
   const trimmed = term.trim();
-  const queries = useQueries(
-    CONTENT_TYPES.map((kind) => ({
-      queryKey: [QUERY_KEYS.MEDIA_SEARCH, kind, trimmed, perKind],
-      queryFn: () =>
-        request<{ mediaSearch: MediaPage }>(GET_MEDIA_SEARCH, {
-          term: trimmed,
-          input: { perPage: perKind, sort: "popularity", contentType: kind },
-        }).then((data) => data.mediaSearch.results ?? []),
-      enabled: trimmed.length > 0,
-      staleTime: 5 * MINUTE,
-      retry: false,
-    })),
-  );
-  const stamp = queries.map((query) => query.dataUpdatedAt).join(",");
-  const results = useMemo(
-    () => toCards(preferTitleMatches(interleaveResults(queries.map((query) => query.data ?? []), limit), trimmed)),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [stamp, trimmed, limit],
+  const query = useQuery(
+    [QUERY_KEYS.SEARCH, trimmed, limit],
+    () => get<{ results: Media[] }>("/v1/search", { q: trimmed, limit }).then((data) => data.results),
+    { enabled: trimmed.length > 0, staleTime: 5 * MINUTE, retry: false },
   );
   return {
-    results,
-    searching: queries.some((query) => query.isFetching),
-    // One catalogue failing does not blank a search the others answered.
-    failed: trimmed.length > 0 && queries.every((query) => query.isError),
+    results: query.data ?? NONE,
+    searching: query.isFetching,
+    failed: trimmed.length > 0 && query.isError,
   };
 }
 
 /** The query for a title's full record, shared by the page and by the hover prefetch. */
 export function detailQueryOptions(key: string | undefined) {
-  const contentType = parseMediaId(key)?.contentType ?? "anime";
   return {
-    queryKey: [QUERY_KEYS.MEDIA_DETAIL, key],
-    queryFn: () =>
-      request<{ mediaDetail: MediaFull | null }>(GET_MEDIA_DETAIL, { id: key, input: { contentType } }).then(
-        (data) => data.mediaDetail,
-      ),
+    queryKey: [QUERY_KEYS.DETAIL, key],
+    queryFn: () => get<Detail>(`/v1/titles/${encodeURIComponent(key ?? "")}`),
     enabled: Boolean(key),
     staleTime: 10 * MINUTE,
+    // An unknown id answers 404 every time, so asking again only delays "not found".
+    retry: (count: number, error: unknown) => count < 3 && !(error instanceof ApiError && error.status === 404),
   };
 }
 
-/** A title's full record. The catalogue comes from the id, which names the provider. */
+/** A title in full. The id names the provider, so the server knows which catalogue to ask. */
 export function useDetail(key: string | undefined) {
   return useQuery(detailQueryOptions(key));
-}
-
-/** The watch page's metadata: the title and its episode list, without the detail extras. */
-export function useWatchMetadata(key: string | undefined) {
-  const contentType = parseMediaId(key)?.contentType ?? "anime";
-  return useQuery(
-    [QUERY_KEYS.WATCH_METADATA, key],
-    () =>
-      request<{ mediaDetail: MediaFull | null }>(GET_WATCH_METADATA, { id: key, input: { contentType } }).then(
-        (data) => data.mediaDetail,
-      ),
-    { enabled: Boolean(key), staleTime: 10 * MINUTE },
-  );
 }
 
 /** More of what a title is: popular in its first genre, so every page has something below it. */
 export function useMoreLike(kind: ContentType | undefined, genre: string | undefined) {
   const query = useQuery(
-    [QUERY_KEYS.MEDIA_LIST, kind, "popularity", genre, 20],
-    () => listQuery(kind as ContentType, "popularity", genre, 20),
+    [QUERY_KEYS.CATALOGUE, kind, "popularity", genre],
+    () => get<Page>("/v1/catalogue", { kind, sort: "popularity", genre }),
     { enabled: Boolean(kind && genre), staleTime: 5 * MINUTE },
   );
-  return toCards(query.data?.results);
+  return useMemo(() => (query.data?.results ?? NONE).slice(0, 20), [query.data]);
 }

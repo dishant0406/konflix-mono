@@ -7,7 +7,7 @@ import { useMemo, useState } from "react";
 import { watchPath } from "@/constants/routes";
 import { animeEpisodeId, parseMediaId } from "@/lib/media-id";
 import { cn } from "@/lib/utils";
-import type { MediaEpisode } from "@/types/media";
+import type { Episode } from "@/types/media";
 
 import { Tab } from "./button";
 import { SectionTitle } from "./states";
@@ -30,7 +30,7 @@ export default function Episodes({
   /** An anime's episode count. */
   count: number;
   /** A series' explicit list. */
-  list?: MediaEpisode[] | null;
+  list?: Episode[] | null;
   currentId?: string | null;
   compact?: boolean;
 }) {
@@ -39,7 +39,7 @@ export default function Episodes({
     () => [...new Set((list ?? []).map((episode) => episode.season))].sort((a, b) => a - b),
     [list],
   );
-  const currentSeason = list?.find((episode) => episode.episodeId === currentId)?.season;
+  const currentSeason = list?.find((episode) => episode.id === currentId)?.season;
   const [chosen, setChosen] = useState<number | null>(null);
   const season = chosen ?? currentSeason ?? seasons[0];
 
@@ -68,7 +68,7 @@ export default function Episodes({
           {list
             .filter((episode) => episode.season === season)
             .map((episode) => (
-              <EpisodeRow key={episode.episodeId} titleKey={titleKey} episode={episode} current={episode.episodeId === currentId} />
+              <EpisodeRow key={episode.id} titleKey={titleKey} episode={episode} current={episode.id === currentId} />
             ))}
         </div>
       </>,
@@ -107,10 +107,10 @@ export default function Episodes({
   );
 }
 
-function EpisodeRow({ titleKey, episode, current }: { titleKey: string; episode: MediaEpisode; current: boolean }) {
+function EpisodeRow({ titleKey, episode, current }: { titleKey: string; episode: Episode; current: boolean }) {
   return (
     <Link
-      href={watchPath(titleKey, episode.episodeId)}
+      href={watchPath(titleKey, episode.id)}
       className={cn(
         "group/episode flex items-center gap-5 rounded-lg border-b border-ink/[0.06] px-4 py-3.5 transition-colors hover:bg-ink/[0.07]",
         current && "bg-ink/[0.07]",

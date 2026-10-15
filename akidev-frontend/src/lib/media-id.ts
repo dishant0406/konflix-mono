@@ -16,7 +16,7 @@
 // different titles. It also means a page can tell what it is looking at from the URL
 // alone.
 //
-// This mirrors akidev-api/lib/mediaId.js. The API is the contract, so the two must
+// This mirrors desktop/core/src/media_id.rs. The server is the contract, so the two must
 // agree; they are kept deliberately small so that stays obvious.
 
 export type ContentType = "anime" | "series" | "movie";

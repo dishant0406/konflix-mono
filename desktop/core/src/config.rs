@@ -24,6 +24,10 @@ pub struct Config {
     pub max_candidates: usize,
     /// Upper bound on resolving one episode or film, across all candidates.
     pub resolve_deadline_ms: u64,
+    /// Caps what is uploaded to peers, in bytes a second. A server that streams to browsers has
+    /// no use for seeding and would only pay for the bandwidth, so it sets a small one. The
+    /// desktop app leaves it unlimited.
+    pub upload_limit_bps: Option<u32>,
 }
 
 impl Default for Config {
@@ -36,6 +40,7 @@ impl Default for Config {
             metadata_timeout_ms: 45_000,
             max_candidates: 3,
             resolve_deadline_ms: 75_000,
+            upload_limit_bps: None,
         }
     }
 }

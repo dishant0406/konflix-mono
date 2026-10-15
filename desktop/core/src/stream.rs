@@ -28,6 +28,11 @@ pub struct StreamId {
 /// A candidate that has not found peers after this long is joined by the next one.
 const STAGGER: Duration = Duration::from_secs(6);
 
+/// How many ranked releases a plan offers. More than a torrent is tried with, because a
+/// debrid source only needs one of them to be cached and checking a hash is cheap, while
+/// opening a torrent is not.
+pub const OFFERED: usize = 10;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Resolution {
     Ready {
@@ -61,6 +66,18 @@ impl Streamer {
         })
     }
 
+    /// The torrent engine alone, for a server that reads the files itself and has no player
+    /// to hand a localhost address to. `resolve` is not meant to be used on one of these.
+    pub async fn engine_only(config: Config, dir: PathBuf) -> anyhow::Result<Streamer> {
+        let engine = Arc::new(Engine::start(&config, &dir).await?);
+        Ok(Streamer {
+            config: Mutex::new(config),
+            engine,
+            address: SocketAddr::from(([127, 0, 0, 1], 0)),
+            token: String::new(),
+        })
+    }
+
     /// How a stream is going: bytes fetched, speed and peers.
     pub fn stats(&self, stream: &StreamId) -> Option<StreamStats> {
         self.engine.stats(&stream.info_hash, stream.file_index)
@@ -76,30 +93,74 @@ impl Streamer {
     /// retry: it drops what is cached for the releases about to be tried, so a swarm
     /// that died is joined again instead of handing back the same dead torrent.
     pub async fn resolve(&self, id: &str, fresh: bool) -> Resolution {
+        let plan = match self.plan(id).await {
+            Ok(plan) => plan,
+            Err(reason) => return unavailable(&reason),
+        };
+        match self.open_best(&plan, fresh).await {
+            Ok((release, playable)) => Resolution::Ready {
+                url: serve::url(
+                    self.address,
+                    &self.token,
+                    &playable.info_hash,
+                    playable.file_index,
+                ),
+                release: release.title,
+                stream: StreamId {
+                    info_hash: playable.info_hash,
+                    file_index: playable.file_index,
+                },
+            },
+            Err(reason) => unavailable(&reason),
+        }
+    }
+
+    /// The title and the ranked releases for one episode or film, before any is opened.
+    /// The reason is for the viewer, and is the whole story when it is an `Err`.
+    pub async fn plan(&self, id: &str) -> Result<Plan, String> {
         let config = self.config.lock().unwrap().clone();
         let Some(parsed) = media_id::parse(id) else {
-            return unavailable("Unrecognised media id.");
+            return Err("Unrecognised media id.".into());
         };
         // A title without an episode is a detail page. A film is the exception: it has
         // no episode by definition.
         if parsed.kind != Kind::Movie && parsed.episode.is_none() {
-            return unavailable("No episode was requested.");
+            return Err("No episode was requested.".into());
         }
         let Some(detail) = providers::detail(&parsed.key()).await else {
-            return unavailable("Unknown title.");
+            return Err("Unknown title.".into());
         };
-
         let (terms, ranked) = find_releases(&config, &parsed, &detail).await;
+        Ok(Plan {
+            id: id.to_string(),
+            parsed,
+            detail,
+            terms,
+            ranked,
+        })
+    }
+
+    /// Races the best releases of a plan and returns the first that is ready. The rest are
+    /// dropped, which deletes their torrents.
+    pub async fn open_best(
+        &self,
+        plan: &Plan,
+        fresh: bool,
+    ) -> Result<(Release, crate::torrent::Playable), String> {
+        let config = self.config.lock().unwrap().clone();
+        let id = plan.id.as_str();
+        let parsed = &plan.parsed;
         let started = Instant::now();
         let deadline = started + Duration::from_millis(config.resolve_deadline_ms);
-        let candidates = candidates(&ranked, config.max_candidates);
+        let candidates = candidates(&plan.ranked, config.max_candidates);
 
         if candidates.is_empty() {
-            let term = terms
+            let term = plan
+                .terms
                 .first()
                 .map(String::as_str)
-                .unwrap_or(&detail.media.title);
-            return unavailable(&format!("No torrent found for \"{term}\"."));
+                .unwrap_or(&plan.detail.media.title);
+            return Err(format!("No torrent found for \"{term}\"."));
         }
 
         tracing::debug!(
@@ -159,25 +220,30 @@ impl Streamer {
                     "[stream] {id}: \"{}\" after {:?}, from {} candidates",
                     release.title,
                     started.elapsed(),
-                    ranked.len()
+                    plan.ranked.len()
                 );
-                Resolution::Ready {
-                    url: serve::url(
-                        self.address,
-                        &self.token,
-                        &playable.info_hash,
-                        playable.file_index,
-                    ),
-                    release: release.title.clone(),
-                    stream: StreamId {
-                        info_hash: playable.info_hash,
-                        file_index: playable.file_index,
-                    },
-                }
+                Ok((Release::clone(release), playable))
             }
-            Err(_) => unavailable("Found releases, but none could be played."),
+            Err(_) => Err("Found releases, but none could be played.".into()),
         }
     }
+
+    /// The torrent engine, for a caller that reads the files itself.
+    pub fn engine(&self) -> Arc<Engine> {
+        self.engine.clone()
+    }
+}
+
+/// What is known about one episode or film before any torrent is opened.
+#[derive(Debug, Clone)]
+pub struct Plan {
+    pub id: String,
+    pub parsed: MediaId,
+    pub detail: Detail,
+    /// The first of these is what a person would search for by hand.
+    pub terms: Vec<String>,
+    /// Releases found and ranked, best first. A source decides how many to try.
+    pub ranked: Vec<Release>,
 }
 
 /// The releases worth trying, best first. A count of zero may only mean the indexer does
@@ -237,7 +303,7 @@ async fn find_releases(
         }
         (_, None) => (Vec::new(), Vec::new()),
     };
-    ranked.truncate(config.max_candidates);
+    ranked.truncate(config.max_candidates.max(OFFERED));
     (terms, ranked)
 }
 

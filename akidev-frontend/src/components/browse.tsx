@@ -130,7 +130,7 @@ const KIND_TABS: { kind: ContentType | null; label: string }[] = [
 /** The full results of a search, across every catalogue, narrowed by a tab. */
 export function SearchView({ term }: { term: string }) {
   const [kind, setKind] = useState<ContentType | null>(null);
-  const search = useSearch(term, 60, 20);
+  const search = useSearch(term, 60);
   const shown = search.results.filter((card) => !kind || card.kind === kind);
 
   const filters = (

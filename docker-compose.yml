@@ -3,7 +3,8 @@
 #   cloudflared    the only thing exposed to the internet, over an outbound tunnel.
 #                  Nothing binds a public port, so there is no open firewall hole and
 #                  no certificate to renew on this box.
-#   api            the GraphQL API and the video relay (port 9000, internal only).
+#   api            the REST API and the video delivery, one Rust binary built on the same
+#                  library as the desktop app (port 9000, internal only).
 #   frontend       every site (port 3000, internal only).
 #
 # Four hostnames reach the same tunnel and are routed by hostname in the tunnel's
@@ -47,34 +48,31 @@ services:
   api:
     image: ${API_IMAGE}
     build:
-      context: .
-      dockerfile: akidev-api/Dockerfile
+      # Only the Dockerfile and the binary the deploy workflow built into dist/. See the Dockerfile
+      # for why it is not compiled here.
+      context: desktop/server
     restart: unless-stopped
     environment:
-      NODE_ENV: production
       PORT: 9000
       # Stream URLs are built from this, so it must be the public API origin.
       PUBLIC_URL: ${PUBLIC_URL}
-      CACHE_DIR: /data/torrent-cache
-      STREAM_SOURCES: ${STREAM_SOURCES:-debrid,torrent}
+      # The browser calls the API from the site, so that origin must be allowed.
+      CORS_ORIGINS: https://${NEXT_PUBLIC_SITE_DOMAIN:-akidev.live}
+      CACHE_DIR: /data
+      STREAM_SOURCES: ${STREAM_SOURCES:-debrid,torrent,archive-org}
       TORBOX_API_KEY: ${TORBOX_API_KEY:-}
-      # Disk ceiling for the torrent cache. The box is 40GB, and the volume below is
-      # the only thing that grows, so this leaves headroom for the OS and images.
+      # Disk ceiling for the torrent downloads and the converted video together. The box has a
+      # fixed disk, and the volume below is the only thing that grows, so this leaves headroom
+      # for the OS and the images.
       MAX_CACHE_BYTES: ${MAX_CACHE_BYTES:-12884901888}
     volumes:
-      # Named volume rather than a bind mount: the cache is scratch data, and a
-      # named volume is owned by Docker rather than by whatever user happens to
-      # exist on the host. Docker initialises it from /data in the image, which is
-      # owned by the unprivileged user the container runs as.
+      # Named volume rather than a bind mount: the cache is scratch data, and a named volume is
+      # owned by Docker rather than by whatever user happens to exist on the host. Docker
+      # initialises it from /data in the image, which belongs to the unprivileged user the
+      # container runs as.
       - torrent-cache:/data
-    healthcheck:
-      # The check runs inside the container, which has node and is the only place
-      # these ports are reachable from. Nothing is published to the host.
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:9000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 20s
+    # The health check is the image's own (`akidev-server --check`), run inside the container,
+    # which is the only place these ports are reachable from. Nothing is published to the host.
     logging: *logging
 
   frontend:
@@ -87,13 +85,13 @@ services:
         # rather than runtime variables. Changing either requires a rebuild. The site
         # domain is the same for every hostname, which is what lets one build serve all
         # of them.
-        NEXT_PUBLIC_GRAPHQL_URI: ${NEXT_PUBLIC_GRAPHQL_URI}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
         NEXT_PUBLIC_SITE_DOMAIN: ${NEXT_PUBLIC_SITE_DOMAIN:-akidev.live}
     restart: unless-stopped
     environment:
       NODE_ENV: production
       PORT: 3000
-      NEXT_PUBLIC_GRAPHQL_URI: ${NEXT_PUBLIC_GRAPHQL_URI}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
     depends_on:
       - api
     healthcheck:

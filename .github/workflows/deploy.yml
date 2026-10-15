@@ -13,9 +13,14 @@ name: Deploy
 on:
   push:
     branches: [main]
-    # The desktop app is not part of what runs on the server.
+    # The desktop app is not part of what runs on the server. The server is built on the same
+    # library (desktop/core) and lives in desktop/server, so those do deploy.
     paths-ignore:
-      - desktop/**
+      - desktop/app/**
+      - desktop/assets/**
+      - desktop/scripts/**
+      - desktop/sources/**
+      - desktop/README.md
       - branding/**
       - .github/workflows/desktop*.yml
   # Allows a deploy of any branch or commit without pushing a new commit.
@@ -95,18 +100,8 @@ jobs:
         # package.json, which is a real class of deploy break.
         run: npm ci
 
-      - name: Install ffmpeg
-        # The stream tests exercise the real transcode path - they run ffprobe on a
-        # generated file and ffmpeg on a real torrent read - so ffmpeg must be present.
-        # The ubuntu runner image does not include it, and without it nine tests fail
-        # with `spawnSync ffmpeg ENOENT` rather than skipping, which reads as a code
-        # failure rather than a missing dependency.
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg
-
-      - name: Test
-        run: npm test
+      - name: Test the frontend
+        run: npm test --workspace=akidev
 
       - name: Lint
         run: npm run lint
@@ -116,12 +111,65 @@ jobs:
         working-directory: akidev-frontend
 
       - name: Build the frontend
-        # One build, because the site is chosen from the request host at runtime rather
-        # than baked in. There is no second SITE build to check.
         run: npm run build
 
+      - name: Install ffmpeg
+        # The server's tests run the real conversion path against a generated file, so ffmpeg
+        # must be present. Without it they say so and pass, which would hide a broken one.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop
+
+      - name: Check the server
+        working-directory: desktop
+        run: |
+          cargo fmt --all --check
+          cargo clippy -p akidev-server -p akidev-core --all-targets -- -D warnings
+          cargo test -p akidev-server -p akidev-core
+
+  # Builds the server binary. It is compiled inside the Debian release the runtime image is
+  # based on, so it links the same libc and OpenSSL it will run against, and it is built here
+  # rather than on the host because a release build needs gigabytes of memory for minutes.
+  build-server:
+    needs: [preflight]
+    if: needs.preflight.outputs.configured == 'true'
+    runs-on: ubuntu-latest
+    container: rust:1-bookworm
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop
+
+      - name: Build
+        working-directory: desktop
+        run: cargo build --release --locked -p akidev-server
+
+      - name: Check it starts
+        # An executable that cannot start (a missing library, a wrong architecture) is found
+        # here rather than on the host.
+        run: |
+          ldd desktop/target/release/akidev-server
+          PORT=9 desktop/target/release/akidev-server --check || test $? -eq 1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: akidev-server
+          path: desktop/target/release/akidev-server
+          if-no-files-found: error
+          retention-days: 7
+
   deploy:
-    needs: [preflight, verify]
+    needs: [preflight, verify, build-server]
     if: needs.preflight.outputs.configured == 'true'
     runs-on: ubuntu-latest
     environment: production
@@ -129,6 +177,16 @@ jobs:
     steps:
       - name: Check out
         uses: actions/checkout@v4
+
+      - name: Fetch the server binary
+        # Into the build context of the api image, which only unpacks it.
+        uses: actions/download-artifact@v4
+        with:
+          name: akidev-server
+          path: desktop/server/dist
+
+      - name: Make it executable
+        run: chmod +x desktop/server/dist/akidev-server
 
       - name: Start ssh-agent
         # The key is passed through the agent rather than written to disk, so it is
@@ -159,7 +217,7 @@ jobs:
         # uploaded. The repository's .gitignore covers .env.deploy.
         env:
           PUBLIC_URL: ${{ vars.PUBLIC_URL }}
-          NEXT_PUBLIC_GRAPHQL_URI: ${{ vars.NEXT_PUBLIC_GRAPHQL_URI }}
+          NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL }}
           NEXT_PUBLIC_SITE_DOMAIN: ${{ vars.NEXT_PUBLIC_SITE_DOMAIN }}
           CLOUDFLARE_TUNNEL_TOKEN: ${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }}
           TORBOX_API_KEY: ${{ secrets.TORBOX_API_KEY }}
@@ -169,7 +227,7 @@ jobs:
           # Defaults, so a missing repository variable does not silently deploy an
           # empty value.
           PUBLIC_URL="${PUBLIC_URL:-https://api.akidev.live}"
-          NEXT_PUBLIC_GRAPHQL_URI="${NEXT_PUBLIC_GRAPHQL_URI:-$PUBLIC_URL/graphql}"
+          NEXT_PUBLIC_API_URL="${NEXT_PUBLIC_API_URL:-$PUBLIC_URL}"
           NEXT_PUBLIC_SITE_DOMAIN="${NEXT_PUBLIC_SITE_DOMAIN:-akidev.live}"
           STREAM_SOURCES="${STREAM_SOURCES:-debrid,torrent,archive-org}"
           MAX_CACHE_BYTES="${MAX_CACHE_BYTES:-12884901888}"
@@ -177,7 +235,7 @@ jobs:
           umask 077
           cat > .env.deploy <<EOF
           PUBLIC_URL=$PUBLIC_URL
-          NEXT_PUBLIC_GRAPHQL_URI=$NEXT_PUBLIC_GRAPHQL_URI
+          NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
           NEXT_PUBLIC_SITE_DOMAIN=$NEXT_PUBLIC_SITE_DOMAIN
           STREAM_SOURCES=$STREAM_SOURCES
           MAX_CACHE_BYTES=$MAX_CACHE_BYTES
@@ -203,6 +261,11 @@ jobs:
             --exclude 'node_modules' \
             --exclude '.next' \
             --exclude '.torrent-cache' \
+            --exclude 'target' \
+            --exclude 'desktop/app' \
+            --exclude 'desktop/core' \
+            --exclude 'desktop/vendor' \
+            --exclude 'desktop/assets' \
             --exclude '.env' \
             --exclude '.env.*' \
             -e "ssh -p $DEPLOY_PORT" \
@@ -239,49 +302,42 @@ jobs:
           printf '%s\n' "$health" | head -c 400
           echo
 
-          # Every content type must resolve to a provider. A misconfigured map is
-          # invisible otherwise: the anime site keeps working while every film request
-          # answers from the anime catalogue.
-          for type in anime series movie; do
-            case "$health" in
-              *"\"$type\":"*) ;;
-              *)
-                echo "/health does not report a provider for $type" >&2
-                exit 1
-                ;;
-            esac
-          done
+          case "$health" in
+            *'"status":"ok"'*) ;;
+            *)
+              echo "/health does not say ok" >&2
+              exit 1
+              ;;
+          esac
+
+          # Without ffmpeg only MP4 files play, and an MKV episode fails with a message that
+          # sounds like a bad release. The image installs it, so this catches a broken image.
+          case "$health" in
+            *'"ffmpeg":true'*) ;;
+            *)
+              echo "/health does not report ffmpeg" >&2
+              exit 1
+              ;;
+          esac
 
           # The stream sources must be the configured ones. The list is a repository
           # variable, and a variable that omits archive-org silently disables the
           # fallback that exists for the case no torrent indexer can cover - the app
           # keeps working and just reports "no source" for those titles.
-          case "$health" in
-            *'"archive-org"'*) ;;
-            *)
-              echo "/health does not report archive-org as a stream source" >&2
-              exit 1
-              ;;
-          esac
-
-          # torrentio is the only indexer searched by IMDb id, and it is what finds
-          # titles no text search can - a show named three different ways in the wild
-          # matches nothing when an indexer requires every word of the query. Omitting
-          # it from TORRENT_INDEXERS is silent: the app keeps working and simply reports
-          # "no source" for those titles.
-          case "$health" in
-            *'"torrentio"'*) ;;
-            *)
-              echo "/health does not report torrentio as a torrent indexer" >&2
-              exit 1
-              ;;
-          esac
+          for source in torrent archive-org; do
+            case "$health" in
+              *"\"$source\""*) ;;
+              *)
+                echo "/health does not report $source as a stream source" >&2
+                exit 1
+                ;;
+            esac
+          done
 
           # One site on the bare zone, and the two retired hostnames send visitors to it.
           # A broken redirect would leave old anime. and tv. links dead while every check
           # above still passed.
           echo "Checking the site and the retired hostnames"
-          HUB_URL="${HUB_URL:-https://akidev.live}"
           body=$(curl -fsS --retry 5 --retry-delay 5 --retry-all-errors "$HUB_URL")
           case "$body" in
             *"Akidev | Anime, series and films"*) echo "    site ok ($HUB_URL)" ;;
@@ -301,50 +357,49 @@ jobs:
             echo "    $url -> $expected"
           done
 
-          # A GraphQL round trip proves the frontend's API address and the API itself
-          # both work, which a 200 on the home page alone does not.
-          echo "Checking a GraphQL query"
-          curl -fsS --retry 3 --retry-delay 5 --retry-all-errors \
-            -X POST "$PUBLIC_URL/graphql" \
-            -H 'Content-Type: application/json' \
-            -d '{"query":"{ topAnime(page:1){ id title } }"}' | head -c 200
-          echo
-
-          # The fields the UI renders. A schema that loads but does not answer these
-          # produces a frontend that builds and deploys and then shows nothing, which
-          # a health check and a topAnime probe would both pass.
-          #
-          # Each body is a single-quoted literal so the inner \" stays valid JSON.
-          # Building the body with an interpolated variable collapses the nested
-          # quotes and the API answers 400.
-          echo "Checking the media queries the frontend uses"
-          for body in \
-            '{"query":"{ mediaList(input:{sort:\"trending\",perPage:2}){ total results{ id title{ english } bannerImage } } }"}' \
-            '{"query":"{ mediaSearch(term:\"naruto\", input:{perPage:2}){ total results{ id format } } }"}' \
-            '{"query":"{ mediaDetail(id:\"anime-16498\"){ id description relations{ edges{ node{ id } } } recommendations{ nodes{ mediaRecommendation{ id } } } characters{ edges{ node{ name{ full } } } } } }"}' \
-            '{"query":"{ mediaDetail(id:\"series-169\"){ id description episodeList{ episodeId season number } } }"}' \
-            '{"query":"{ mediaSearch(term:\"dangal\", input:{contentType:\"movie\",perPage:2}){ total results{ id title{ english } } } }"}'
+          # The catalogue, through the routes the site uses. Each answers with the shape the
+          # frontend reads, which a 200 alone does not prove.
+          echo "Checking the catalogue"
+          home=$(curl -fsS --retry 3 --retry-delay 5 --retry-all-errors "$PUBLIC_URL/v1/home")
+          case "$home" in
+            *'"featured":['*'"rows":['*) printf '%s' "$home" | head -c 160; echo ;;
+            *)
+              echo "/v1/home did not return featured and rows" >&2
+              exit 1
+              ;;
+          esac
+          for route in \
+            "/v1/catalogue?kind=anime&sort=trending" \
+            "/v1/catalogue?kind=series&genre=Drama" \
+            "/v1/catalogue?kind=movie&sort=recent" \
+            "/v1/search?q=naruto&limit=5" \
+            "/v1/search?q=dangal&limit=5"
           do
-            response=$(curl -fsS --retry 3 --retry-delay 5 --retry-all-errors \
-              -X POST "$PUBLIC_URL/graphql" \
-              -H 'Content-Type: application/json' \
-              --data-binary "$body")
+            response=$(curl -fsS --retry 3 --retry-delay 5 --retry-all-errors "$PUBLIC_URL$route")
             case "$response" in
-              *'"errors"'*)
-                echo "GraphQL returned errors for: $body" >&2
-                echo "$response" >&2
+              *'"results":[{'*) echo "  $route -> results" ;;
+              *)
+                echo "$route returned no results: $response" >&2
                 exit 1
                 ;;
             esac
-            printf '%s\n' "$response" | head -c 120
-            echo
+          done
+          for route in "/v1/titles/anime-16498" "/v1/titles/series-169" "/v1/titles/movie-tt0111161"; do
+            response=$(curl -fsS --retry 3 --retry-delay 5 --retry-all-errors "$PUBLIC_URL$route")
+            case "$response" in
+              *'"media":{'*) echo "  $route -> title" ;;
+              *)
+                echo "$route returned no title: $response" >&2
+                exit 1
+                ;;
+            esac
           done
 
-          # The routes themselves. A build can succeed while every page 404s, which a
-          # check of the home page alone would not catch.
+          # The routes the site itself serves. A build can succeed while every page 404s,
+          # which a check of the home page alone would not catch.
           echo "Checking the site routes"
           for route in "/" "/anime" "/series" "/films" "/search?q=naruto" "/search?q=dangal" \
-            "/title/anime-16498" "/title/movie-7691" "/title/series-169" \
+            "/title/anime-16498" "/title/movie-tt0111161" "/title/series-169" \
             "/watch/anime-130003/anime-130003-ep1"; do
             code=$(curl -sL -o /dev/null -w '%{http_code}' --retry 3 --retry-delay 5 --retry-all-errors "$HUB_URL$route")
             if [ "$code" != "200" ]; then
@@ -354,49 +409,41 @@ jobs:
             echo "  $route -> $code"
           done
 
-          # The delivery routes, which nothing else here exercises. A previous deploy
-          # returned 200 on /health and a good GraphQL response while every request to
-          # /dl threw a ReferenceError and surfaced at the edge as a 502, so the routes
-          # themselves are what must be checked.
-          echo "Checking the download route rejects a bad token"
-          code=$(curl -s -o /dev/null -w '%{http_code}' "$PUBLIC_URL/dl/not-a-real-token")
-          if [ "$code" != "400" ]; then
-            echo "expected 400 from /dl for a malformed token, got $code" >&2
-            exit 1
-          fi
+          # Finding a source is the volatile part, and it goes through the indexers, the
+          # debrid service and the torrent engine together, so it is checked with real
+          # titles. Each is one POST; the answer names the source and the delivery.
+          play() {
+            curl -sS --max-time 120 -X POST "$PUBLIC_URL/v1/play" \
+              -H 'Content-Type: application/json' -d "{\"id\":\"$1\",\"hevc\":false}"
+          }
 
-          echo "Checking an HLS episode resolves and serves a playlist"
-          # The id is self-describing, so it names its own content type. The old bare
-          # form ("130003-ep1") is no longer a media id and does not resolve.
-          url=$(curl -fsS -X POST "$PUBLIC_URL/graphql" \
-            -H 'Content-Type: application/json' \
-            -d '{"query":"{ streamLinkDetails(id:\"anime-130003-ep1\"){ available streamType url } }"}' \
-            | sed -n 's/.*"url":"\([^"]*\)".*/\1/p')
-          if [ -z "$url" ]; then
-            echo "no stream url was returned; the episode did not resolve" >&2
-            exit 1
-          fi
-          # The first request starts the transcode, so this waits for the first segment.
-          body=$(curl -fsS --max-time 120 --retry 2 --retry-delay 5 --retry-all-errors "$url")
-          case "$body" in
-            '#EXTM3U'*) echo "playlist served ($(printf '%s' "$body" | grep -c 'EXTINF') segments so far)" ;;
+          echo "Checking an episode resolves and can be fetched"
+          anime=$(play anime-130003-ep1)
+          case "$anime" in
+            *'"available":true'*) ;;
             *)
-              echo "expected an HLS playlist from $url, got:" >&2
-              printf '%s\n' "$body" | head -c 300 >&2
+              echo "the anime episode did not resolve: $anime" >&2
+              exit 1
+              ;;
+          esac
+          url=$(printf '%s' "$anime" | sed -n 's/.*"url":"\([^"]*\)".*/\1/p')
+          kind=$(printf '%s' "$anime" | sed -n 's/.*"stream_type":"\([^"]*\)".*/\1/p')
+          echo "  resolved as $kind via $(printf '%s' "$anime" | sed -n 's/.*"source":"\([^"]*\)".*/\1/p')"
+          # The first bytes of the video, or the playlist: either proves the delivery route
+          # answers, which a good resolve alone does not.
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 60 -H 'Range: bytes=0-1023' "$url")
+          case "$code" in
+            200|206) echo "  $url -> $code" ;;
+            *)
+              echo "expected the stream to answer, got $code from $url" >&2
               exit 1
               ;;
           esac
 
-          # A series episode, which is the path that broke silently: "Gyaarah Gyaarah"
-          # reported "no playable source" because its only releases are season packs,
-          # and nothing here exercised the series route at all. The title is regional
-          # and pack-only on purpose - a western series resolves through the same
-          # episode-named releases the anime check already covers, so it would not have
-          # caught this.
+          # A season pack: the episode is one file of a torrent that holds a whole season,
+          # which the file pick has to get right.
           echo "Checking a series episode resolves from a season pack"
-          series=$(curl -sS -X POST "$PUBLIC_URL/graphql" \
-            -H 'Content-Type: application/json' \
-            -d '{"query":"{ streamLinkDetails(id:\"series-tt26915338-s1e1\"){ available release reason } }"}')
+          series=$(play series-tt26915338-s1e1)
           case "$series" in
             *'"available":true'*) echo "series resolved: $(printf '%s' "$series" | sed -n 's/.*"release":"\([^"]*\)".*/\1/p')" ;;
             *)
@@ -407,16 +454,10 @@ jobs:
 
           # A title every text-search indexer answers with nothing, and the reason the
           # id-searched indexer exists. "India's Got Latent" is named three ways in the
-          # wild ("India's", "Indias", "INDIA S"), and knaben requires every word of a
-          # query to match, so no spelling finds it. It resolves only through torrentio,
+          # wild, and no spelling finds it by text. It resolves only through torrentio,
           # which is searched by IMDb id with the season and episode in the path.
-          #
-          # Nothing else here covers this: the other checks all resolve through
-          # episode-named releases that a text search does find.
           echo "Checking a title that only the id-searched indexer can find"
-          igl=$(curl -sS -X POST "$PUBLIC_URL/graphql" \
-            -H 'Content-Type: application/json' \
-            -d '{"query":"{ streamLinkDetails(id:\"series-tt33094114-s1e1\"){ available release reason } }"}')
+          igl=$(play series-tt33094114-s1e1)
           case "$igl" in
             *'"available":true'*) echo "id-searched title resolved: $(printf '%s' "$igl" | sed -n 's/.*"release":"\([^"]*\)".*/\1/p')" ;;
             *)
@@ -425,24 +466,32 @@ jobs:
               ;;
           esac
 
-          # The season gate. A season pack's files restart at 01 for each season, so a
-          # pack covering the wrong season must never be offered: "S02E01.mkv" is not
-          # episode 1 of season 1. This is checked through the API rather than in a unit
-          # test because it is the ranking, the file pick and the term fan-out together
-          # that decide it.
+          # The season gate. A season pack's files restart at 01 for each season, so a pack
+          # covering the wrong season must never be offered: "S02E01.mkv" is not episode 1 of
+          # season 1. The show is a single season, so asking for season 9 must not fall back
+          # to season 1's pack.
           echo "Checking a later season does not resolve to the wrong season"
-          # The show is a single season, so asking for season 9 must not fall back to
-          # season 1's pack.
-          season9=$(curl -sS -X POST "$PUBLIC_URL/graphql" \
-            -H 'Content-Type: application/json' \
-            -d '{"query":"{ streamLinkDetails(id:\"series-tt26915338-s9e1\"){ available release } }"}')
+          season9=$(play series-tt26915338-s9e1)
           case "$season9" in
             *'"available":false'*) echo "season 9 correctly found nothing" ;;
             *)
-              echo "season 9 resolved to $(printf '%s' "$season9" | sed -n 's/.*"release":"\([^"]*\)".*/\1/p')" >&2
+              echo "season 9 resolved: $season9" >&2
               exit 1
               ;;
           esac
+
+          # The server must refuse what it should, and say so in JSON.
+          echo "Checking the server refuses bad requests"
+          code=$(curl -s -o /dev/null -w '%{http_code}' "$PUBLIC_URL/s/not-a-real-token")
+          if [ "$code" != "400" ]; then
+            echo "expected 400 from /s for a malformed token, got $code" >&2
+            exit 1
+          fi
+          code=$(curl -s -o /dev/null -w '%{http_code}' "$PUBLIC_URL/v1/catalogue?kind=books")
+          if [ "$code" != "400" ]; then
+            echo "expected 400 for an unknown kind, got $code" >&2
+            exit 1
+          fi
 
       - name: Report failure
         if: failure()

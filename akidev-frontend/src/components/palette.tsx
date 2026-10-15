@@ -26,7 +26,7 @@ export default function Palette({ onClose }: { onClose: () => void }) {
 
   useEffect(() => input.current?.focus(), []);
 
-  // Wait for a pause in typing, so each keystroke is not a request to three catalogues.
+  // Wait for a pause in typing, so each keystroke is not a request.
   useEffect(() => {
     const timer = setTimeout(() => setTerm(typed.trim()), 200);
     return () => clearTimeout(timer);

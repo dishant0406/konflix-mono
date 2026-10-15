@@ -8,41 +8,12 @@ import Episodes from "@/components/episodes";
 import Player from "@/components/player";
 import { ErrorState, Spinner } from "@/components/states";
 import { ROUTES, titlePath, watchPath } from "@/constants/routes";
-import { toCard } from "@/lib/media";
-import { animeEpisodeId, parseMediaId } from "@/lib/media-id";
+import { episodeCount, neighbour, titleLine } from "@/lib/episodes";
+import { parseMediaId } from "@/lib/media-id";
+import { playErrorMessage } from "@/lib/play";
 import { record, resumeAt } from "@/lib/progress";
-import { useWatchMetadata } from "@/query/use-media";
-import { useStreamLink } from "@/query/use-stream-link";
-import type { MediaFull } from "@/types/media";
-
-/** The episode before (-1) or after (1) this one, if there is one. */
-function neighbour(media: MediaFull | null | undefined, id: string | undefined, delta: number): string | null {
-  const parsed = parseMediaId(id);
-  if (!media || !parsed || parsed.contentType === "movie") return null;
-
-  if (parsed.contentType === "anime") {
-    const next = (parsed.episodeNumber ?? 0) + delta;
-    const count =
-      media.episodes ?? (media.nextAiringEpisode?.episode ? Math.max(media.nextAiringEpisode.episode - 1, 0) : 0);
-    return next >= 1 && next <= count ? animeEpisodeId(parsed.mediaId, next) : null;
-  }
-
-  const episodes = [...(media.episodeList ?? [])].sort((a, b) => a.season - b.season || a.number - b.number);
-  const at = episodes.findIndex((episode) => episode.episodeId === id);
-  return at === -1 ? null : (episodes[at + delta]?.episodeId ?? null);
-}
-
-/** "Title · S1 E5 · Name", or "Title · Episode 5", or just the title for a film. */
-function titleLine(media: MediaFull | null | undefined, id: string | undefined): string {
-  if (!media) return "";
-  const title = media.title?.english || media.title?.romaji || media.title?.native || "";
-  const parsed = parseMediaId(id);
-  const name = media.episodeList?.find((episode) => episode.episodeId === id)?.name;
-  if (parsed?.season && parsed.episodeNumber) {
-    return `${title} · S${parsed.season} E${parsed.episodeNumber}${name ? ` · ${name}` : ""}`;
-  }
-  return parsed?.episodeNumber ? `${title} · Episode ${parsed.episodeNumber}` : title;
-}
+import { useDetail } from "@/query/use-media";
+import { usePlay } from "@/query/use-play";
 
 export default function WatchPage() {
   const params = useParams();
@@ -50,19 +21,18 @@ export default function WatchPage() {
   const key = typeof params.key === "string" ? params.key : undefined;
   const id = typeof params.id === "string" ? params.id : undefined;
 
-  // Metadata and the stream are fetched independently on purpose: metadata takes a few
-  // hundred milliseconds, resolving a stream searches torrent indexers and can take far longer.
-  const metadata = useWatchMetadata(key);
-  const stream = useStreamLink(id);
-  const [playbackError, setPlaybackError] = useState<{ id: string; message: string } | null>(null);
-
-  const media = metadata.data;
-  const next = neighbour(media, id, 1);
-  const previous = neighbour(media, id, -1);
-  const card = useMemo(() => (media ? toCard(media) : null), [media]);
-
+  // The title and the stream are fetched independently on purpose: the title is usually
+  // already cached, finding a stream searches torrent indexers and can take far longer.
+  const detail = useDetail(key);
   // Read once per episode: the position it was left at.
   const startAt = useMemo(() => (id ? resumeAt(id) : null), [id]);
+  const stream = usePlay(id, startAt);
+  const [playbackError, setPlaybackError] = useState<{ id: string; message: string } | null>(null);
+
+  const data = detail.data;
+  const card = data?.media;
+  const next = neighbour(data, id, 1);
+  const previous = neighbour(data, id, -1);
 
   const leave = useCallback(() => router.push(key ? titlePath(key) : ROUTES.HOME), [key, router]);
   // Swapping episodes replaces the page, so Back still leaves the show.
@@ -131,7 +101,7 @@ export default function WatchPage() {
       <>
         <ErrorState
           title="Couldn't load this"
-          detail={stream.error instanceof Error ? stream.error.message : "The API did not respond."}
+          detail={playErrorMessage(stream.error)}
           onRetry={() => stream.refetch()}
         />
         {neighbours}
@@ -139,7 +109,7 @@ export default function WatchPage() {
     );
   }
 
-  if (!link?.available || !link.url) {
+  if (!link?.available) {
     return status(
       <>
         <ErrorState
@@ -153,24 +123,24 @@ export default function WatchPage() {
   }
 
   const isFilm = parseMediaId(key)?.contentType === "movie";
-  const count =
-    media?.episodes ?? (media?.nextAiringEpisode?.episode ? Math.max(media.nextAiringEpisode.episode - 1, 0) : 0);
+  const count = episodeCount(data);
 
   return (
     <>
       <Player
         key={id}
         src={link.url}
-        streamType={link.streamType}
-        title={titleLine(media, id) || link.titleWithEpisode || ""}
+        streamType={link.stream_type}
+        subtitles={link.subtitles}
+        title={titleLine(data, id)}
         startAt={startAt}
         onBack={leave}
         onError={(message) => id && setPlaybackError({ id, message })}
         onProgress={onProgress}
         onNext={next ? onNext : undefined}
         episodes={
-          !isFilm && key && media ? (
-            <Episodes titleKey={key} count={count} list={media.episodeList} currentId={id} compact />
+          !isFilm && key && data ? (
+            <Episodes titleKey={key} count={count} list={data.episodes} currentId={id} compact />
           ) : undefined
         }
       />

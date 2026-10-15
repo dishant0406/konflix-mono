@@ -47,8 +47,19 @@ require_env() {
 require_env PUBLIC_URL
 require_env CLOUDFLARE_TUNNEL_TOKEN
 # Without this the build bakes in the localhost fallback, and the site then loads but
-# every query fails - a silent break that is hard to trace back to a missing variable.
-require_env NEXT_PUBLIC_GRAPHQL_URI
+# every request fails - a silent break that is hard to trace back to a missing variable.
+require_env NEXT_PUBLIC_API_URL
+
+# The api image holds a binary the deploy workflow built for x86-64. Anything else would start
+# and die with "exec format error", so it is refused here, where the reason is readable.
+if [ -z "${SKIP_ARCH_CHECK:-}" ] && [ "$(uname -m)" != "x86_64" ]; then
+  echo "Error: this host is $(uname -m), but the api binary is built for x86_64." >&2
+  exit 1
+fi
+if [ ! -f desktop/server/dist/akidev-server ]; then
+  echo "Error: desktop/server/dist/akidev-server is missing: the workflow builds it and uploads it." >&2
+  exit 1
+fi
 
 PUBLIC_URL_VALUE="$(read_env PUBLIC_URL)"
 # Derived from the API origin by default, and only used for the summary line.
@@ -62,7 +73,7 @@ fi
 export API_IMAGE="konflix-api:$IMAGE_TAG"
 # One image serves every hostname, so there is no per-site build and no second tag.
 export FRONTEND_IMAGE="konflix-frontend:$IMAGE_TAG"
-export NEXT_PUBLIC_GRAPHQL_URI="$(read_env NEXT_PUBLIC_GRAPHQL_URI)"
+export NEXT_PUBLIC_API_URL="$(read_env NEXT_PUBLIC_API_URL)"
 
 compose() {
   docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
@@ -104,8 +115,7 @@ if [ -n "${SKIP_BUILD:-}" ]; then
 else
   echo "==> Building images"
   # The frontend build needs the API address and the site name baked in, both of which
-  # are build arguments rather than runtime variables. Both frontends are built, and
-  # they share every layer up to the site argument, so the second is nearly free.
+  # are build arguments rather than runtime variables. The api image only unpacks the binary.
   compose build ${PULL:+--pull} api frontend
 fi
 
@@ -123,19 +133,18 @@ wait_for_health konflix-frontend-1 frontend
 # Reports what is actually configured, which is the difference between "the process
 # started" and "it can do its job". Run inside the container so the host needs no node.
 echo "==> Health"
-docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T api node -e "
-  fetch('http://127.0.0.1:9000/health')
+# Reports what is actually configured, which is the difference between "the process started"
+# and "it can do its job". Read from the frontend container, which has node and sits on the same
+# network as the api; the api image has no shell tools beyond its own binary.
+docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T frontend node -e "
+  fetch('http://api:9000/health')
     .then((r) => r.json())
     .then((h) => {
-      const providers = h.metadataProviders || {}
-      console.log('    metadata providers: ' + Object.entries(providers).map(([t, n]) => t + '=' + n).join(', '))
-      console.log('    stream sources:    ' + (h.activeStreamSources || []).join(', '))
-      console.log('    indexers:          ' + (h.enabledIndexers || []).join(', '))
-      console.log('    ffmpeg:            ' + h.ffmpeg)
-      for (const [name, status] of Object.entries(h.sources || {})) {
-        const state = status.reachable === false ? 'UNREACHABLE (' + status.error + ')' : 'ok'
-        console.log('    ' + name + ': ' + state)
-      }
+      console.log('    version:        ' + h.version)
+      console.log('    stream sources: ' + (h.sources || []).join(', '))
+      console.log('    ffmpeg:         ' + h.ffmpeg)
+      const debrid = h.debrid || {}
+      console.log('    debrid:         ' + (debrid.configured ? (debrid.reachable ? 'ok' : 'UNREACHABLE') : 'not configured'))
     })
     .catch((error) => {
       console.error('    could not read /health: ' + error.message)

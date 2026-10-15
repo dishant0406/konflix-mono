@@ -1,132 +1,95 @@
-// The media shapes the API returns.
+// The shapes the API returns.
 //
-// These mirror graphql/typeDefs/schema.graphql in akidev-api. The API is the
-// contract; nothing here is invented locally.
+// These mirror desktop/server/API.md, which is the contract; nothing here is invented locally.
 
-export type MediaFormat = "TV" | "MOVIE" | "OVA" | "ONA" | "SPECIAL" | "MUSIC";
-export type MediaStatus = "RELEASING" | "FINISHED" | "NOT_YET_RELEASED" | "CANCELLED" | "HIATUS";
-export type MediaSeason = "WINTER" | "SPRING" | "SUMMER" | "FALL";
+export type Kind = "anime" | "series" | "movie";
 
-export interface MediaTitle {
-  romaji: string | null;
-  english: string | null;
-  native: string | null;
-}
-
-export interface MediaCoverImage {
-  extraLarge: string | null;
-  large: string | null;
-  color: string | null;
-}
-
-export interface MediaDate {
-  year: number | null;
-  month: number | null;
-  day: number | null;
-}
-
-export interface MediaStudio {
-  id: string | null;
-  name: string | null;
-  isAnimationStudio: boolean | null;
-  siteUrl: string | null;
-}
-
-export interface MediaNextAiringEpisode {
-  episode: number | null;
-  airingAt: number | null;
-  timeUntilAiring: number | null;
-}
-
-export interface MediaList {
+/** One title, flat. Everything a tile, row or banner draws from. */
+export interface Media {
+  /** The title key, e.g. "anime-16498". */
   id: string;
-  title: MediaTitle | null;
-  coverImage: MediaCoverImage | null;
-  bannerImage: string | null;
-  format: MediaFormat | null;
-  season: MediaSeason | null;
-  seasonYear: number | null;
+  kind: Kind;
+  title: string;
+  poster: string | null;
+  banner: string | null;
+  description: string | null;
+  format: string | null;
+  year: number | null;
   episodes: number | null;
-  duration: number | null;
-  status: MediaStatus | null;
-  averageScore: number | null;
-  meanScore: number | null;
-  popularity: number | null;
-  favourites: number | null;
-  genres: string[] | null;
-  source: string | null;
-  countryOfOrigin: string | null;
-  isAdult: boolean | null;
-  studios: { nodes: MediaStudio[] | null } | null;
-  nextAiringEpisode: MediaNextAiringEpisode | null;
-  startDate: MediaDate | null;
-  endDate: MediaDate | null;
+  runtime_minutes: number | null;
+  /** A provider's own word (FINISHED, RELEASING, Ended, ...), so display text. */
+  status: string | null;
+  /** 0 to 100. */
+  score: number | null;
+  popularity: number;
+  genres: string[];
+  is_adult: boolean;
 }
 
-export interface MediaPage {
-  page: number | null;
-  perPage: number | null;
-  total: number | null;
-  hasNextPage: boolean | null;
-  results: MediaList[] | null;
+export interface Page {
+  results: Media[];
+  has_next: boolean;
 }
 
-/**
- * One episode of a series.
- *
- * AniList supplies no such list (an anime has a flat count), so this is present for
- * providers that do, and absent otherwise.
- */
-export interface MediaEpisode {
+export interface Episode {
+  /** Self-describing, e.g. "series-tt0903747-s1e5". */
+  id: string;
   season: number;
   number: number;
   name: string | null;
   airdate: string | null;
-  /** The provider's own id for this episode, already self-describing. */
-  episodeId: string;
 }
 
-export interface MediaRelationNode {
-  id: string | null;
-  type: string | null;
-  format: MediaFormat | null;
-  status: MediaStatus | null;
-  episodes: number | null;
-  meanScore: number | null;
-  title: MediaTitle | null;
-  coverImage: MediaCoverImage | null;
-  startDate: MediaDate | null;
+export interface Person {
+  name: string;
+  role: string | null;
+  image: string | null;
 }
 
-export interface MediaFull extends MediaList {
-  idMal: number | null;
-  description: string | null;
-  trailer: { id: string | null; site: string | null } | null;
-  relations: { edges: { relationType: string | null; node: MediaRelationNode | null }[] | null } | null;
-  recommendations: { nodes: { rating: number | null; mediaRecommendation: MediaRelationNode | null }[] | null } | null;
-  characters: {
-    edges:
-      | {
-          role: string | null;
-          node: { id: string | null; name: { full: string | null; native: string | null } | null; image: { large: string | null } | null } | null;
-          voiceActors: { id: string | null; name: { full: string | null; native: string | null } | null; image: { large: string | null } | null; languageV2: string | null }[] | null;
-        }[]
-      | null;
-  } | null;
-  externalLinks: { url: string | null; site: string | null; type: string | null }[] | null;
-  streamingEpisodes: { title: string | null; thumbnail: string | null; url: string | null; site: string | null }[] | null;
-  /** Present for a series, absent for an anime and a film. */
-  episodeList?: MediaEpisode[] | null;
+export interface Trailer {
+  site: string;
+  id: string;
 }
 
-export interface StreamLink {
-  id: string | null;
-  url: string | null;
-  /** "hls" when the container needed converting, "file" when the browser plays it directly. */
-  streamType: string | null;
-  available: boolean | null;
-  reason: string | null;
-  release: string | null;
-  titleWithEpisode: string | null;
-  episodeNumber: number | null;
+/** A title in full. `episodes` is empty for a film and for an anime, which counts 1..media.episodes. */
+export interface Detail {
+  media: Media;
+  studios: string[];
+  trailer: Trailer | null;
+  episodes: Episode[];
+  cast: Person[];
+  related: Media[];
+  recommended: Media[];
+}
+
+export interface Subtitle {
+  label: string;
+  lang: string;
+  url: string;
+}
+
+export type PlayResult =
+  | {
+      available: true;
+      url: string;
+      /** "hls" when the container needed converting, "file" when the browser plays it directly. */
+      stream_type: "file" | "hls";
+      release: string | null;
+      source: string | null;
+      /** Seconds, when known. */
+      duration: number | null;
+      subtitles: Subtitle[];
+    }
+  | { available: false; reason: string };
+
+export interface HomeRow {
+  title: string;
+  kind: Kind;
+  /** Empty when the row's provider failed; the page leaves such a row out. */
+  items: Media[];
+}
+
+export interface HomeResponse {
+  featured: Media[];
+  rows: HomeRow[];
 }

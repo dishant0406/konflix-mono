@@ -2,6 +2,7 @@
 
 import Hls from "hls.js";
 import {
+  Captions,
   ChevronLeft,
   List,
   Maximize,
@@ -18,6 +19,7 @@ import {
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { cn, formatSeconds } from "@/lib/utils";
+import type { Subtitle } from "@/types/media";
 
 import { Button, IconButton } from "./button";
 import { Spinner } from "./states";
@@ -40,6 +42,8 @@ type Props = {
   src: string;
   /** "hls" when the API had to convert the container, "file" when the browser plays it directly. */
   streamType: string | null;
+  /** The caption tracks the API found; empty when there are none. */
+  subtitles?: Subtitle[];
   /** The line in the top bar: title, episode, name. */
   title: string;
   /** Where to start, in seconds, when the viewer left part way. */
@@ -64,11 +68,13 @@ type Props = {
  *         HLS playlist. Chrome and Firefox need hls.js; Safari plays it natively.
  *   file  bytes the browser plays on its own, set as the element's src.
  */
-export default function Player({ src, streamType, title, startAt, onBack, onError, onProgress, onNext, episodes }: Props) {
+export default function Player({ src, streamType, subtitles = [], title, startAt, onBack, onError, onProgress, onNext, episodes }: Props) {
   const video = useRef<HTMLVideoElement>(null);
   const frame = useRef<HTMLDivElement>(null);
   const idle = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resumed = useRef(false);
+  /** Where to jump to once the file (or, for HLS, the conversion) has reached it. */
+  const pendingStart = useRef<number | null>(null);
 
   const [ready, setReady] = useState(false);
   const [playing, setPlaying] = useState(false);
@@ -81,6 +87,9 @@ export default function Player({ src, streamType, title, startAt, onBack, onErro
   const [visible, setVisible] = useState(true);
   const [panel, setPanel] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [captions, setCaptions] = useState(false);
+  /** The caption track showing, as an index into `subtitles`; -1 is off. */
+  const [track, setTrack] = useState(-1);
 
   const isHls = streamType === "hls";
 
@@ -96,7 +105,21 @@ export default function Player({ src, streamType, title, startAt, onBack, onErro
     if (!element || !src) return undefined;
     let cancelled = false;
     resumed.current = false;
+    pendingStart.current = startAt;
     setReady(false);
+
+    // A conversion is made as the viewer watches, so a resume deep into the file has to wait until
+    // it has got there. The server is told where the viewer means to start, so it runs that far.
+    const seekWhenReachable = setInterval(() => {
+      const wanted = pendingStart.current;
+      if (wanted === null) return;
+      const ranges = element.seekable;
+      const reachable = ranges.length > 0 ? ranges.end(ranges.length - 1) : 0;
+      if (reachable > wanted + 1) {
+        element.currentTime = wanted;
+        pendingStart.current = null;
+      }
+    }, 500);
 
     const plain = () => {
       element.src = src;
@@ -107,9 +130,17 @@ export default function Player({ src, streamType, title, startAt, onBack, onErro
     };
 
     // Safari plays HLS natively, and on iOS MediaSource is unavailable.
-    if (!isHls || !Hls.isSupported()) return plain();
+    if (!isHls || !Hls.isSupported()) {
+      const stop = plain();
+      return () => {
+        clearInterval(seekWhenReachable);
+        stop();
+      };
+    }
 
-    const hls = new Hls({ enableWorker: true, maxBufferLength: 30 });
+    // A playlist that is still growing counts as live, and a live player starts near its end.
+    // This one starts at the beginning, whatever the conversion has got to.
+    const hls = new Hls({ enableWorker: true, maxBufferLength: 30, startPosition: 0 });
     hls.on(Hls.Events.MANIFEST_PARSED, () => {
       if (!cancelled) setReady(true);
     });
@@ -132,9 +163,19 @@ export default function Player({ src, streamType, title, startAt, onBack, onErro
     hls.attachMedia(element);
     return () => {
       cancelled = true;
+      clearInterval(seekWhenReachable);
       hls.destroy();
     };
-  }, [src, isHls]);
+  }, [src, isHls, startAt]);
+
+  // The element's own text tracks follow the choice: one showing, the rest off.
+  useEffect(() => {
+    const tracks = video.current?.textTracks;
+    if (!tracks) return;
+    for (let index = 0; index < tracks.length; index += 1) {
+      tracks[index].mode = index === track ? "showing" : "disabled";
+    }
+  }, [track, subtitles.length]);
 
   const say = useCallback((text: string) => {
     setMessage(text);
@@ -235,8 +276,9 @@ export default function Player({ src, streamType, title, startAt, onBack, onErro
             void toggleFullscreen();
             return true;
           case "Escape":
-            if (panel) setPanel(false);
-            return panel;
+            if (captions) setCaptions(false);
+            else if (panel) setPanel(false);
+            return captions || panel;
           default:
             return false;
         }
@@ -248,11 +290,11 @@ export default function Player({ src, streamType, title, startAt, onBack, onErro
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [panel, seekBy, toggle, toggleFullscreen, wake]);
+  }, [captions, panel, seekBy, toggle, toggleFullscreen, wake]);
 
   const remaining = Math.max(duration - position, 0);
   const offerNext = Boolean(onNext) && duration > 0 && remaining <= NEXT_OFFER;
-  const shown = visible || !playing || panel;
+  const shown = visible || !playing || panel || captions;
 
   return (
     <div
@@ -264,6 +306,7 @@ export default function Player({ src, streamType, title, startAt, onBack, onErro
       <video
         ref={video}
         playsInline
+        crossOrigin="anonymous"
         preload="metadata"
         className="size-full"
         onClick={toggle}
@@ -272,7 +315,9 @@ export default function Player({ src, streamType, title, startAt, onBack, onErro
           const element = event.currentTarget;
           setDuration(finite(element.duration));
           setReady(true);
-          if (!resumed.current && startAt) element.currentTime = startAt;
+          // The viewer pressed Play to get here, so it starts on its own. A browser that refuses
+          // leaves the play button for them.
+          if (!resumed.current) element.play().catch(() => {});
           resumed.current = true;
         }}
         onDurationChange={(event) => setDuration(finite(event.currentTarget.duration))}
@@ -304,7 +349,11 @@ export default function Player({ src, streamType, title, startAt, onBack, onErro
               : "Playback failed. The stream may have expired - reload the episode to try again.",
           );
         }}
-      />
+      >
+        {subtitles.map((subtitle) => (
+          <track key={subtitle.url} kind="subtitles" src={subtitle.url} srcLang={subtitle.lang} label={subtitle.label} />
+        ))}
+      </video>
 
       {!ready && (
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2">
@@ -368,6 +417,42 @@ export default function Player({ src, streamType, title, startAt, onBack, onErro
 
               <div className="flex-1" />
 
+              {subtitles.length > 0 && (
+                <div className="relative">
+                  <IconButton label="Captions" onClick={() => setCaptions((open) => !open)}>
+                    <Captions className="size-[18px]" />
+                  </IconButton>
+                  {captions && (
+                    <div
+                      role="menu"
+                      className="absolute bottom-full right-0 mb-2 flex min-w-[160px] flex-col rounded-xl border border-line bg-surface/[0.97] p-1"
+                    >
+                      {[{ label: "Off", url: "off" }, ...subtitles].map((option, index) => {
+                        const selected = index - 1 === track;
+                        return (
+                          <button
+                            key={option.url}
+                            type="button"
+                            role="menuitemradio"
+                            aria-checked={selected}
+                            onClick={() => {
+                              setTrack(index - 1);
+                              setCaptions(false);
+                            }}
+                            className={cn(
+                              "flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-ink/[0.08]",
+                              selected ? "font-semibold text-ink" : "text-dim",
+                            )}
+                          >
+                            <span className={cn("size-[5px] shrink-0 rounded-full", selected && "bg-accent")} />
+                            {option.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
               {episodes && (
                 <button
                   type="button"

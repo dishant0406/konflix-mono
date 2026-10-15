@@ -1,6 +1,5 @@
-// What the site is made of: the three catalogues, their genres and sorts, and the home page's
-// rows. Mirrors the desktop app (desktop/app/src/{home,browse}.rs), so the two show the same
-// things in the same order.
+// What the site is made of: the three catalogues, and their genres and sorts. Mirrors the
+// desktop app (desktop/app/src/browse.rs), so the two show the same things in the same order.
 //
 // There is one site. The anime and TV hostnames only redirect to it (see src/middleware.ts).
 
@@ -80,24 +79,3 @@ export function genresFor(kind: ContentType | null): string[] {
   if (kind) return SCREEN_GENRES;
   return SHARED_GENRES;
 }
-
-export interface HomeRow {
-  title: string;
-  kind: ContentType;
-  sort: string;
-  genre?: string;
-}
-
-/** The rows, in order. Each draws from one catalogue, so the page mixes all three. */
-export const HOME_ROWS: HomeRow[] = [
-  { title: "Trending Anime", kind: "anime", sort: "trending" },
-  { title: "New Releases", kind: "movie", sort: "recent" },
-  { title: "Popular Series", kind: "series", sort: "popularity" },
-  { title: "Newly Released Anime", kind: "anime", sort: "recent" },
-  { title: "Most Watched Films", kind: "movie", sort: "popularity" },
-  { title: "New Series", kind: "series", sort: "recent" },
-  { title: "Top Rated Anime", kind: "anime", sort: "score" },
-  { title: "Action Films", kind: "movie", sort: "popularity", genre: "Action" },
-  { title: "Drama Series", kind: "series", sort: "score", genre: "Drama" },
-  { title: "Romance Anime", kind: "anime", sort: "popularity", genre: "Romance" },
-];

@@ -2,20 +2,20 @@
   "name": "akidev-monorepo",
   "version": "2.0.0",
   "private": true,
-  "description": "Akidev monorepo: media catalogue and streaming API plus its Next.js frontend",
+  "description": "Akidev monorepo: the Next.js site, plus the Rust server and desktop app in desktop/",
   "license": "AGPL-3.0",
   "engines": {
     "node": ">=22.0.0"
   },
   "workspaces": [
-    "akidev-api",
     "akidev-frontend"
   ],
   "scripts": {
-    "dev": "npm run dev --workspace=akidev-api & npm run dev --workspace=akidev",
-    "start": "npm start --workspace=akidev-api",
+    "dev": "npm run dev --workspace=akidev",
+    "dev:api": "cd desktop && cargo run -p akidev-server",
+    "start": "cd desktop && cargo run --release -p akidev-server",
     "build": "npm run build --workspace=akidev",
-    "test": "npm test --workspace=akidev-api && npm test --workspace=akidev",
+    "test": "npm test --workspace=akidev && cd desktop && cargo test -p akidev-server -p akidev-core",
     "lint": "npm run lint --workspace=akidev"
   },
   "overrides": {

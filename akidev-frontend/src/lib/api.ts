@@ -1,33 +1,44 @@
-// The single GraphQL client used by the whole app.
+// The single REST client used by the whole app.
 //
-// The API is one endpoint with one shape: POST { query, variables } and read
-// `data`. A full Apollo runtime is not needed for that, so this is a small fetch
-// wrapper, which also keeps the request count and the bundle honest.
+// The API is JSON over HTTP (desktop/server/API.md), so this is a small fetch wrapper: it
+// also keeps the request count and the bundle honest.
 
-const URI = process.env.NEXT_PUBLIC_GRAPHQL_URI || "http://localhost:9000/graphql";
+const BASE = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:9000").replace(/\/+$/, "");
 
-// Resolving a stream searches torrent indexers and can legitimately take a while,
-// but it must never hang. The API bounds its own work with RESOLVE_DEADLINE_MS
-// (75s by default), so this sits just above that and turns a stuck request into a
-// visible error instead of a permanent spinner.
-const TIMEOUT_MS = Number(process.env.NEXT_PUBLIC_GRAPHQL_TIMEOUT_MS) || 90000;
+// Finding a source searches torrent indexers and can legitimately take a while, but it must
+// never hang. The server bounds its own work to about a minute, so this sits above that and
+// turns a stuck request into a visible error instead of a permanent spinner.
+const TIMEOUT_MS = Number(process.env.NEXT_PUBLIC_API_TIMEOUT_MS) || 90000;
 
-export type Variables = Record<string, unknown>;
+/** A failed response: the server's `{ error }` message and the HTTP status. */
+export class ApiError extends Error {
+  readonly status: number;
 
-/**
- * A parsed GraphQL document. `graphql-tag` is not used: the API accepts a query
- * string, and keeping the documents as strings means there is no second GraphQL
- * runtime in the browser bundle.
- */
-export type DocumentNode = string;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
 
-export async function request<T>(query: DocumentNode, variables?: Variables): Promise<T> {
+export type Params = Record<string, string | number | boolean | null | undefined>;
+
+export async function request<T>(
+  path: string,
+  options: { method?: "GET" | "POST"; params?: Params; body?: unknown } = {},
+): Promise<T> {
+  const query = new URLSearchParams();
+  for (const [name, value] of Object.entries(options.params ?? {})) {
+    if (value !== undefined && value !== null && value !== "") query.set(name, String(value));
+  }
+  const url = `${BASE}${path}${query.size > 0 ? `?${query}` : ""}`;
+
   let response: Response;
   try {
-    response = await fetch(URI, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query, variables }),
+    response = await fetch(url, {
+      method: options.method ?? "GET",
+      headers: options.body === undefined ? undefined : { "Content-Type": "application/json" },
+      body: options.body === undefined ? undefined : JSON.stringify(options.body),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
   } catch (error) {
@@ -38,14 +49,21 @@ export async function request<T>(query: DocumentNode, variables?: Variables): Pr
   }
 
   if (!response.ok) {
-    throw new Error(`The Akidev API returned ${response.status}.`);
+    const body: unknown = await response.json().catch(() => null);
+    const message = body && typeof body === "object" && "error" in body ? (body as { error: unknown }).error : null;
+    throw new ApiError(
+      typeof message === "string" && message ? message : `The Akidev API returned ${response.status}.`,
+      response.status,
+    );
   }
 
-  const body = await response.json();
-  if (body.errors?.length) {
-    throw new Error(body.errors.map((error: { message: string }) => error.message).join("; "));
-  }
-
-  return body.data as T;
+  return (await response.json()) as T;
 }
 
+export function get<T>(path: string, params?: Params): Promise<T> {
+  return request<T>(path, { params });
+}
+
+export function post<T>(path: string, body: unknown): Promise<T> {
+  return request<T>(path, { method: "POST", body });
+}

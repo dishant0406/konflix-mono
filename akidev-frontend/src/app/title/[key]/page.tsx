@@ -11,31 +11,14 @@ import MediaRow from "@/components/row";
 import { ErrorState, MetaLine, SectionTitle, Skeleton } from "@/components/states";
 import { KIND_LABEL } from "@/constants/site";
 import { watchPath } from "@/constants/routes";
-import { relationCard } from "@/lib/media";
-import { animeEpisodeId, parseMediaId } from "@/lib/media-id";
+import { ApiError } from "@/lib/api";
+import { episodeCount, firstPlayable } from "@/lib/episodes";
+import { parseMediaId } from "@/lib/media-id";
+import { statusLabel } from "@/lib/media";
 import { useRecent } from "@/lib/progress";
-import { mediaBanner, mediaPoster, mediaTitle } from "@/lib/utils";
 import { useDetail, useMoreLike } from "@/query/use-media";
-import type { MediaFull } from "@/types/media";
 
 const HEIGHT = "h-[min(700px,max(480px,70vh))]";
-
-const STATUS: Record<string, string> = {
-  FINISHED: "finished",
-  RELEASING: "airing",
-  NOT_YET_RELEASED: "upcoming",
-  CANCELLED: "cancelled",
-  HIATUS: "on hiatus",
-};
-
-/** What plays when Play is pressed: the film itself, or the first episode. */
-function firstPlayable(key: string, media: MediaFull): string | null {
-  const parsed = parseMediaId(key);
-  if (!parsed) return null;
-  if (parsed.contentType === "movie") return key;
-  if (parsed.contentType === "series") return media.episodeList?.[0]?.episodeId ?? null;
-  return animeEpisodeId(parsed.mediaId, 1);
-}
 
 export default function TitlePage() {
   const params = useParams();
@@ -43,8 +26,9 @@ export default function TitlePage() {
   const parsed = parseMediaId(key);
   const detail = useDetail(key);
   const recent = useRecent();
-  const media = detail.data;
-  const moreLike = useMoreLike(parsed?.contentType, media?.genres?.[0]);
+  const data = detail.data;
+  const media = data?.media;
+  const moreLike = useMoreLike(parsed?.contentType, media?.genres[0]);
 
   if (detail.isLoading) {
     return (
@@ -54,10 +38,11 @@ export default function TitlePage() {
     );
   }
 
-  if (detail.isError || !media || !key || !parsed) {
+  if (detail.isError || !data || !media || !key || !parsed) {
+    const missing = detail.error instanceof ApiError && detail.error.status === 404;
     return (
       <div className="pt-24">
-        {detail.isError ? (
+        {detail.isError && !missing ? (
           <ErrorState title="Couldn't load this title" detail="The catalogue didn't answer. This is usually temporary." onRetry={() => detail.refetch()} />
         ) : (
           <ErrorState title="Not found" detail="That title is not in the catalogue." />
@@ -66,46 +51,34 @@ export default function TitlePage() {
     );
   }
 
-  const title = mediaTitle(media.title);
-  const art = mediaBanner(media) || mediaPoster(media.coverImage);
-  const studios = (media.studios?.nodes ?? []).map((studio) => studio.name).filter(Boolean) as string[];
+  const { studios, trailer: trailerRef, episodes, cast: people, related, recommended } = data;
+  const title = media.title;
+  const art = media.banner || media.poster;
   const isFilm = parsed.contentType === "movie";
-  const count =
-    media.episodes ?? (media.nextAiringEpisode?.episode ? Math.max(media.nextAiringEpisode.episode - 1, 0) : 0);
+  const count = episodeCount(data);
 
   const resume = recent.find((entry) => entry.media.id === key);
-  const first = firstPlayable(key, media);
+  const first = firstPlayable(key, data);
   const play = resume
     ? { id: resume.episodeId, label: "Resume" }
     : first
       ? { id: first, label: "Play" }
       : null;
 
-  const trailer = media.trailer?.site === "youtube" ? media.trailer.id : null;
+  const trailer = trailerRef?.site.toLowerCase() === "youtube" ? trailerRef.id : null;
 
   const facts = [
-    media.seasonYear ?? media.startDate?.year,
+    media.year,
     media.format?.toLowerCase(),
-    media.duration ? `${media.duration} min` : null,
-    media.status ? STATUS[media.status] : null,
+    media.runtime_minutes ? `${media.runtime_minutes} min` : null,
+    statusLabel(media.status),
     !isFilm && count > 0 ? `${count} episodes` : null,
   ]
     .filter((part) => part !== null && part !== undefined && part !== "")
     .map(String);
 
-  const people = (media.characters?.edges ?? []).flatMap((edge) =>
-    edge.node?.name?.full ? [{ name: edge.node.name.full, role: edge.role, image: edge.node.image?.large ?? null }] : [],
-  );
-  const related = (media.relations?.edges ?? []).flatMap((edge) => {
-    const card = edge.node ? relationCard(edge.node) : null;
-    return card ? [card] : [];
-  });
-  const recommended = (media.recommendations?.nodes ?? []).flatMap((node) => {
-    const card = node.mediaRecommendation ? relationCard(node.mediaRecommendation) : null;
-    return card ? [card] : [];
-  });
-  const genre = media.genres?.[0];
-  const score = media.averageScore;
+  const genre = media.genres[0];
+  const score = media.score;
 
   return (
     <div className="pb-8">
@@ -124,7 +97,7 @@ export default function TitlePage() {
           {media.description && (
             <p className="line-clamp-4 text-[15px] leading-6 text-dim">{stripTags(media.description)}</p>
           )}
-          {media.genres && media.genres.length > 0 && (
+          {media.genres.length > 0 && (
             <p className="text-[13px] text-faint">{media.genres.slice(0, 4).join(" · ")}</p>
           )}
           {studios.length > 0 && <p className="text-[13px] text-faint">{studios.join(", ")}</p>}
@@ -149,7 +122,7 @@ export default function TitlePage() {
         </div>
       </section>
 
-      <Episodes titleKey={key} count={count} list={media.episodeList} currentId={resume?.episodeId} />
+      <Episodes titleKey={key} count={count} list={episodes} currentId={resume?.episodeId} />
 
       {people.length > 0 && (
         <section className="gutter flex flex-col gap-4 pt-10">

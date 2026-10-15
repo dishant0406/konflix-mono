@@ -17,14 +17,11 @@ FROM node:22-bookworm-slim AS build
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-COPY akidev-api/package.json ./akidev-api/
 COPY akidev-frontend/package.json ./akidev-frontend/
 
 # The build needs devDependencies (Next, Tailwind, TypeScript, ESLint), so
-# --omit=dev is deliberately absent here. --ignore-scripts for the same reason as
-# the API image: the workspace tree contains node-datachannel (via webtorrent),
-# whose install script always fails. None of the frontend's own dependencies have
-# install scripts.
+# --omit=dev is deliberately absent here. --ignore-scripts because none of the
+# frontend's own dependencies has an install script that is needed.
 RUN npm ci --workspace=akidev --include=dev --ignore-scripts --no-audit --no-fund
 
 COPY akidev-frontend ./akidev-frontend
@@ -34,15 +31,15 @@ COPY akidev-frontend ./akidev-frontend
 #
 # NEXT_PUBLIC_SITE_DOMAIN is the zone the site is served from: the middleware redirects the
 # retired anime. and tv. hosts to it.
-ARG NEXT_PUBLIC_GRAPHQL_URI
+ARG NEXT_PUBLIC_API_URL
 ARG NEXT_PUBLIC_SITE_DOMAIN=akidev.live
-ENV NEXT_PUBLIC_GRAPHQL_URI=$NEXT_PUBLIC_GRAPHQL_URI
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_SITE_DOMAIN=$NEXT_PUBLIC_SITE_DOMAIN
 
 # An empty value produces a build that succeeds and a browser bundle that calls the
 # viewer's own localhost, which looks like a broken API rather than a missing build
 # argument. Failing here makes the mistake visible where it is made.
-RUN test -n "$NEXT_PUBLIC_GRAPHQL_URI" || (echo "NEXT_PUBLIC_GRAPHQL_URI build argument is required" >&2; exit 1)
+RUN test -n "$NEXT_PUBLIC_API_URL" || (echo "NEXT_PUBLIC_API_URL build argument is required" >&2; exit 1)
 
 RUN npm run build --workspace=akidev
 

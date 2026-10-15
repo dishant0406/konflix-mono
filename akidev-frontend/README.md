@@ -1,7 +1,7 @@
 # Akidev frontend
 
 Next.js app (App Router, TypeScript) for Akidev. It talks to the Akidev API
-(`../akidev-api`) over GraphQL and plays the video URL the API returns.
+(`../desktop/server`, contract in `../desktop/server/API.md`) over REST and plays the video URL the API returns.
 
 The UI began as a derivative of [Kitsune](https://github.com/Dovakiin0/Kitsune) (MIT) and has
 since been redesigned to match the desktop app. See [../ATTRIBUTION.md](../ATTRIBUTION.md).
@@ -10,12 +10,12 @@ since been redesigned to match the desktop app. See [../ATTRIBUTION.md](../ATTRI
 
 ```bash
 npm install
-cp .env.example .env      # point NEXT_PUBLIC_GRAPHQL_URI at the API
+cp .env.example .env      # point NEXT_PUBLIC_API_URL at the API
 npm run dev               # http://localhost:3000
 ```
 
 The API must be running first. By default the frontend expects it at
-`http://localhost:9000/graphql`.
+`http://localhost:9000`.
 
 ## Scripts
 
@@ -52,23 +52,24 @@ names in `tailwind.config.ts` (`canvas`, `surface`, `raised`, `line`, `ink`, `di
 
 ## How data is fetched
 
-`src/lib/queries.ts` holds every GraphQL document, one per shape, and
-`src/query/*.ts` wraps them in react-query hooks. The API is the contract;
-`src/types/media.ts` mirrors its schema.
+`src/lib/api.ts` is a small fetch client (`get` and `post`), and `src/query/*.ts` wraps the
+endpoints in react-query hooks: one request for the home page (`/v1/home`), one for each
+catalogue page, search and title. The API is the contract; `src/types/media.ts` mirrors
+`desktop/server/API.md`.
 
 Two deliberate choices:
 
-- **The watch page fetches metadata and the stream separately.** Metadata takes a few
-  hundred milliseconds; resolving a stream searches torrent indexers and can take much
+- **The watch page fetches the title and the stream separately.** The title is usually
+  cached already; finding a stream searches torrent indexers and can take much
   longer. Awaiting both together would leave the page blank the whole time, so the title
-  and episode list render as soon as metadata arrives.
+  and episode list render as soon as the title arrives.
 - **`available: false` is data, not an error.** The API returns a reason when it finds no
   playable release, and the page shows that instead of a broken player.
 
 ## The player
 
 `src/components/anime/video-player.tsx` renders one `<video>` element and its controls.
-It branches on the `streamType` the API reports:
+It branches on the `stream_type` the API reports:
 
 - **`hls`** — the release's container is not one a browser can play (an MKV), so the API
   serves an HLS playlist. Chrome and Firefox need hls.js. Safari plays HLS natively, and
@@ -80,5 +81,5 @@ It branches on the `streamType` the API reports:
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `NEXT_PUBLIC_GRAPHQL_URI` | `http://localhost:9000/graphql` | Baked into the browser bundle at build time, so changing it needs a rebuild |
-| `NEXT_PUBLIC_GRAPHQL_TIMEOUT_MS` | `90000` | Sits just above the API's own resolve deadline |
+| `NEXT_PUBLIC_API_URL` | `http://localhost:9000` | Baked into the browser bundle at build time, so changing it needs a rebuild |
+| `NEXT_PUBLIC_API_TIMEOUT_MS` | `90000` | Sits above the time the API gives itself to find a source |

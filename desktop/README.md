@@ -13,7 +13,8 @@ The UI is [GPUI](https://www.gpui.rs/) through [gpui-kit](https://gpui-kit.com):
 canvas, grey surfaces and one amber accent, so the artwork is the colour on screen. Video is
 decoded by [libmpv](https://mpv.io).
 
-The web apps in `../akidev-api` and `../akidev-frontend` are unchanged and keep serving the sites.
+The same library also runs the website's backend: `server/` is a REST server built on `core`, and
+`../akidev-frontend` is the site that talks to it. See [server/API.md](server/API.md).
 
 ## What is in it
 
@@ -52,20 +53,30 @@ libmpv, `progress.rs` remembers where you are, and `images.rs` loads posters.
 
 `core` has no GPU dependency, so everything in it is tested headless.
 
-`core` is a port of the Node API, module for module:
+`core` is shared by two programs: this app, and `server/`, the website's backend. A fix to how a
+release is found, ranked or opened lands in both. `core` began as a port of the Node API that
+used to serve the site, and the server has since replaced that API.
 
-| Rust | Node |
+| In `core` | What it does |
 | --- | --- |
-| `providers/`, one engine that follows the definitions in `sources/` (AniList, Cinemeta, TVMaze and YTS are definitions) | `akidev-api/graphql/providers/` |
-| `indexers/`, one engine that follows the definitions in `sources/` | `akidev-api/graphql/indexers/` |
-| `releases.rs` | `graphql/stream/releases.js` and `pickVideoFile` |
-| `torrent.rs`, `serve.rs` | `graphql/stream/torrent.js`, `serve.js` |
-| `stream.rs` | `graphql/stream/index.js` |
-| `search.rs` | `akidev-frontend/src/lib/merge-search.ts` |
+| `providers/`, one engine that follows the definitions in `sources/` (AniList, Cinemeta, TVMaze and YTS are definitions) | Lists, searches and details, cached in memory and on disk |
+| `indexers/`, one engine that follows the definitions in `sources/` | Finds releases |
+| `releases.rs` | Ranks them and picks a file out of a torrent |
+| `torrent.rs`, `serve.rs` | Joins a swarm and reads a file from it, from any byte |
+| `stream.rs` | Media id to a plan (the title and the ranked releases) and then to an open file |
+| `search.rs` | Search across the three catalogues |
 
-Its tests are the Node tests carried over with the same inputs and expected outputs. The Node
-code that existed only for browsers is not ported: HLS conversion, ffprobe, and the debrid
-source. mpv plays any container directly.
+Its tests are the Node tests carried over with the same inputs and expected outputs. What a browser
+needs and mpv does not (HLS conversion, ffprobe, the debrid source, the Internet Archive) is in
+`server/`, not here. mpv plays any container directly.
+
+## The server
+
+`server/` is `akidev-server`, a REST API over `core` with the video delivery a browser needs. It
+is deployed with the site; see the root README. Run it with `cargo run -p akidev-server` from this
+directory. [`server/API.md`](server/API.md) lists the routes and `server/src/config.rs` the settings,
+and `cargo test -p akidev-server` runs its tests (they use `ffmpeg` and `ffprobe`, and say so and
+pass when those are missing).
 
 ## Indexers and providers update without a build
 

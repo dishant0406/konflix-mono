@@ -139,6 +139,10 @@ impl Engine {
             SessionOptions {
                 persistence: None,
                 fastresume: false,
+                ratelimits: librqbit::limits::LimitsConfig {
+                    upload_bps: config.upload_limit_bps.and_then(std::num::NonZeroU32::new),
+                    download_bps: None,
+                },
                 ..Default::default()
             },
         )
@@ -418,6 +422,15 @@ impl Engine {
         Ok((playable, Box::new(stream), reader))
     }
 
+    /// How many torrents are in the session.
+    pub fn active_torrents(&self) -> usize {
+        let active = self.active.lock().unwrap();
+        let mut ids: Vec<usize> = active.iter().map(|e| e.torrent_id).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        ids.len()
+    }
+
     /// How a stream is going, or `None` once it is gone.
     pub fn stats(&self, info_hash: &str, file_index: usize) -> Option<StreamStats> {
         let handle = self
@@ -473,6 +486,31 @@ impl Engine {
             let Some(torrent_id) = victim else { return };
             self.remove(TorrentIdOrHash::Id(torrent_id)).await;
         }
+    }
+
+    /// Drops every torrent that nobody has read from for `idle`, and its files. A server calls
+    /// this on a timer, so an episode watched an hour ago does not hold a slot and its disk.
+    pub async fn sweep_idle(&self, idle: Duration) -> usize {
+        let victims: Vec<usize> = {
+            let mut active = self.active.lock().unwrap();
+            let mut torrents: Vec<usize> = active.iter().map(|e| e.torrent_id).collect();
+            torrents.sort_unstable();
+            torrents.dedup();
+            let stale: Vec<usize> = torrents
+                .into_iter()
+                .filter(|&id| {
+                    active.iter().filter(|e| e.torrent_id == id).all(|e| {
+                        e.readers.load(Ordering::SeqCst) == 0 && e.last_used.elapsed() >= idle
+                    })
+                })
+                .collect();
+            active.retain(|entry| !stale.contains(&entry.torrent_id));
+            stale
+        };
+        for &id in &victims {
+            self.remove(TorrentIdOrHash::Id(id)).await;
+        }
+        victims.len()
     }
 
     /// Deletes a torrent and its files. The deletion runs as its own task, so it still
