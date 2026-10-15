@@ -1,18 +1,21 @@
-# Konflix
+# Akidev
 
 Anime, series and films from one API, served as two sites.
 
 | Hostname | What it serves | Container |
 | --- | --- | --- |
-| `konflix.live` | The service picker: choose anime or TV | `frontend` |
-| `anime.konflix.live` | Anime (AniList) | `frontend` |
-| `tv.konflix.live` | Films and series (Cinemeta, with TVMaze and YTS as fallbacks) | `frontend` |
-| `api.konflix.live` | GraphQL, shared by all of them | `api` |
+| `akidev.live` | The service picker: choose anime or TV | `frontend` |
+| `anime.akidev.live` | Anime (AniList) | `frontend` |
+| `tv.akidev.live` | Films and series (Cinemeta, with TVMaze and YTS as fallbacks) | `frontend` |
+| `api.akidev.live` | GraphQL, shared by all of them | `api` |
 
 | Directory | What it is | Port |
 | --- | --- | --- |
-| `konflix-api/` | GraphQL API. Metadata from AniList/Kitsu/Cinemeta/TVMaze/YTS, releases from torrent indexers, video streamed from a torrent swarm or a debrid CDN. | 9000 |
-| `konflix-frontend/` | Next.js app (App Router, TypeScript). One build, one container, every hostname. | 3000 |
+| `akidev-api/` | GraphQL API. Metadata from AniList/Kitsu/Cinemeta/TVMaze/YTS, releases from torrent indexers, video streamed from a torrent swarm or a debrid CDN. | 9000 |
+| `akidev-frontend/` | Next.js app (App Router, TypeScript). One build, one container, every hostname. | 3000 |
+
+`desktop/` is a native Rust app for the same catalogue, with the backend built in and no
+sites or modes: see [desktop/README.md](desktop/README.md).
 
 The previous version of this project scraped a private site and a public API, both
 of which are gone. This version isolates every volatile upstream behind a
@@ -27,14 +30,14 @@ was deliberately left behind.
 
 There is **one frontend image and one frontend container**. Which site a request gets is
 decided from its `Host` header at runtime, by `siteForHost` in
-`konflix-frontend/src/constants/site.ts`. That function returns a config object holding
+`akidev-frontend/src/constants/site.ts`. That function returns a config object holding
 everything that differs between sites: the content type sent to the API, the row titles,
 the genre list, the filter vocabulary, the attribution. Components read the site from
 context rather than branching on a name.
 
 The bare zone belongs to no site, so it is the **service picker**. Middleware rewrites
 every request on that host to `/picker`, because the app's routes need a site to render.
-A rewrite replaces the URL the render sees, so the middleware also sets `x-konflix-picker`
+A rewrite replaces the URL the render sees, so the middleware also sets `x-akidev-picker`
 to mark it - otherwise the picker host would resolve to whichever site the rewritten
 address happens to map to.
 
@@ -64,7 +67,7 @@ The provider's own id is alphanumeric rather than digits-only because providers 
 agree on a form: AniList, TVMaze and YTS use numbers, Cinemeta uses IMDb ids
 (`tt27548557`). A digits-only charset made every Cinemeta film unreachable from the
 frontend, which parses the same ids.
-`konflix-api/lib/mediaId.js` and `konflix-frontend/src/lib/media-id.ts` must agree.
+`akidev-api/lib/mediaId.js` and `akidev-frontend/src/lib/media-id.ts` must agree.
 
 ## Adding a provider or an indexer
 
@@ -73,9 +76,9 @@ file and a key - no change to the schema, the resolvers, or the frontend.
 
 | Map | Directory | Selected by |
 | --- | --- | --- |
-| Metadata providers | `konflix-api/graphql/providers/` | `PROVIDERS` (per type, `+`-separated for a fallback chain), `METADATA_PROVIDER` |
-| Torrent indexers | `konflix-api/graphql/indexers/` | `TORRENT_INDEXERS` |
-| Stream sources | `konflix-api/graphql/stream/sources/` | `STREAM_SOURCES` |
+| Metadata providers | `akidev-api/graphql/providers/` | `PROVIDERS` (per type, `+`-separated for a fallback chain), `METADATA_PROVIDER` |
+| Torrent indexers | `akidev-api/graphql/indexers/` | `TORRENT_INDEXERS` |
+| Stream sources | `akidev-api/graphql/stream/sources/` | `STREAM_SOURCES` |
 
 Each entry declares the content types it serves (`types: ['anime']`, `['movie']`,
 `['series']`, or several), so a film search never queries an anime feed.
@@ -119,13 +122,13 @@ duplicate rows across two pages.
 
 **A search spans every catalogue the site carries.** The API's search is scoped to one
 content type, because a title is addressed by a provider-specific id, so a site declares
-its catalogues in `searchContentTypes` (`konflix-frontend/src/constants/site.ts`) and the
+its catalogues in `searchContentTypes` (`akidev-frontend/src/constants/site.ts`) and the
 search box and results page query each and interleave the answers. Searching one
 catalogue would silently hide half the site: on the TV site "Breaking Bad" is a series
 and "Dangal" is a film.
 
 Results whose title starts with the term are moved ahead of fuzzy matches, because
-TVMaze's own search returned "D.N.Angel" above "Dangal". `konflix-frontend/src/lib/merge-search.ts`
+TVMaze's own search returned "D.N.Angel" above "Dangal". `akidev-frontend/src/lib/merge-search.ts`
 holds the merge and its tests.
 
 ## Known limitations
@@ -228,8 +231,8 @@ play button that did nothing on a phone.
 
 ```bash
 npm install                                  # installs both workspaces
-cp konflix-api/.env.example konflix-api/.env
-cp konflix-frontend/.env.example konflix-frontend/.env
+cp akidev-api/.env.example akidev-api/.env
+cp akidev-frontend/.env.example akidev-frontend/.env
 ```
 
 ## Running
@@ -241,8 +244,8 @@ npm run dev      # both apps; API on :9000, frontend on :3000
 The frontend needs the API running first. To run them separately:
 
 ```bash
-npm run dev --workspace=konflix-api
-npm run dev --workspace=konflix
+npm run dev --workspace=akidev-api
+npm run dev --workspace=akidev
 ```
 
 ## Scripts
@@ -265,8 +268,8 @@ One server runs both apps. Three containers, defined in `docker-compose.yml`:
 | `frontend` | Next.js, every site (`:3000`, internal only) |
 
 Four hostnames reach the same tunnel and are routed by hostname in its ingress
-config: `anime.konflix.live`, `tv.konflix.live` and `konflix.live` all go to
-`frontend`, and `api.konflix.live` to the API. The tunnel does not need to know which
+config: `anime.akidev.live`, `tv.akidev.live` and `akidev.live` all go to
+`frontend`, and `api.akidev.live` to the API. The tunnel does not need to know which
 site is which - the container reads the `Host` header and decides. **No reverse
 proxy**, because the tunnel already routes by hostname, and the browser loads the API
 directly so nothing sits in the video byte path.
@@ -289,16 +292,16 @@ work but requires the Workers Paid plan, and its request-scoped model fits a
    80GB SSD / 4TB transfer, ~$24/month) in `us-east-1`, created with:
 
    ```bash
-   aws lightsail create-key-pair --key-pair-name konflix-lightsail --region us-east-1
+   aws lightsail create-key-pair --key-pair-name akidev-lightsail --region us-east-1
    aws lightsail create-instances --region us-east-1 \
-     --instance-names konflix --availability-zone us-east-1a \
+     --instance-names akidev --availability-zone us-east-1a \
      --blueprint-id ubuntu_24_04 --bundle-id medium_3_0 \
-     --key-pair-name konflix-lightsail
-   aws lightsail allocate-static-ip --static-ip-name konflix-ip --region us-east-1
-   aws lightsail attach-static-ip --static-ip-name konflix-ip \
-     --instance-name konflix --region us-east-1
+     --key-pair-name akidev-lightsail
+   aws lightsail allocate-static-ip --static-ip-name akidev-ip --region us-east-1
+   aws lightsail attach-static-ip --static-ip-name akidev-ip \
+     --instance-name akidev --region us-east-1
    # Open SSH only. Nothing else is ever published.
-   aws lightsail put-instance-public-ports --region us-east-1 --instance-name konflix \
+   aws lightsail put-instance-public-ports --region us-east-1 --instance-name akidev \
      --port-infos '[{"fromPort":22,"toPort":22,"protocol":"tcp","cidrs":["0.0.0.0/0"]}]'
    ```
 
@@ -309,10 +312,10 @@ work but requires the Workers Paid plan, and its request-scoped model fits a
    with `sudo` rather than a root login, hence the `sudo -E`:
 
    ```bash
-   ssh -i ~/.ssh/konflix_lightsail ubuntu@SERVER_IP 'sudo bash -s' < scripts/setup-server.sh
+   ssh -i ~/.ssh/akidev_lightsail ubuntu@SERVER_IP 'sudo bash -s' < scripts/setup-server.sh
    ```
 
-   This installs Docker, creates a `konflix` deploy user, restricts the firewall to
+   This installs Docker, creates a `akidev` deploy user, restricts the firewall to
    SSH, and raises the open-file limit for concurrent streams. Re-running is safe.
 
 3. **Create the tunnel and DNS.**
@@ -328,8 +331,8 @@ work but requires the Workers Paid plan, and its request-scoped model fits a
 4. **Create an SSH key for deploys** and authorise it on the server:
 
    ```bash
-   ssh-keygen -t ed25519 -f ~/.ssh/konflix_deploy -C konflix-deploy
-   ssh -i ~/.ssh/konflix_lightsail ubuntu@SERVER_IP \
+   ssh-keygen -t ed25519 -f ~/.ssh/konflix_deploy -C akidev-deploy
+   ssh -i ~/.ssh/akidev_lightsail ubuntu@SERVER_IP \
      "DEPLOY_PUBLIC_KEY='$(cat ~/.ssh/konflix_deploy.pub)' sudo -E bash -s" \
      < scripts/setup-server.sh
    ```
@@ -340,20 +343,25 @@ work but requires the Workers Paid plan, and its request-scoped model fits a
    | Kind | Name | Value |
    | --- | --- | --- |
    | Secret | `DEPLOY_HOST` | server IP |
-   | Secret | `DEPLOY_USER` | `konflix` |
+   | Secret | `DEPLOY_USER` | `akidev` |
    | Secret | `DEPLOY_SSH_KEY` | contents of `~/.ssh/konflix_deploy` |
    | Secret | `DEPLOY_PORT` | `22` (optional) |
    | Secret | `CLOUDFLARE_TUNNEL_TOKEN` | printed by `scripts/cloudflare.sh` |
    | Secret | `TORBOX_API_KEY` | from torbox.app (optional) |
-   | Variable | `PUBLIC_URL` | `https://api.konflix.live` |
-   | Variable | `NEXT_PUBLIC_GRAPHQL_URI` | `https://api.konflix.live/graphql` |
-   | Variable | `FRONTEND_URL` | `https://konflix.live` |
+   | Variable | `PUBLIC_URL` | `https://api.akidev.live` |
+   | Variable | `NEXT_PUBLIC_GRAPHQL_URI` | `https://api.akidev.live/graphql` |
+   | Variable | `FRONTEND_URL` | `https://akidev.live` |
 
    Secrets are write-only; nobody can read them back out.
 
 6. **Deploy.** Push to `main`, or run the **Deploy** workflow from the Actions tab.
 
 ### How a deploy works
+
+> **Names on the server.** The compose project (`konflix`), the image names, the checkout at
+> `/opt/konflix` and the `konflix` deploy user were created before the project became Akidev, and
+> they still are what the running server uses. Renaming them is a migration of the host, not a
+> change to this repository, so they are left alone.
 
 `.github/workflows/deploy.yml` copies the commit to `/opt/konflix`, renders
 `.env.deploy` from the repository secrets, and runs `scripts/deploy.sh` over SSH. The
@@ -399,5 +407,5 @@ rebuild needed. This is the only setting that has needed changing in production.
 ### Secrets
 
 No secret is committed. `.env.deploy` is rendered on the server from GitHub secrets by
-the workflow, is gitignored, and is written with mode `600`. `konflix-api/.env` is
+the workflow, is gitignored, and is written with mode `600`. `akidev-api/.env` is
 only for local development.

@@ -1,4 +1,4 @@
-# Konflix production stack: one server, three containers.
+# Akidev production stack: one server, three containers.
 #
 #   cloudflared    the only thing exposed to the internet, over an outbound tunnel.
 #                  Nothing binds a public port, so there is no open firewall hole and
@@ -8,7 +8,7 @@
 #
 # Four hostnames reach the same tunnel and are routed by hostname in the tunnel's
 # ingress config (scripts/cloudflare.sh), which is why no reverse proxy is needed
-# here. Each site talks to the API directly on api.konflix.live, so no proxy sits in
+# here. Each site talks to the API directly on api.akidev.live, so no proxy sits in
 # the video byte path.
 #
 # One container serves all of them. Which site a request gets is decided from its Host
@@ -20,6 +20,9 @@
 # GitHub Actions secrets and passes it with --env-file, so no secret is ever written
 # into this file or into the repository.
 
+# The project name, the image names, /opt/konflix and the deploy user on the server date from
+# before the rename to Akidev. They are names on the running host, so changing them is a server
+# migration and not part of a rebrand.
 name: konflix
 
 services:
@@ -46,7 +49,7 @@ services:
     image: ${API_IMAGE}
     build:
       context: .
-      dockerfile: konflix-api/Dockerfile
+      dockerfile: akidev-api/Dockerfile
     restart: unless-stopped
     environment:
       NODE_ENV: production
@@ -79,14 +82,14 @@ services:
     image: ${FRONTEND_IMAGE}
     build:
       context: .
-      dockerfile: konflix-frontend/Dockerfile
+      dockerfile: akidev-frontend/Dockerfile
       args:
         # Both are baked into the bundle at build time, so they are build arguments
         # rather than runtime variables. Changing either requires a rebuild. The site
         # domain is the same for every hostname, which is what lets one build serve all
         # of them.
         NEXT_PUBLIC_GRAPHQL_URI: ${NEXT_PUBLIC_GRAPHQL_URI}
-        NEXT_PUBLIC_SITE_DOMAIN: ${NEXT_PUBLIC_SITE_DOMAIN:-konflix.live}
+        NEXT_PUBLIC_SITE_DOMAIN: ${NEXT_PUBLIC_SITE_DOMAIN:-akidev.live}
     restart: unless-stopped
     environment:
       NODE_ENV: production

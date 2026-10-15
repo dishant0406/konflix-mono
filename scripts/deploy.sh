@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Deploys the Konflix stack to the server. Runs ON the server, from the repository
+# Deploys the Akidev stack to the server. Runs ON the server, from the repository
 # checkout, and is what .github/workflows/deploy.yml invokes over SSH.
 #
 # The images are built on the server rather than in CI and pushed: the host is the

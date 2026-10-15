@@ -2,7 +2,7 @@
 
 ## UI
 
-The user interface in `konflix-frontend/` is derived from **Kitsune**
+The user interface in `akidev-frontend/` is derived from **Kitsune**
 (https://github.com/Dovakiin0/Kitsune), which is licensed under the MIT License:
 
 ```
@@ -36,11 +36,11 @@ hero, episode-list and detail layouts, and the shadcn/ui primitives in
 What was **not** taken, and is deliberately absent:
 
 - Kitsune's data layer (its API is a separate service that is not part of that
-  repository). Every request in this app goes to the Konflix API.
-- Its player (`kitsune-player.tsx`). Konflix uses its own HTML5 player with
+  repository). Every request in this app goes to the Akidev API.
+- Its player (`kitsune-player.tsx`). Akidev uses its own HTML5 player with
   hls.js, because the release pipeline serves HLS for MKV sources.
 - Its PocketBase-backed features: authentication, bookmarks, comments, profiles
-  and continue-watching. Those need a fourth service and are not part of Konflix.
+  and continue-watching. Those need a fourth service and are not part of Akidev.
 - Its `/api/proxy` route, which was an unauthenticated forward proxy (SSRF).
 - Its Google Analytics tag.
 

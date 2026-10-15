@@ -108,7 +108,7 @@ jobs:
 
       - name: Type check
         run: npx tsc --noEmit
-        working-directory: konflix-frontend
+        working-directory: akidev-frontend
 
       - name: Build the frontend
         # One build, because the site is chosen from the request host at runtime rather
@@ -163,9 +163,9 @@ jobs:
         run: |
           # Defaults, so a missing repository variable does not silently deploy an
           # empty value.
-          PUBLIC_URL="${PUBLIC_URL:-https://api.konflix.live}"
+          PUBLIC_URL="${PUBLIC_URL:-https://api.akidev.live}"
           NEXT_PUBLIC_GRAPHQL_URI="${NEXT_PUBLIC_GRAPHQL_URI:-$PUBLIC_URL/graphql}"
-          NEXT_PUBLIC_SITE_DOMAIN="${NEXT_PUBLIC_SITE_DOMAIN:-konflix.live}"
+          NEXT_PUBLIC_SITE_DOMAIN="${NEXT_PUBLIC_SITE_DOMAIN:-akidev.live}"
           STREAM_SOURCES="${STREAM_SOURCES:-debrid,torrent,archive-org}"
           MAX_CACHE_BYTES="${MAX_CACHE_BYTES:-12884901888}"
 
@@ -224,10 +224,10 @@ jobs:
           TV_URL: ${{ vars.TV_URL }}
           HUB_URL: ${{ vars.HUB_URL }}
         run: |
-          PUBLIC_URL="${PUBLIC_URL:-https://api.konflix.live}"
-          FRONTEND_URL="${FRONTEND_URL:-https://anime.konflix.live}"
-          TV_URL="${TV_URL:-https://tv.konflix.live}"
-          HUB_URL="${HUB_URL:-https://konflix.live}"
+          PUBLIC_URL="${PUBLIC_URL:-https://api.akidev.live}"
+          FRONTEND_URL="${FRONTEND_URL:-https://anime.akidev.live}"
+          TV_URL="${TV_URL:-https://tv.akidev.live}"
+          HUB_URL="${HUB_URL:-https://akidev.live}"
 
           echo "Checking $PUBLIC_URL/health"
           health=$(curl -fsS --retry 5 --retry-delay 5 --retry-all-errors "$PUBLIC_URL/health")
@@ -277,10 +277,10 @@ jobs:
           # broken host map would serve the anime catalogue on the TV host while every
           # check above still passed.
           echo "Checking the three frontend hostnames serve different sites"
-          HUB_URL="${HUB_URL:-https://konflix.live}"
+          HUB_URL="${HUB_URL:-https://akidev.live}"
           for check in \
-            "$FRONTEND_URL|anime|Konflix | Anime Streaming" \
-            "$TV_URL|tv|Konflix TV" \
+            "$FRONTEND_URL|anime|Akidev | Anime Streaming" \
+            "$TV_URL|tv|Akidev TV" \
             "$HUB_URL|hub|Choose a service"
           do
             url="${check%%|*}"

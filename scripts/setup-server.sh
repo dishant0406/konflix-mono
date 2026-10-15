@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# One-time provisioning for the Konflix server. Run as root on a fresh
+# One-time provisioning for the Akidev server. Run as root on a fresh
 # Debian/Ubuntu host, over your own SSH access.
 #
 # Installs Docker from the official apt repository, creates an unprivileged deploy

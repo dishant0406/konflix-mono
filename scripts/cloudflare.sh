@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 #
-# One-time Cloudflare setup for Konflix, using the `cf` CLI.
+# One-time Cloudflare setup for Akidev, using the `cf` CLI.
 #
 # Creates a named tunnel, points both hostnames at it, and prints the tunnel token
 # that the cloudflared container needs. Safe to re-run: an existing tunnel and
 # existing DNS records are updated rather than duplicated.
 #
-# Requires: `cf auth login` already done, and the konflix.live zone on this account.
+# Requires: `cf auth login` already done, and the akidev.live zone on this account.
 #
 # Usage:
 #   ./scripts/cloudflare.sh              # create/update everything, print the token
@@ -15,7 +15,7 @@
 
 set -euo pipefail
 
-ZONE="${ZONE:-konflix.live}"
+ZONE="${ZONE:-akidev.live}"
 TUNNEL_NAME="${TUNNEL_NAME:-konflix}"
 # Hostname -> container service, routed by hostname in the tunnel ingress config.
 #
