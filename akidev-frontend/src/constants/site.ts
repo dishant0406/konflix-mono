@@ -10,6 +10,9 @@ export const SITE_DOMAIN = process.env.NEXT_PUBLIC_SITE_DOMAIN || "akidev.live";
 
 export const CONTENT_TYPES: ContentType[] = ["anime", "series", "movie"];
 
+/** Where the source and the desktop releases live. */
+export const REPO_URL = "https://github.com/dishant0406/konflix-mono";
+
 /** The attribution the metadata providers require. */
 export const ATTRIBUTION =
   "Metadata from AniList, Cinemeta and TVMaze (CC BY-SA). Akidev stores no media: playback links are resolved from public sources when you press play.";

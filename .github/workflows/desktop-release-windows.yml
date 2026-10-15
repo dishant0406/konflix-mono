@@ -14,7 +14,7 @@ on:
     tags: ["desktop-windows-v*"]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   zip:
@@ -106,3 +106,13 @@ jobs:
             desktop/target/release/bundle/windows-smoke.png
           if-no-files-found: error
           retention-days: 30
+
+      # A tag also makes a public release, which is where akidev.live/download points.
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "Akidev for Windows ${GITHUB_REF_NAME##*-v}" --notes "Run the installer. See https://akidev.live/download for how the installer is signed." --verify-tag
+          gh release upload "$GITHUB_REF_NAME" target/release/bundle/*-setup.exe target/release/bundle/Akidev-*-x86_64.zip --clobber
