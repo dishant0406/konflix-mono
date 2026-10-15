@@ -41,6 +41,9 @@ jobs:
           workspaces: desktop
       # dumpbin and lib, which make the import library for libmpv, live in the Visual Studio tools.
       - uses: ilammy/msvc-dev-cmd@v1
+      - name: Install Inno Setup, for the installer
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
       - name: Build the app (this also fetches libmpv)
         shell: pwsh
         run: ./scripts/bundle-windows.ps1
@@ -71,5 +74,6 @@ jobs:
           name: akidev-windows
           path: |
             desktop/target/release/bundle/*.zip
+            desktop/target/release/bundle/*-setup.exe
             desktop/target/release/bundle/windows-smoke.png
           retention-days: 7

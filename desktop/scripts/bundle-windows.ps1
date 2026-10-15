@@ -1,5 +1,5 @@
 # Builds the Windows app and packs it, with libmpv beside it, into target\release\bundle\
-# Akidev-<version>-x86_64.zip. Run from a Visual Studio developer prompt (the CI job does).
+# Akidev-<version>-x86_64.zip, and into Akidev-<version>-x86_64-setup.exe when Inno Setup is there. Run from a Visual Studio developer prompt (the CI job does).
 #
 # libmpv is not on the machine: the newest mpv-dev build of shinchiro/mpv-winbuild-cmake is
 # downloaded into target\mpv (kept between runs). Its import library is made from the DLL's
@@ -50,3 +50,13 @@ $zip = Join-Path (Get-Location) "target\release\bundle\Akidev-$version-x86_64.zi
 Remove-Item $zip -ErrorAction SilentlyContinue
 Compress-Archive -Path "$stage\*" -DestinationPath $zip
 Write-Host "Built $zip"
+
+# The installer, when Inno Setup is installed (the CI job installs it).
+$iscc = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe") |
+    Where-Object { Test-Path $_ } | Select-Object -First 1
+if ($iscc) {
+    & $iscc "/DAppVersion=$version" scripts\akidev.iss
+    if ($LASTEXITCODE -ne 0) { throw 'Inno Setup failed' }
+} else {
+    Write-Host 'Inno Setup is not installed: no installer was made.'
+}
