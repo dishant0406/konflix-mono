@@ -8,13 +8,13 @@ export const metadata: Metadata = {
   description: "What Akidev, the site and the desktop app, does and does not do with your data.",
 };
 
-const link = "text-ink underline underline-offset-2 hover:text-accent";
+const link = "text-ink underline decoration-ink/30 underline-offset-4 transition-colors hover:decoration-ink";
 
 export default function PrivacyPage() {
   return (
     <Page
-      title="Privacy policy"
-      lead="Akidev has no accounts and no analytics, and it does not sell or share personal data. This page says what still goes over the network, because streaming needs some of it."
+      title="Privacy."
+      lead="No accounts, no analytics, nothing sold or shared. Streaming still needs some of your connection, and this is all of it."
     >
       <Section title="What we collect">
         <p>
