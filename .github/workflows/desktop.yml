@@ -46,6 +46,8 @@ jobs:
         run: choco install innosetup --no-progress -y
       - name: Build the app (this also fetches libmpv)
         shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: ./scripts/bundle-windows.ps1
       - name: Test
         shell: pwsh

@@ -10,7 +10,20 @@ Set-Location (Join-Path $PSScriptRoot '..')
 $mpv = Join-Path (Get-Location) 'target\mpv'
 if (-not (Test-Path "$mpv\libmpv-2.dll")) {
     New-Item -ItemType Directory -Force $mpv | Out-Null
-    $release = Invoke-RestMethod 'https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases/latest'
+    # CI machines share addresses, and GitHub limits anonymous requests per address: a token
+    # (GITHUB_TOKEN in the CI job) lifts that, and a few retries cover the rest.
+    $headers = @{ 'User-Agent' = 'akidev-build' }
+    if ($env:GITHUB_TOKEN) { $headers['Authorization'] = "Bearer $env:GITHUB_TOKEN" }
+    $release = $null
+    foreach ($attempt in 1..5) {
+        try {
+            $release = Invoke-RestMethod 'https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases/latest' -Headers $headers
+            break
+        } catch {
+            if ($attempt -eq 5) { throw }
+            Start-Sleep -Seconds (10 * $attempt)
+        }
+    }
     $asset = $release.assets | Where-Object { $_.name -match '^mpv-dev-x86_64-\d' } | Select-Object -First 1
     Write-Host "libmpv: $($asset.name)"
     $archive = Join-Path $mpv $asset.name

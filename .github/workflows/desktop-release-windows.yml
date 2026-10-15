@@ -60,6 +60,8 @@ jobs:
         run: choco install innosetup --no-progress -y
       - name: Build the app and the zip
         shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: ./scripts/bundle-windows.ps1
 
       - name: Start it, wait, and take a picture
