@@ -19,11 +19,13 @@ type Props = {
   look?: Look;
   icon?: ReactNode;
   href?: string;
+  /** Fetch the page ahead, for the actions a screen exists to offer. */
+  prefetch?: boolean;
   className?: string;
   children?: ReactNode;
 } & Omit<ComponentProps<"button">, "className" | "children">;
 
-export function Button({ look = "primary", icon, href, className, children, ...rest }: Props) {
+export function Button({ look = "primary", icon, href, prefetch, className, children, ...rest }: Props) {
   const classes = cn(BASE, LOOKS[look], className);
   const content = (
     <>
@@ -33,7 +35,7 @@ export function Button({ look = "primary", icon, href, className, children, ...r
   );
   if (href) {
     return (
-      <Link href={href} className={classes}>
+      <Link href={href} prefetch={prefetch} className={classes}>
         {content}
       </Link>
     );

@@ -101,7 +101,7 @@ export default function TitleView({ id: key, initial }: { id: string; initial?: 
           {studios.length > 0 && <p className="text-[13px] text-faint">{studios.join(", ")}</p>}
           <div className="flex flex-wrap gap-3 pt-2">
             {play && (
-              <Button href={watchPath(key, play.id)} icon={<Play className="size-4" />}>
+              <Button prefetch href={watchPath(key, play.id)} icon={<Play className="size-4" />}>
                 {play.label}
               </Button>
             )}

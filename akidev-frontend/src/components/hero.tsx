@@ -66,10 +66,10 @@ export default function Hero({ items, loading }: { items: Card[]; loading: boole
             <p className="text-[15px] text-dim">{media.genres.slice(0, 3).join(" · ")}</p>
           )}
           <div className="flex gap-3 pt-2">
-            <Button href={playHref(media)} icon={<Play className="size-4" />}>
+            <Button prefetch href={playHref(media)} icon={<Play className="size-4" />}>
               Play
             </Button>
-            <Button look="secondary" href={titlePath(media.id)} icon={<Info className="size-4" />}>
+            <Button prefetch look="secondary" href={titlePath(media.id)} icon={<Info className="size-4" />}>
               More info
             </Button>
           </div>
