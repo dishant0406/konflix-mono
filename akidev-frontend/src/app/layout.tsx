@@ -10,6 +10,16 @@ import { siteFromRequest } from "@/lib/site-server";
 import QueryProvider from "@/providers/query-provider";
 import SiteProvider from "@/providers/site-provider";
 
+// The Akidev mark, for every site: the vector for browsers that take one, the .ico for those that
+// do not, and a 180px PNG for a home screen.
+const ICONS: Metadata["icons"] = {
+  icon: [
+    { url: "/icon.svg", type: "image/svg+xml" },
+    { url: "/favicon.ico", sizes: "any" },
+  ],
+  apple: "/apple-touch-icon.png",
+};
+
 // The host decides which site this request is for, so the chrome and the copy are
 // resolved per request rather than baked into one build. The picker host belongs to no
 // site and renders bare - it has its own header and footer.
@@ -25,7 +35,7 @@ export async function generateMetadata(): Promise<Metadata> {
       applicationName: "Akidev",
       title,
       description,
-      icons: { icon: "/favicon.ico" },
+      icons: ICONS,
       openGraph: { type: "website", siteName: "Akidev", title, description },
       twitter: { card: "summary", title, description },
     };
@@ -35,7 +45,7 @@ export async function generateMetadata(): Promise<Metadata> {
     applicationName: site.appName,
     title: site.title,
     description: site.description,
-    icons: { icon: "/favicon.ico" },
+    icons: ICONS,
     // Absolute, so Open Graph URLs resolve. Derived from the site's own subdomain
     // rather than from the request, so a preview fetched from anywhere still points at
     // the canonical origin.

@@ -17,6 +17,16 @@ cp target/release/akidev "$APP/Contents/MacOS/Akidev"
 # and the whole bundle is signed again at the end.
 codesign --remove-signature "$APP/Contents/MacOS/Akidev"
 
+# The Dock and Finder icon, made from assets/icon.png at the sizes macOS asks for.
+ICONSET="$(mktemp -d)/AppIcon.iconset"
+mkdir -p "$ICONSET" "$APP/Contents/Resources"
+for size in 16 32 128 256 512; do
+  sips -z "$size" "$size" assets/icon.png --out "$ICONSET/icon_${size}x${size}.png" > /dev/null
+  sips -z "$((size * 2))" "$((size * 2))" assets/icon.png --out "$ICONSET/icon_${size}x${size}@2x.png" > /dev/null
+done
+iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
+rm -rf "$(dirname "$ICONSET")"
+
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -26,6 +36,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleDisplayName</key><string>Akidev</string>
   <key>CFBundleIdentifier</key><string>live.akidev.Akidev</string>
   <key>CFBundleExecutable</key><string>Akidev</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleVersion</key><string>$(cargo pkgid -p akidev | sed 's/.*[#@]//')</string>
   <key>CFBundleShortVersionString</key><string>$(cargo pkgid -p akidev | sed 's/.*[#@]//')</string>

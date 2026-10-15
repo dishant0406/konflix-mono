@@ -14,6 +14,7 @@ use gpui_kit::assets::IconName;
 use gpui_kit::component::TitleBar;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use std::sync::Arc;
 use std::time::Duration;
 
 actions!(akidev, [OpenSearch]);
@@ -39,6 +40,8 @@ pub struct AkidevApp {
     focus: FocusHandle,
     focused: bool,
     palette_was_open: bool,
+    /// The Akidev mark drawn beside the name.
+    mark: Arc<Image>,
     _palette_changes: Subscription,
 }
 
@@ -58,6 +61,10 @@ impl AkidevApp {
             focus: cx.focus_handle(),
             focused: false,
             palette_was_open: false,
+            mark: Arc::new(Image::from_bytes(
+                ImageFormat::Png,
+                include_bytes!("../assets/mark.png").to_vec(),
+            )),
             _palette_changes: palette_changes,
         }
     }
@@ -197,10 +204,14 @@ impl AkidevApp {
                             .child(
                                 div()
                                     .id("logo")
+                                    .flex()
+                                    .items_center()
+                                    .gap_2()
                                     .cursor_pointer()
                                     .text_size(px(20.))
                                     .font_weight(FontWeight::BLACK)
                                     .text_color(color(TEXT))
+                                    .child(img(self.mark.clone()).size(px(28.)).flex_none())
                                     .child("AKIDEV")
                                     .on_click(|_, _, cx| navigate(Route::Home, cx)),
                             )
