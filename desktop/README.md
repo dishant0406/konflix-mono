@@ -111,9 +111,30 @@ seconds.
 
 ## Requirements
 
-- macOS 12 or later on Apple silicon or Intel, with Xcode (GPUI renders with Metal)
+- macOS 12 or later on Apple silicon or Intel, with Xcode (GPUI renders with Metal), and `brew install mpv`; or
+- Windows 10 or later (GPUI renders with DirectX), with Visual Studio's C++ tools and the Windows SDK
 - Rust (stable)
-- `brew install mpv`, for libmpv
+
+## Windows
+
+The same code builds for Windows. The window bar draws its own minimise, maximise and close
+buttons, shortcuts use Ctrl where macOS uses Cmd, and the exe carries the icon. libmpv is the
+`libmpv-2.dll` of the newest [mpv-winbuild](https://github.com/shinchiro/mpv-winbuild-cmake)
+`mpv-dev` build, kept beside `Akidev.exe`.
+
+```powershell
+./scripts/bundle-windows.ps1    # target\release\bundle\Akidev-<version>-x86_64.zip
+```
+
+The script (run from a Visual Studio developer prompt) downloads libmpv, makes its import
+library, builds and zips. The **Desktop** workflow runs it on every change, tests the code on
+Windows, starts the app once and keeps a screenshot (artifact `akidev-windows`); the **Desktop
+release (Windows)** workflow does the same for a `desktop-v<version>` tag. The app is not signed,
+so SmartScreen asks the first time ("More info", then "Run anyway").
+
+From a Mac, `cargo xwin check -p akidev --target x86_64-pc-windows-msvc` (with `cargo install
+cargo-xwin`, `brew install llvm lld`) type-checks the Windows build. It cannot link it: GPUI's
+DirectX shaders are compiled by tools that only exist on Windows.
 
 ## Running
 
