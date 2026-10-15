@@ -66,6 +66,7 @@ async fn rig(name: &str, tweak: impl FnOnce(&mut Settings)) -> Option<Rig> {
         registry,
         limiter: Arc::new(Limiter::default()),
         engine: None,
+        images: crate::img::Images::for_tests(dir.join("img"), vec!["127.0.0.1".into()]),
         ffmpeg: true,
     };
     Some(Rig {
@@ -538,4 +539,61 @@ async fn the_conversion_waits_when_the_viewer_is_far_behind_and_catches_up_on_a_
     // Asking for a segment well past what exists lifts the limit, so it is made.
     let (status, _, _) = get(&rig.router, &format!("{base}seg00004.m4s"), None).await;
     assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn an_answer_does_not_depend_on_who_asked_so_the_edge_may_keep_it() {
+    // The edge ignores `Vary: Origin`, so a copy made for a request without an Origin header would
+    // be handed to the page. With one allowed origin every answer names it, and nothing varies.
+    let Some(rig) = rig("edge", |s| {
+        s.cors_origins = vec!["https://akidev.live".into()]
+    })
+    .await
+    else {
+        return;
+    };
+    let (_, headers, _) = get(&rig.router, "/health", None).await;
+    let without_origin = {
+        let mut request = Request::builder()
+            .uri("/health")
+            .body(Body::empty())
+            .unwrap();
+        request
+            .extensions_mut()
+            .insert(ConnectInfo("192.0.2.1:4000".parse::<SocketAddr>().unwrap()));
+        rig.router.clone().oneshot(request).await.unwrap()
+    };
+    assert_eq!(
+        without_origin.headers()["access-control-allow-origin"],
+        "https://akidev.live"
+    );
+    assert_eq!(
+        headers["access-control-allow-origin"],
+        "https://akidev.live"
+    );
+    for response_headers in [&headers, without_origin.headers()] {
+        let vary = response_headers
+            .get_all(header::VARY)
+            .iter()
+            .map(|v| v.to_str().unwrap().to_lowercase())
+            .collect::<Vec<_>>()
+            .join(",");
+        assert!(!vary.contains("origin"), "vary: {vary}");
+    }
+}
+
+#[tokio::test]
+async fn a_picture_from_an_unlisted_host_is_refused() {
+    let Some(rig) = rig("img-refused", |_| {}).await else {
+        return;
+    };
+    for url in [
+        "/v1/img?u=https%3A%2F%2Fevil.example%2Fa.jpg&w=300",
+        "/v1/img?u=http%3A%2F%2F169.254.169.254%2Flatest&w=300",
+        "/v1/img?u=file%3A%2F%2F%2Fetc%2Fpasswd",
+    ] {
+        let (status, _, body) = get(&rig.router, url, None).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{url}");
+        assert!(String::from_utf8_lossy(&body).contains("error"));
+    }
 }

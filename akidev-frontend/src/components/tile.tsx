@@ -71,6 +71,7 @@ export default function Tile({
             alt=""
             fill
             sizes="176px"
+            quality={65}
             priority={priority}
             className="object-cover"
           />

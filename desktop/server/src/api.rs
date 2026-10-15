@@ -30,6 +30,7 @@ pub struct AppState {
     pub registry: Arc<Registry>,
     pub limiter: Arc<Limiter>,
     pub engine: Option<Arc<akidev_core::torrent::Engine>>,
+    pub images: Arc<crate::img::Images>,
     pub ffmpeg: bool,
 }
 
@@ -140,6 +141,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/catalogue", get(catalogue))
         .route("/v1/search", get(search_route))
         .route("/v1/titles/{id}", get(title))
+        .route("/v1/img", get(image))
         .route("/v1/play", post(play))
         .layer(CompressionLayer::new().gzip(true))
         .with_state(state.clone());
@@ -154,6 +156,63 @@ pub fn router(state: AppState) -> Router {
         .with_state(deliverer);
 
     api.merge(streams).layer(cors(&state.settings))
+}
+
+#[derive(Deserialize)]
+struct ImageQuery {
+    u: String,
+    w: Option<u32>,
+    q: Option<u8>,
+}
+
+/// A poster or banner at the size asked for. The answer never changes for the same address, so it
+/// is cached for good by the edge and by the browser.
+async fn image(
+    State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Query(query): Query<ImageQuery>,
+) -> Response {
+    // A page shows dozens at once, so pictures have an allowance of their own.
+    let client = client_of(&headers, Some(peer));
+    if !state
+        .limiter
+        .allow(&client, "img", 2400, Duration::from_secs(60))
+    {
+        return too_many();
+    }
+    match state
+        .images
+        .get(&query.u, query.w.unwrap_or(640), query.q.unwrap_or(75))
+        .await
+    {
+        Ok(picture) => (
+            [
+                (
+                    header::CONTENT_TYPE,
+                    HeaderValue::from_static(picture.content_type),
+                ),
+                (
+                    header::CACHE_CONTROL,
+                    HeaderValue::from_static("public, max-age=31536000, immutable"),
+                ),
+                // The site loads these from another origin, with no credentials.
+                (
+                    HeaderName::from_static("cross-origin-resource-policy"),
+                    HeaderValue::from_static("cross-origin"),
+                ),
+            ],
+            picture.bytes,
+        )
+            .into_response(),
+        Err(crate::img::Error::Refused) => error(
+            StatusCode::BAD_REQUEST,
+            "That picture is not one this server fetches.",
+        ),
+        Err(crate::img::Error::Unavailable) => {
+            error(StatusCode::BAD_GATEWAY, "The picture could not be fetched.")
+        }
+    }
 }
 
 fn cors(settings: &Settings) -> CorsLayer {
@@ -173,6 +232,13 @@ fn cors(settings: &Settings) -> CorsLayer {
         .max_age(Duration::from_secs(3600));
     if settings.cors_origins.iter().any(|origin| origin == "*") {
         layer.allow_origin(AllowOrigin::any())
+    } else if let [only] = origins.as_slice() {
+        // One origin is answered the same way for everyone, so the response carries no `Vary:
+        // Origin`. That matters at the edge: a cached copy that was made for a request without an
+        // Origin header would otherwise be handed to the page with no CORS headers at all.
+        layer
+            .allow_origin(AllowOrigin::exact(only.clone()))
+            .vary([] as [HeaderName; 0])
     } else {
         layer.allow_origin(AllowOrigin::list(origins))
     }

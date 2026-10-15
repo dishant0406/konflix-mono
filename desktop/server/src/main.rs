@@ -8,6 +8,7 @@ mod config;
 mod deliver;
 mod dto;
 mod hls;
+mod img;
 mod limits;
 mod media;
 mod origin;
@@ -93,6 +94,7 @@ async fn run() -> anyhow::Result<()> {
         vec![Engine::downloads_dir(&settings.cache_dir)],
     );
     let registry = Arc::new(deliver::Registry::default());
+    let images = img::Images::new(settings.images_dir(), settings.image_hosts.clone());
 
     let wants_debrid = settings
         .stream_sources
@@ -128,8 +130,22 @@ async fn run() -> anyhow::Result<()> {
         registry,
         limiter: Arc::new(limits::Limiter::default()),
         engine: Some(engine.clone()),
+        images: images.clone(),
         ffmpeg,
     };
+
+    {
+        // Resized pictures are kept between runs, so a deploy does not send every visitor back to
+        // the providers. The oldest go when they outgrow their share of the disk.
+        let images = images.clone();
+        let limit = settings.image_cache_bytes;
+        tokio::spawn(async move {
+            loop {
+                images.prune(limit).await;
+                tokio::time::sleep(Duration::from_secs(600)).await;
+            }
+        });
+    }
 
     {
         let engine = engine.clone();
