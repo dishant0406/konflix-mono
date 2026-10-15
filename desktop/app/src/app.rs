@@ -179,7 +179,9 @@ impl AkidevApp {
             .child(
                 TitleBar::new()
                     .h(px(TOP_BAR))
-                    .pl(px(92.))
+                    // Room for the traffic lights on a Mac; elsewhere the bar's own window
+                    // buttons are on the right.
+                    .pl(px(if cfg!(target_os = "macos") { 92. } else { 20. }))
                     .pr(px(24.))
                     .bg(background)
                     .border_color(if scrolled {

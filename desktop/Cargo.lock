@@ -138,6 +138,7 @@ dependencies = [
  "akidev-core",
  "anyhow",
  "directories",
+ "embed-resource",
  "futures",
  "gpui-kit",
  "image",

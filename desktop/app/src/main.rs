@@ -1,3 +1,6 @@
+// A release build on Windows is a window, not a console program.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod app;
 mod backend;
 mod browse;
@@ -65,7 +68,7 @@ fn main() {
         ));
         theme::apply(cx);
         cx.set_http_client(Arc::new(images::ImageClient::new(image_cache)));
-        cx.bind_keys([KeyBinding::new("cmd-k", app::OpenSearch, None)]);
+        cx.bind_keys([KeyBinding::new("secondary-k", app::OpenSearch, None)]);
         quit_with_the_window(cx);
         let options = WindowOptions {
             titlebar: Some(TitlebarOptions {
@@ -93,9 +96,9 @@ fn main() {
 
 actions!(akidev, [Quit]);
 
-/// Closing the window ends the app, and so does Cmd-Q. On the way out the downloads are deleted.
+/// Closing the window ends the app, and so does Cmd-Q (Ctrl-Q elsewhere). On the way out the downloads are deleted.
 fn quit_with_the_window(cx: &mut App) {
-    cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
+    cx.bind_keys([KeyBinding::new("secondary-q", Quit, None)]);
     cx.on_action(|_: &Quit, cx| cx.quit());
     cx.set_menus([Menu {
         name: "Akidev".into(),

@@ -19,14 +19,18 @@ fn load_key(path: &str) -> anyhow::Result<SigningKey> {
 /// Writes the private key where only its owner can read it.
 fn write_private(path: &str, text: &str) -> anyhow::Result<()> {
     use std::io::Write as _;
-    use std::os::unix::fs::OpenOptionsExt as _;
     if let Some(parent) = std::path::Path::new(path).parent() {
         std::fs::create_dir_all(parent)?;
     }
-    std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    // Windows has no mode bits; the key lives in the user's own folder there.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.mode(0o600);
+    }
+    options
         .open(path)
         .with_context(|| format!("creating {path} (it must not exist already)"))?
         .write_all(text.as_bytes())?;

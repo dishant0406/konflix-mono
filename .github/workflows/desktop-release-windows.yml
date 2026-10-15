@@ -1,0 +1,60 @@
+name: Desktop release (Windows)
+
+# Builds the Windows app and packs it into a zip, kept as a workflow artifact, then starts it
+# once and keeps a screenshot as proof that it opens.
+#
+# Run it by hand from the Actions tab, or push a tag named desktop-v<version> (the version in
+# desktop/Cargo.toml). The app is not signed with a code-signing certificate, so SmartScreen
+# says so the first time; the zip carries a note about it.
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["desktop-v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  zip:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop
+
+      # dumpbin and lib, which make the import library for libmpv, live in the Visual Studio tools.
+      - uses: ilammy/msvc-dev-cmd@v1
+      - name: Build the app and the zip
+        shell: pwsh
+        run: ./scripts/bundle-windows.ps1
+
+      - name: Start it, wait, and take a picture
+        # A runner has no GPU, so this can fail where a real PC would not: it reports and
+        # does not stop the release.
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          $app = Start-Process "target\release\bundle\Akidev\Akidev.exe" -PassThru
+          Start-Sleep -Seconds 25
+          if ($app.HasExited) { throw "Akidev exited with code $($app.ExitCode)" }
+          $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          $bitmap = New-Object System.Drawing.Bitmap $screen.Width, $screen.Height
+          [System.Drawing.Graphics]::FromImage($bitmap).CopyFromScreen($screen.Location, [System.Drawing.Point]::Empty, $screen.Size)
+          $bitmap.Save("$PWD\target\release\bundle\windows-smoke.png")
+          Stop-Process $app
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: akidev-windows-zip
+          path: |
+            desktop/target/release/bundle/*.zip
+            desktop/target/release/bundle/windows-smoke.png
+          if-no-files-found: error
+          retention-days: 30
