@@ -50,3 +50,26 @@ jobs:
           $env:LIB = "$PWD\target\mpv;$env:LIB"
           $env:PATH = "$PWD\target\mpv;$env:PATH"
           cargo test -p akidev-core -p akidev
+      - name: Start it, wait, and take a picture
+        # A runner has no GPU, so this can fail where a real PC would not: it reports and
+        # does not fail the job.
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          $app = Start-Process "target\release\bundle\Akidev\Akidev.exe" -PassThru
+          Start-Sleep -Seconds 25
+          if ($app.HasExited) { throw "Akidev exited with code $($app.ExitCode)" }
+          $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          $bitmap = New-Object System.Drawing.Bitmap $screen.Width, $screen.Height
+          [System.Drawing.Graphics]::FromImage($bitmap).CopyFromScreen($screen.Location, [System.Drawing.Point]::Empty, $screen.Size)
+          $bitmap.Save("$PWD\target\release\bundle\windows-smoke.png")
+          Stop-Process $app
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: akidev-windows
+          path: |
+            desktop/target/release/bundle/*.zip
+            desktop/target/release/bundle/windows-smoke.png
+          retention-days: 7
