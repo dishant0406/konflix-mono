@@ -17,15 +17,16 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
-# An unprivileged user, and a data directory it owns. Docker initialises a named volume from the
-# image, so the volume is writable by this user too.
+# An unprivileged user for the server to run as, and a data directory it owns.
 RUN useradd --system --uid 10001 --home-dir /data akidev \
  && mkdir -p /data \
  && chown akidev:akidev /data
 
 COPY dist/akidev-server /usr/local/bin/akidev-server
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/akidev-server
 
-USER akidev
+# No USER line: the entrypoint drops to `akidev` after it has made the data directory writable.
 ENV CACHE_DIR=/data \
     PORT=9000 \
     RUST_LOG=akidev_server=info,akidev_core=info
@@ -33,4 +34,4 @@ VOLUME /data
 EXPOSE 9000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=5 \
   CMD ["akidev-server", "--check"]
-ENTRYPOINT ["akidev-server"]
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

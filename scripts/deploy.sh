@@ -93,12 +93,12 @@ wait_for_health() {
       healthy) echo "    $label healthy"; return 0 ;;
       unhealthy)
         echo "Error: $label reported unhealthy." >&2
-        compose logs --tail 50 "$container" >&2
+        docker logs --tail 60 "$container" >&2
         return 1 ;;
     esac
     if [ "$SECONDS" -ge "$deadline" ]; then
       echo "Error: $label did not become healthy within ${HEALTH_TIMEOUT}s." >&2
-      compose logs --tail 50 "$container" >&2
+      docker logs --tail 60 "$container" >&2
       return 1
     fi
     sleep 3
