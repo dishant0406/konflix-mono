@@ -9,7 +9,7 @@ cask "akidev" do
   url "https://github.com/dishant0406/konflix-mono/releases/download/desktop-mac-v#{version}/Akidev-#{version}-arm64.dmg"
   name "Akidev"
   desc "Browse and stream anime, series and films"
-  homepage "https://akidev.live"
+  homepage "https://akidev.live/"
 
   livecheck do
     url "https://github.com/dishant0406/konflix-mono/releases"
@@ -20,7 +20,7 @@ cask "akidev" do
   # The app updates itself, so brew does not need to.
   auto_updates true
   depends_on arch: :arm64
-  depends_on macos: ">= :monterey"
+  depends_on macos: :monterey
 
   app "Akidev.app"
 
