@@ -17,3 +17,4 @@ pub mod stream;
 pub mod subtitles;
 pub mod template;
 pub mod torrent;
+pub mod update;

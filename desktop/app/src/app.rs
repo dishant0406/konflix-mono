@@ -8,6 +8,7 @@ use crate::palette::Palette;
 use crate::route::{Navigator, Route, navigate};
 use crate::settings::SettingsPage;
 use crate::title::TitlePage;
+use crate::updates::Updates;
 use crate::watch::WatchPage;
 use akidev_core::model::Kind;
 use gpui_kit::assets::IconName;
@@ -35,6 +36,7 @@ pub struct AkidevApp {
     history: Vec<Route>,
     scroll: ScrollHandle,
     palette: Entity<Palette>,
+    updates: Entity<Updates>,
     toasts: Vec<Toast>,
     next_toast: u64,
     focus: FocusHandle,
@@ -43,6 +45,7 @@ pub struct AkidevApp {
     /// The Akidev mark drawn beside the name.
     mark: Arc<Image>,
     _palette_changes: Subscription,
+    _update_changes: Subscription,
 }
 
 impl AkidevApp {
@@ -51,11 +54,14 @@ impl AkidevApp {
         cx.set_global(Navigator(cx.weak_entity()));
         let palette = cx.new(|cx| Palette::new(window, cx));
         let palette_changes = cx.observe(&palette, |_, _, cx| cx.notify());
+        let updates = cx.new(Updates::new);
+        let update_changes = cx.observe(&updates, |_, _, cx| cx.notify());
         AkidevApp {
             page,
             history: vec![first],
             scroll: ScrollHandle::new(),
             palette,
+            updates,
             toasts: Vec::new(),
             next_toast: 0,
             focus: cx.focus_handle(),
@@ -66,6 +72,7 @@ impl AkidevApp {
                 include_bytes!("../assets/mark.png").to_vec(),
             )),
             _palette_changes: palette_changes,
+            _update_changes: update_changes,
         }
     }
 
@@ -241,6 +248,7 @@ impl AkidevApp {
                                 },
                             )))
                             .child(div().flex_1())
+                            .children(self.updates.update(cx, |updates, cx| updates.pill(cx)))
                             .child(icon_button("search", IconName::Search, |_, _, cx| {
                                 navigate(
                                     Route::Browse {
@@ -294,6 +302,19 @@ impl Render for AkidevApp {
                     .child(self.page.clone()),
             )
             .when(!immersive, |shell| shell.child(self.top_bar(cx)))
+            // Under the pill, and never over the picture.
+            .when(!immersive, |shell| {
+                match self.updates.update(cx, |updates, cx| updates.card(cx)) {
+                    Some(card) => shell.child(
+                        div()
+                            .absolute()
+                            .top(px(TOP_BAR - 6.))
+                            .right(px(24.))
+                            .child(card),
+                    ),
+                    None => shell,
+                }
+            })
             .when(palette_open, |shell| shell.child(self.palette.clone()))
             .child(
                 div()

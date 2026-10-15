@@ -24,6 +24,8 @@ mod task;
 mod theme;
 mod tile;
 mod title;
+mod updater;
+mod updates;
 mod watch;
 
 use app::AkidevApp;

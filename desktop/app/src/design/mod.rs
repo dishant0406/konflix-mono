@@ -2,4 +2,5 @@
 
 pub mod button;
 pub mod state;
+pub mod toggle;
 pub mod tokens;

@@ -2,6 +2,7 @@
 //! snap to a few sensible stops, saved as soon as they are let go.
 
 use crate::backend::Backend;
+use crate::design::toggle::toggle;
 use crate::design::tokens::{ACCENT, GUTTER, TEXT, TEXT_DIM, TEXT_FAINT, TOP_BAR, color, size};
 use akidev_core::config::Config;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -110,9 +111,16 @@ impl SettingsPage {
         cx.notify();
     }
 
+    fn toggle_updates(&mut self, cx: &mut Context<Self>) {
+        self.config.check_for_updates = !self.config.check_for_updates;
+        self.commit(cx);
+    }
+
     fn restore(&mut self, cx: &mut Context<Self>) {
         self.config = Config {
             cache_dir: self.config.cache_dir.clone(),
+            // Restoring the limits leaves the update choice as it was.
+            check_for_updates: self.config.check_for_updates,
             ..Config::default()
         };
         self.commit(cx);
@@ -320,6 +328,37 @@ impl Render for SettingsPage {
                             .flex()
                             .items_center()
                             .justify_between()
+                            .gap_8()
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap_1()
+                                    .child(
+                                        div()
+                                            .text_size(px(13.))
+                                            .font_weight(FontWeight::MEDIUM)
+                                            .text_color(color(TEXT_DIM))
+                                            .child("Check for updates"),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_size(px(13.))
+                                            .text_color(color(TEXT_FAINT))
+                                            .child("Looks for a newer Akidev every few hours. Nothing is installed until you press Update."),
+                                    ),
+                            )
+                            .child(toggle(
+                                "check-updates",
+                                self.config.check_for_updates,
+                                cx.listener(|page, _, _, cx| page.toggle_updates(cx)),
+                            )),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_between()
                             .h(px(20.))
                             .child(div().when(custom, |side| {
                                 side.child(
@@ -342,6 +381,12 @@ impl Render for SettingsPage {
                                     .child(div().size(px(6.)).rounded_full().bg(color(ACCENT)))
                                     .child("Takes effect the next time Akidev starts")
                             })),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(13.))
+                            .text_color(color(TEXT_FAINT))
+                            .child(concat!("Akidev ", env!("CARGO_PKG_VERSION"))),
                     ),
             )
     }

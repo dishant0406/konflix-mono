@@ -28,7 +28,7 @@ it. The bar is transparent over artwork and turns solid once a page scrolls.
 | Search (⌘K) | Results as you type, across all three catalogues. Enter opens the best match, or the full results page when nothing is highlighted |
 | Title | Banner, facts, Play and Trailer, episodes by season, cast, related and recommended titles |
 | Watch | The picture fills the window. Controls hide after three seconds. Seek bar, ±10 seconds, volume, a source picker (every release found, play any), subtitles from the file and from online providers, audio tracks, an episode panel, next episode, fullscreen, and an offer of the next episode near the end |
-| Settings | Two sliders: how much disk the torrents may use, and how many are kept at once. Saved as soon as you let go |
+| Settings | Two sliders: how much disk the torrents may use, and how many are kept at once, a switch for update checks, and the version. Saved as soon as you let go |
 
 Keys on the watch page: `space` pause, `←` `→` seek 10 seconds, `↑` `↓` volume, `m` mute,
 `c` cycle subtitles, `a` audio, `e` episodes, `n` next episode, `f` fullscreen, `esc` leave
@@ -45,7 +45,7 @@ sources/   the definitions of the indexers and providers, published separately f
 app/    akidev: the GPUI app and the libmpv player
 ```
 
-In `app/src`, `design/` holds the tokens (palette, type scale, spacing) and the few shared
+In `app/src`, `updates.rs` is the pill and card and `updater.rs` the install step. `design/` holds the tokens (palette, type scale, spacing) and the few shared
 components (buttons, chips, tabs, empty and error states); every screen is built from them.
 `app.rs` is the window shell, `route.rs` is navigation, and each screen has its own file
 (`home`, `browse`, `title`, `watch`, `settings`, plus `palette` for ⌘K). `player.rs` wraps
@@ -65,6 +65,7 @@ used to serve the site, and the server has since replaced that API.
 | `torrent.rs`, `serve.rs` | Joins a swarm and reads a file from it, from any byte |
 | `stream.rs` | Media id to a plan (the title and the ranked releases) and then to an open file |
 | `search.rs` | Search across the three catalogues |
+| `update.rs` | Finds a newer release on GitHub and downloads it, checked against its published hash |
 
 Its tests are the Node tests carried over with the same inputs and expected outputs. What a browser
 needs and mpv does not (HLS conversion, ffprobe, the debrid source, the Internet Archive) is in
@@ -88,7 +89,7 @@ if its ed25519 signature is valid, its version is higher than the one in use and
 same validation as the built-in one; otherwise nothing changes, so a bad publish cannot break
 an installed app. `./scripts/publish-sources.sh` signs and uploads a new copy to Cloudflare R2.
 Viewers see none of this: there is no list of indexers, no switches and no addresses to change in the
-app. Settings holds only the torrent limits.
+app. Settings holds only the torrent limits and the update switch.
 
 How a watch works: `stream.rs` turns a media id into search terms, asks every indexer that serves the kind,
 ranks the releases and races the best few (the first starts at once, the next join every six
@@ -135,6 +136,40 @@ so SmartScreen asks the first time ("More info", then "Run anyway").
 From a Mac, `cargo xwin check -p akidev --target x86_64-pc-windows-msvc` (with `cargo install
 cargo-xwin`, `brew install llvm lld`) type-checks the Windows build. It cannot link it: GPUI's
 DirectX shaders are compiled by tools that only exist on Windows.
+
+## Updates
+
+The app looks for a newer version of itself about 20 seconds after it starts and then every six
+hours (Settings, "Check for updates", on by default). It asks the GitHub releases of
+`dishant0406/konflix-mono` (one constant, `REPO` in `core/src/update.rs`, so a rename is a one-line
+change) for the newest non-draft, non-prerelease tag with this platform's prefix,
+`desktop-mac-v<version>` or `desktop-windows-v<version>`, and compares it by number with the
+running version (0.1.10 is newer than 0.1.9). When there is one, a quiet "Update available" pill
+appears in the top bar, with a small card: the first lines of the release notes, **Update and
+restart** and **Later** ("Later" hides it until the next start). Nothing is downloaded until the
+button is pressed, the pill is never drawn on the watch page, and nothing is ever a modal. Intel
+Macs and other systems report nothing available.
+
+Pressing the button downloads the installer from GitHub (only `github.com` and its asset hosts,
+over https, redirects included) and keeps it only if its SHA-256 matches the `.sha256` published
+beside it. The hash guards against a corrupt download; the signature is what is trusted:
+
+- **macOS**: the disk image is mounted, and `Akidev.app` inside must pass `codesign --verify
+  --deep --strict` and carry Team ID `689N5CNAYJ`. It is copied next to the running app, swapped
+  in (the old bundle is put back if anything after the swap fails) and the app relaunches. If the
+  app is not run from an `.app` bundle, or its folder is not writable (a translocated or
+  read-only copy), nothing is installed and the download page is opened instead.
+- **Windows**: the installer is run (`/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS
+  /RESTARTAPPLICATIONS`) only when its Authenticode status is `Valid` and the signer is SignPath
+  Foundation. While releases are unsigned, the release page is opened and the card says why.
+
+A failure shows its reason in the card with **Open download page**. A Homebrew install updates
+itself the same way, since the cask installs the same notarised app into `/Applications`, which an
+administrator can write to; `brew upgrade` keeps working too.
+
+Two environment variables exist for testing the whole flow without a real install:
+`AKIDEV_UPDATE_CURRENT=0.0.1` makes the app believe it is that version, and
+`AKIDEV_UPDATE_BUNDLE=/path/to/Akidev.app` replaces that bundle instead of the running one.
 
 ## Releasing
 

@@ -23,3 +23,4 @@ axum = "0.8"
 tokio-util = { version = "0.7.20", features = ["io"] }
 getrandom = "0.3"
 ed25519-dalek = "2"
+sha2 = "0.10"

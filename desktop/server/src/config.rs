@@ -127,6 +127,7 @@ impl Settings {
             max_candidates: self.max_candidates,
             resolve_deadline_ms: self.resolve_deadline_ms,
             upload_limit_bps: Some(self.upload_limit_bps),
+            ..akidev_core::config::Config::default()
         }
     }
 

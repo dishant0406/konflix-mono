@@ -28,6 +28,8 @@ pub struct Config {
     /// no use for seeding and would only pay for the bandwidth, so it sets a small one. The
     /// desktop app leaves it unlimited.
     pub upload_limit_bps: Option<u32>,
+    /// Whether the desktop app looks for a newer version of itself now and then.
+    pub check_for_updates: bool,
 }
 
 impl Default for Config {
@@ -41,6 +43,7 @@ impl Default for Config {
             max_candidates: 3,
             resolve_deadline_ms: 75_000,
             upload_limit_bps: None,
+            check_for_updates: true,
         }
     }
 }
@@ -82,6 +85,13 @@ mod tests {
         let config: Config = toml::from_str("max_torrents = 1").unwrap();
         assert_eq!(config.max_torrents, 1);
         assert_eq!(config.indexer_timeout_ms, 5_000);
+    }
+
+    #[test]
+    fn update_checks_are_on_unless_turned_off() {
+        assert!(Config::default().check_for_updates);
+        let config: Config = toml::from_str("check_for_updates = false").unwrap();
+        assert!(!config.check_for_updates);
     }
 
     #[test]
