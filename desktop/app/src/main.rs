@@ -10,6 +10,7 @@ mod choices;
 mod design;
 mod episodes;
 mod hero;
+mod history;
 mod home;
 mod images;
 mod palette;

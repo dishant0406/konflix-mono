@@ -1,8 +1,9 @@
 //! The window: one bar that is both title bar and navigation, and the current screen below it.
 
 use crate::browse::BrowsePage;
-use crate::design::button::{icon_button, tab};
+use crate::design::button::{icon_button, keep_from_title_bar, tab};
 use crate::design::tokens::{CANVAS, LINE, RAISED, TEXT, TOP_BAR, color};
+use crate::history::History;
 use crate::home::HomePage;
 use crate::palette::Palette;
 use crate::route::{Navigator, Route, navigate};
@@ -31,10 +32,18 @@ struct Toast {
     text: String,
 }
 
-pub struct AkidevApp {
-    page: AnyView,
-    history: Vec<Route>,
+/// What one step of the history shows. Kept with the step, so Back finds the page as it was left:
+/// scrolled where it was, with its rows already loaded.
+#[derive(Default)]
+struct Screen {
+    /// `None` until the step is first shown, and again once the viewer has left the watch page,
+    /// which must stop playing and so is built afresh on return.
+    view: Option<AnyView>,
     scroll: ScrollHandle,
+}
+
+pub struct AkidevApp {
+    history: History<Screen>,
     palette: Entity<Palette>,
     updates: Entity<Updates>,
     toasts: Vec<Toast>,
@@ -58,11 +67,12 @@ impl AkidevApp {
         cx.set_global(Shared(updates.clone()));
         let update_changes = cx.observe(&updates, |_, _, cx| cx.notify());
         // Built last: a screen may read the update state (Settings does) or navigate.
-        let page = Self::build(&first, cx);
-        AkidevApp {
-            page,
-            history: vec![first],
+        let screen = Screen {
+            view: Some(Self::build(&first, cx)),
             scroll: ScrollHandle::new(),
+        };
+        AkidevApp {
+            history: History::new(first, screen),
             palette,
             updates,
             toasts: Vec::new(),
@@ -119,26 +129,23 @@ impl AkidevApp {
     }
 
     fn route(&self) -> &Route {
-        self.history.last().expect("history is never empty")
+        self.history.route()
     }
 
     pub fn go(&mut self, route: Route, cx: &mut Context<Self>) {
         if self.route() == &route {
             return;
         }
-        self.show(&route, cx);
-        self.history.push(route);
+        self.leave();
+        self.history.go(route, Screen::default());
+        self.arrive(cx);
     }
 
     /// One screen back. With nowhere to go back to (the app was opened straight onto a
     /// video), it goes Home, so the back button always leads somewhere.
     pub fn back(&mut self, cx: &mut Context<Self>) {
-        if self.history.len() > 1 {
-            self.history.pop();
-            let route = self.route().clone();
-            self.show(&route, cx);
-        } else if self.route() != &Route::Home {
-            self.replace(Route::Home, cx);
+        if self.history.back() {
+            self.arrive(cx);
         }
     }
 
@@ -146,21 +153,31 @@ impl AkidevApp {
         if self.route() == &route {
             return;
         }
-        self.show(&route, cx);
-        *self.history.last_mut().expect("history is never empty") = route;
+        self.history.replace(route, Screen::default());
+        self.arrive(cx);
     }
 
-    /// Swaps the screen and starts it at the top.
-    fn show(&mut self, route: &Route, cx: &mut Context<Self>) {
-        crate::analytics::screen_of(route);
-        self.page = Self::build(route, cx);
-        self.scroll = ScrollHandle::new();
+    /// Called before the viewer moves on. The watch page is let go, so its video stops; every
+    /// other page stays as it is, for Back.
+    fn leave(&mut self) {
+        if matches!(self.route(), Route::Watch { .. }) {
+            self.history.current_mut().view = None;
+        }
+    }
+
+    /// Shows the current step, building its page if it has none.
+    fn arrive(&mut self, cx: &mut Context<Self>) {
+        let route = self.route().clone();
+        crate::analytics::screen_of(&route);
+        if self.history.current().view.is_none() {
+            self.history.current_mut().view = Some(Self::build(&route, cx));
+        }
         cx.notify();
     }
 
     fn top_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let route = self.route().clone();
-        let scrolled = self.scroll.offset().y < px(-SOLID_AFTER);
+        let scrolled = self.history.current().scroll.offset().y < px(-SOLID_AFTER);
         let browsing = |wanted: Option<Kind>| matches!(&route, Route::Browse { kind, term } if *kind == wanted && term.is_empty());
         let background: Background = if scrolled {
             color(CANVAS).into()
@@ -178,7 +195,7 @@ impl AkidevApp {
             ("Series", Some(Kind::Series)),
             ("Films", Some(Kind::Movie)),
         ];
-        let can_go_back = self.history.len() > 1 || self.route() != &Route::Home;
+        let can_go_back = self.history.can_go_back();
 
         // `occlude`: a click on the bar must not also reach the page scrolled under it.
         div()
@@ -221,6 +238,7 @@ impl AkidevApp {
                                     .items_center()
                                     .gap_2()
                                     .cursor_pointer()
+                                    .on_mouse_down(MouseButton::Left, keep_from_title_bar)
                                     .text_size(px(20.))
                                     .font_weight(FontWeight::BLACK)
                                     .text_color(color(TEXT))
@@ -302,8 +320,8 @@ impl Render for AkidevApp {
                     // A swipe that is mostly sideways belongs to a row, and one that is mostly
                     // down belongs to the page: each takes its own axis, locked per gesture.
                     .restrict_scroll_to_axis()
-                    .track_scroll(&self.scroll)
-                    .child(self.page.clone()),
+                    .track_scroll(&self.history.current().scroll)
+                    .children(self.history.current().view.clone()),
             )
             .when(!immersive, |shell| shell.child(self.top_bar(cx)))
             .when(palette_open, |shell| shell.child(self.palette.clone()))

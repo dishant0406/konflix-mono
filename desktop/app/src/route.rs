@@ -44,6 +44,15 @@ impl Route {
         }
     }
 
+    /// A place to start from rather than a step on the way: Home and the catalogue tabs.
+    pub fn is_start(&self) -> bool {
+        matches!(self, Route::Home) || matches!(self, Route::Browse { term, .. } if term.is_empty())
+    }
+
+    pub fn is_search(&self) -> bool {
+        matches!(self, Route::Browse { term, .. } if !term.is_empty())
+    }
+
     /// The route a media id belongs to: an episode or film plays, a title key is a detail page.
     pub fn for_media_id(id: &str) -> Route {
         match media_id::parse(id) {

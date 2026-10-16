@@ -65,6 +65,13 @@ pub fn secondary_button(
         .child(label_with_icon(Some(label), icon, color(TEXT)))
 }
 
+/// Buttons sit in the title bar, which starts moving the window on a press that moves a little and
+/// zooms it on a double click. A button takes the press for itself, so a click that drifts still
+/// lands and a quick second click on Back does not resize the window.
+pub fn keep_from_title_bar(_: &MouseDownEvent, _: &mut Window, cx: &mut App) {
+    cx.stop_propagation();
+}
+
 /// A round icon-only button.
 pub fn icon_button(
     id: impl Into<ElementId>,
@@ -83,6 +90,7 @@ pub fn icon_button(
         .cursor_pointer()
         .hover(|style| style.bg(color(TEXT).opacity(0.14)))
         .active(|style| style.bg(color(TEXT).opacity(0.22)))
+        .on_mouse_down(MouseButton::Left, keep_from_title_bar)
         .on_click(on_click)
         .child(Icon::new(icon).text_color(color(TEXT)))
 }
@@ -126,6 +134,7 @@ pub fn tab(
         .py_1()
         .cursor_pointer()
         .text_size(px(14.))
+        .on_mouse_down(MouseButton::Left, keep_from_title_bar)
         .on_click(on_click)
         .when(active, |tab| {
             tab.text_color(color(TEXT)).font_weight(FontWeight::BOLD)

@@ -2,6 +2,7 @@
 
 use crate::backend::Backend;
 use crate::hero::Hero;
+use crate::progress::Entry;
 use crate::row::{MediaRow, RowSpec};
 use crate::task::load;
 use akidev_core::model::{Filters, Kind, Media, Sort};
@@ -76,21 +77,20 @@ pub fn prefetch() {
 
 pub struct HomePage {
     hero: Entity<Hero>,
+    /// What the viewer was part way through when the "Continue watching" row was last built.
+    watching: Vec<Entry>,
+    continuing: Option<Entity<MediaRow>>,
     rows: Vec<Entity<MediaRow>>,
 }
 
 impl HomePage {
     pub fn new(cx: &mut Context<Self>) -> HomePage {
         let hero = cx.new(|_| Hero::new());
-        let history = cx.global::<Backend>().progress.recent().to_vec();
-        let rows = (!history.is_empty())
-            .then(|| cx.new(|_| MediaRow::continuing(&history)))
+        let watching = cx.global::<Backend>().progress.recent().to_vec();
+        let continuing = Self::continuing(&watching, cx);
+        let rows = rows()
             .into_iter()
-            .chain(
-                rows()
-                    .into_iter()
-                    .map(|spec| cx.new(|cx| MediaRow::loading(spec, cx))),
-            )
+            .map(|spec| cx.new(|cx| MediaRow::loading(spec, cx)))
             .collect();
 
         // The banner draws from the front of each catalogue, so it features all three.
@@ -111,15 +111,31 @@ impl HomePage {
                 hero_handle.update(cx, |hero, cx| hero.set_items(featured, cx));
             },
         );
-        HomePage { hero, rows }
+        HomePage {
+            hero,
+            watching,
+            continuing,
+            rows,
+        }
+    }
+
+    fn continuing(watching: &[Entry], cx: &mut Context<Self>) -> Option<Entity<MediaRow>> {
+        (!watching.is_empty()).then(|| cx.new(|_| MediaRow::continuing(watching)))
     }
 }
 
 impl Render for HomePage {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // The page is kept while the viewer watches something and comes back, so the row of what
+        // they are part way through is brought up to date whenever it is shown.
+        if cx.global::<Backend>().progress.recent() != self.watching.as_slice() {
+            self.watching = cx.global::<Backend>().progress.recent().to_vec();
+            self.continuing = Self::continuing(&self.watching, cx);
+        }
         div()
             .pb_16()
             .child(self.hero.clone())
+            .children(self.continuing.clone())
             .children(self.rows.iter().cloned())
     }
 }
