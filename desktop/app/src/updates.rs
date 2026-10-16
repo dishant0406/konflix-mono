@@ -172,6 +172,7 @@ impl Updates {
                 }
                 Err(reason) => {
                     tracing::warn!("[update] failed: {reason}");
+                    crate::analytics::error("update", &reason);
                     updates.phase = Phase::Failed(failure_sentence(&reason));
                     cx.notify();
                 }

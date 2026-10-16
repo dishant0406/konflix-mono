@@ -1,6 +1,7 @@
 // A release build on Windows is a window, not a console program.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+mod analytics;
 mod app;
 mod backend;
 mod browse;
@@ -68,6 +69,11 @@ fn main() {
             torrent_cache,
             sources_dir,
         ));
+        {
+            let config = &cx.global::<backend::Backend>().config;
+            analytics::apply(config);
+            analytics::capture("app_opened", serde_json::Value::Null);
+        }
         theme::apply(cx);
         cx.set_http_client(Arc::new(images::ImageClient::new(image_cache)));
         cx.bind_keys([KeyBinding::new("secondary-k", app::OpenSearch, None)]);
@@ -119,6 +125,7 @@ fn quit_with_the_window(cx: &mut App) {
         let dir = cx.global::<backend::Backend>().downloads_dir.clone();
         async move {
             let _ = std::fs::remove_dir_all(dir);
+            runtime::run(analytics::flush()).await;
         }
     })
     .detach();

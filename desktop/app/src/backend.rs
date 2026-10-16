@@ -60,6 +60,7 @@ impl Backend {
                 .map_err(|error| format!("{error:#}"));
         if let Err(error) = &streamer {
             tracing::error!("[backend] could not start streaming: {error}");
+            crate::analytics::report_later("streaming_start", error);
         }
         Backend {
             streamer,

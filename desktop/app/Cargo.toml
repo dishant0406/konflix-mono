@@ -21,3 +21,4 @@ tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 libmpv2-sys = "4"
 serde = { workspace = true, features = ["derive"] }
+posthog-rs = "0.27"

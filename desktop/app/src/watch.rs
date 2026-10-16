@@ -315,6 +315,7 @@ impl WatchPage {
                 stream,
             } => (url, release, stream),
             Resolution::Unavailable { reason } => {
+                crate::analytics::capture("playback_failed", serde_json::json!({ "stage": "no_source" }));
                 self.phase = Phase::Unavailable(reason);
                 cx.notify();
                 return;
@@ -335,8 +336,13 @@ impl WatchPage {
                 self.release = Some(release);
                 self.stream = Some(stream);
                 self.phase = Phase::Playing;
+                crate::analytics::capture("playback_started", serde_json::Value::Null);
             }
-            Err(error) => self.phase = Phase::Unavailable(error),
+            Err(error) => {
+                crate::analytics::capture("playback_failed", serde_json::json!({ "stage": "player" }));
+                crate::analytics::error("player_start", &error);
+                self.phase = Phase::Unavailable(error);
+            }
         }
         cx.notify();
     }

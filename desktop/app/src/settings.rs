@@ -123,11 +123,27 @@ impl SettingsPage {
         self.commit(cx);
     }
 
+    fn toggle_analytics(&mut self, cx: &mut Context<Self>) {
+        if self.config.analytics {
+            self.config.analytics = false;
+        } else {
+            crate::analytics::enable(&mut self.config);
+        }
+        self.commit(cx);
+        let on = self.config.analytics;
+        crate::analytics::apply(&self.config);
+        if on {
+            crate::analytics::capture("analytics_enabled", serde_json::Value::Null);
+        }
+    }
+
     fn restore(&mut self, cx: &mut Context<Self>) {
         self.config = Config {
             cache_dir: self.config.cache_dir.clone(),
             // Restoring the limits leaves the update choice as it was.
             check_for_updates: self.config.check_for_updates,
+            analytics: self.config.analytics,
+            analytics_id: self.config.analytics_id.clone(),
             ..Config::default()
         };
         self.commit(cx);
@@ -406,6 +422,39 @@ impl Render for SettingsPage {
                                 cx.listener(|page, _, _, cx| page.toggle_updates(cx)),
                             )),
                     )
+                    .when(crate::analytics::available(), |column| {
+                        column.child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .justify_between()
+                                .gap_8()
+                                .child(
+                                    div()
+                                        .flex()
+                                        .flex_col()
+                                        .gap_1()
+                                        .child(
+                                            div()
+                                                .text_size(px(13.))
+                                                .font_weight(FontWeight::MEDIUM)
+                                                .text_color(color(TEXT_DIM))
+                                                .child("Share usage and crash reports"),
+                                        )
+                                        .child(
+                                            div()
+                                                .text_size(px(13.))
+                                                .text_color(color(TEXT_FAINT))
+                                                .child("Off by default. Sends when the app opens, whether playback worked, and errors, under a random id and without your address. Never what you watch or search for."),
+                                        ),
+                                )
+                                .child(toggle(
+                                    "analytics",
+                                    self.config.analytics,
+                                    cx.listener(|page, _, _, cx| page.toggle_analytics(cx)),
+                                )),
+                        )
+                    })
                     .child(
                         div()
                             .flex()

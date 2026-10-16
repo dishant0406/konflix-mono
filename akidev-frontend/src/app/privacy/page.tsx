@@ -47,8 +47,14 @@ export default function PrivacyPage() {
           The app makes the requests that its features need, and only those: it asks the catalogue providers (AniList,
           Cinemeta, TVMaze, YTS) for titles and artwork, searches public torrent indexers and subtitle providers
           (OpenSubtitles through its public addon) for what you chose to watch, and checks{" "}
-          <code>sources.akidev.live</code> for updated source definitions. Apart from that it sends no usage
-          statistics or crash reports unless you turn that on in Settings.
+          <code>sources.akidev.live</code> for updated source definitions. Apart from that it sends nothing about you.
+        </p>
+        <p>
+          Settings has one switch, off by default, for sharing usage and crash reports with PostHog (US cloud). When it
+          is on, the app reports that it opened, whether playback started or failed, errors it handled, and crashes
+          (the error message and where in the code it happened), each with the app version and your operating system.
+          An install is a random identifier made when you turn the switch on; your address is not kept, and what you
+          watch or search for is never sent. Turning the switch off stops everything at once.
         </p>
         <p>
           Playing a title joins a BitTorrent swarm. As with any BitTorrent client, the other peers in that swarm can see
