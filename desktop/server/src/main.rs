@@ -11,7 +11,6 @@ mod hls;
 mod img;
 mod limits;
 mod media;
-mod music;
 mod origin;
 mod play;
 mod sources;
@@ -126,8 +125,6 @@ async fn run() -> anyhow::Result<()> {
         hls.clone(),
         registry.clone(),
     );
-    let music = Arc::new(music::Music::new());
-    music.keep_updated();
     let state = api::AppState {
         settings: settings.clone(),
         player,
@@ -138,7 +135,6 @@ async fn run() -> anyhow::Result<()> {
         engine: Some(engine.clone()),
         images: images.clone(),
         subs: subs.clone(),
-        music,
         ffmpeg,
     };
 

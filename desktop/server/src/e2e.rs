@@ -70,7 +70,6 @@ async fn rig(name: &str, tweak: impl FnOnce(&mut Settings)) -> Option<Rig> {
         engine: None,
         subs: Arc::new(crate::subs::Subs::new(dir.join("subs"))),
         images: crate::img::Images::for_tests(dir.join("img"), vec!["127.0.0.1".into()]),
-        music: Arc::new(crate::music::Music::new()),
         ffmpeg: true,
     };
     Some(Rig {

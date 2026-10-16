@@ -6,7 +6,6 @@ license.workspace = true
 
 [dependencies]
 akidev-core = { path = "../core" }
-ytmapi-rs = { path = "../vendor/ytmapi-rs", default-features = false, features = ["default-tls", "simplified-queries"] }
 anyhow.workspace = true
 futures.workspace = true
 regex.workspace = true
