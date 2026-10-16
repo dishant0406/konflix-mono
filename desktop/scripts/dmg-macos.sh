@@ -19,7 +19,7 @@ DMG="target/release/bundle/Akidev-$VERSION-$(uname -m).dmg"
 # needs no Finder and so also works on CI. It is installed into a private virtualenv.
 VENV=target/.dmgbuild-venv
 if [ ! -x "$VENV/bin/dmgbuild" ]; then
-  python3 -m venv "$VENV"
+  python3 -m venv --clear "$VENV"
   "$VENV/bin/pip" install --quiet dmgbuild
 fi
 
