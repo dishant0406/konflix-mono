@@ -51,10 +51,9 @@ jobs:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-          CLOUDFLARE_TUNNEL_TOKEN: ${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }}
         run: |
           missing=""
-          for name in DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_KEY CLOUDFLARE_TUNNEL_TOKEN; do
+          for name in DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_KEY; do
             if [ -z "${!name}" ]; then
               missing="$missing $name"
             fi
@@ -221,7 +220,6 @@ jobs:
           STREAM_URL: ${{ vars.STREAM_URL }}
           NEXT_PUBLIC_SITE_DOMAIN: ${{ vars.NEXT_PUBLIC_SITE_DOMAIN }}
           NEXT_PUBLIC_POSTHOG_TOKEN: ${{ secrets.POSTHOG_TOKEN }}
-          CLOUDFLARE_TUNNEL_TOKEN: ${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }}
           TORBOX_API_KEY: ${{ secrets.TORBOX_API_KEY }}
           STREAM_SOURCES: ${{ vars.STREAM_SOURCES }}
           MAX_CACHE_BYTES: ${{ vars.MAX_CACHE_BYTES }}
@@ -245,11 +243,10 @@ jobs:
           STREAM_SOURCES=$STREAM_SOURCES
           MAX_CACHE_BYTES=$MAX_CACHE_BYTES
           MAX_STREAM_BYTES_PER_DAY=${MAX_STREAM_BYTES_PER_DAY:-0}
-          CLOUDFLARE_TUNNEL_TOKEN=$CLOUDFLARE_TUNNEL_TOKEN
           TORBOX_API_KEY=$TORBOX_API_KEY
           EOF
 
-          # Only the shape is reported; the file holds the tunnel token and the
+          # Only the shape is reported; the file holds the
           # debrid key and must never be echoed.
           echo "Rendered .env.deploy with $(wc -l < .env.deploy) lines."
 
@@ -290,8 +287,8 @@ jobs:
             'cd /opt/konflix && git config --global --add safe.directory /opt/konflix && bash scripts/deploy.sh'
 
       - name: Verify the public endpoints
-        # Verifies through Cloudflare rather than on the box, so this fails if DNS,
-        # the tunnel, or TLS is wrong - not just if the containers started.
+        # Verifies through Cloudflare rather than on the box, so this fails if DNS, a
+        # certificate, or Caddy is wrong - not just if the containers started.
         env:
           PUBLIC_URL: ${{ vars.PUBLIC_URL }}
           FRONTEND_URL: ${{ vars.FRONTEND_URL }}

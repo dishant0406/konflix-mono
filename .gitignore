@@ -51,8 +51,8 @@ pids
 # Deployment
 .vercel/
 .serverless/
-# Rendered on the server from GitHub secrets by scripts/deploy.sh. Holds the tunnel
-# token and the debrid key, so it must never be committed.
+# Rendered on the server from GitHub secrets by scripts/deploy.sh. Holds the
+# debrid key, so it must never be committed.
 .env.deploy
 
 # Editor and OS

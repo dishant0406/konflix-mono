@@ -37,7 +37,7 @@ Series and Films tabs over the same catalogue the desktop app shows, with the sa
 `anime.akidev.live` and `tv.akidev.live` are retired. The middleware
 (`akidev-frontend/src/middleware.ts`) redirects them with a 308 to `/anime` and `/films` on
 the bare zone, and keeps the path for anything deeper, so old title and watch links work.
-They still have to reach the container, which is why the tunnel keeps their hostnames.
+They still have to reach the container, so their DNS records stay and Caddy serves them.
 
 ## Content types
 
@@ -271,41 +271,38 @@ npm run dev      # the site on :3000 (start the server first)
 
 ## Deployment
 
-One server runs the site and the API. Four containers, defined in `docker-compose.yml`:
+One server runs the site and the API. Three containers, defined in `docker-compose.yml`:
 
 | Container | Role |
 | --- | --- |
-| `cloudflared` | How the site and the API reach the internet, over an outbound tunnel |
-| `caddy` | The video host, `stream.akidev.live`: ports 80 and 443, video only |
+| `caddy` | The only public entry (ports 80 and 443): TLS, and routing by hostname |
 | `api` | The REST API and the video (`:9000`, internal only) |
 | `frontend` | Next.js, the site (`:3000`, internal only) |
 
-Four hostnames reach the same tunnel and are routed by hostname in its ingress
-config: `anime.akidev.live`, `tv.akidev.live` and `akidev.live` all go to
-`frontend`, and `api.akidev.live` to the API. The two retired hosts have to reach the
-container so it can redirect them. No reverse proxy sits in front of those, because the tunnel
-already routes by hostname, and the browser loads the API directly.
+`caddy/Caddyfile` routes by hostname: `anime.akidev.live`, `tv.akidev.live` and `akidev.live` go
+to `frontend` (the two retired hosts so it can redirect them), `api.akidev.live` goes to the API,
+and `stream.akidev.live` goes to the API's video routes only. The browser loads the API directly.
+Caddy gets and renews its own Let's Encrypt certificates, kept in the `caddy-data` volume.
+Nothing else publishes a port.
 
-The site and the API bind no public port: `cloudflared` dials out, so they need no open firewall
-hole and no certificate. Only `caddy` listens, and only for the video host.
+Cloudflare sits in front of the site and the API as a proxy: its cache (the rules in
+`scripts/cloudflare-cache.sh`) and attack protection, free. There is no tunnel. Caddy trusts the
+visitor address Cloudflare sends only from Cloudflare's own address ranges, so a caller going
+around Cloudflare straight to the server cannot pretend to be someone else. Those ranges are
+copied into the Caddyfile; refresh them from cloudflare.com/ips if Cloudflare changes them.
 
 ### The video host
 
 Video is what costs money: about 5 Mbps, so an hour of watching is about 2.25 GB, and the
 reference server's 4 TB a month is about 1,800 hours. Cloudflare's free plan is not meant for
-streaming video, and the tunnel adds a hop, so the video skips both. The API hands out video URLs
-on `stream.akidev.live` (`STREAM_URL`), a DNS-only record that points straight at this server.
-`caddy` answers there, gets its own certificate from Let's Encrypt, and passes `/s/*` to the API.
-Every other path on that host is a 404.
+streaming video, so the video skips it. The API hands out video URLs on `stream.akidev.live`
+(`STREAM_URL`), a DNS-only record that points straight at this server, and `caddy` passes `/s/*`
+to the API. Every other path on that host is a 404.
 
 What this costs: the server's address is public (it has to be, for that record), so it can be
-attacked directly. Only ports 80 and 443 are open and only the video is served. A visitor can
-also be capped to `MAX_STREAM_BYTES_PER_DAY` of web video a day; the desktop app plays on the
-user's own machine and costs the server nothing.
-
-Dropping the tunnel for the site and the API as well is possible, but not done: it needs a
-certificate for hostnames that Cloudflare proxies, either an Origin CA certificate or a DNS
-challenge, and it moves the cache and attack protection onto this one box.
+attacked directly. Only ports 80 and 443 are open, and the API is not reachable on any other
+port. A visitor can also be capped to `MAX_STREAM_BYTES_PER_DAY` of web video a day; the desktop
+app plays on the user's own machine and costs the server nothing.
 
 ### Why not Cloudflare Workers or Containers
 
@@ -313,7 +310,7 @@ The server needs raw TCP/UDP sockets for torrent peers, `ffmpeg` on `PATH`, a wr
 disk for the torrent cache, and a process that lives for the length of an episode.
 Workers and Pages provide none of those. Cloudflare Containers would technically
 work but requires the Workers Paid plan, and its request-scoped model fits a
-20-minute video stream poorly. Cloudflare's job here is DNS, TLS, and the tunnel.
+20-minute video stream poorly. Cloudflare's job here is DNS and the cache.
 
 ### One-time setup
 
@@ -348,26 +345,22 @@ work but requires the Workers Paid plan, and its request-scoped model fits a
    This installs Docker, creates a `akidev` deploy user, restricts the firewall to
    SSH, 80 and 443, and raises the open-file limit for concurrent streams. Re-running is safe.
 
-3. **Create the tunnel and DNS.**
+3. **Point DNS at the server.**
 
    ```bash
-   cf auth login                 # if not already authenticated
-   ./scripts/cloudflare.sh       # prints the tunnel token
+   cf auth login                                  # if not already authenticated
+   SERVER_IP=<server ip> ./scripts/cloudflare.sh  # every hostname, and TLS mode full
    ```
 
-   This creates the tunnel, sets its ingress rules, points every hostname at it with
-   proxied CNAMEs, and sets TLS mode to `full`.
+   The site and the API are proxied, `stream.` is not. A hostname answers with Cloudflare's 525
+   error for about two minutes until Caddy has its certificate, so do this before the site is
+   announced. Caddy asks for the certificate once the record points at the server (port 80 must
+   be open). When moving a live hostname, use `ONLY=<hostname>` and wait for it to answer before
+   the next.
 
-   **The video host** comes last, once ports 80 and 443 are open and the stack is deployed with
-   them. Deploy first (so `caddy` is listening), then:
-
-   ```bash
-   STREAM_IP=SERVER_IP ./scripts/cloudflare.sh   # creates stream.akidev.live, DNS only
-   curl -sI https://stream.akidev.live/s/x       # a 400 means the certificate and the route work
-   ```
-
-   Then set the `STREAM_URL` repository variable to `https://stream.akidev.live` and deploy again.
-   Until it is set the video keeps going through the tunnel, so none of this can break playback.
+   Then set the `STREAM_URL` repository variable to `https://stream.akidev.live`, and deploy.
+   `curl -sI https://stream.akidev.live/s/x` answering 400 means the certificate and the route work.
+   Until `STREAM_URL` is set the video is served from the API's own host, through Cloudflare.
 
 4. **Create an SSH key for deploys** and authorise it on the server:
 
@@ -387,7 +380,6 @@ work but requires the Workers Paid plan, and its request-scoped model fits a
    | Secret | `DEPLOY_USER` | `akidev` |
    | Secret | `DEPLOY_SSH_KEY` | contents of `~/.ssh/konflix_deploy` |
    | Secret | `DEPLOY_PORT` | `22` (optional) |
-   | Secret | `CLOUDFLARE_TUNNEL_TOKEN` | printed by `scripts/cloudflare.sh` |
    | Secret | `TORBOX_API_KEY` | from torbox.app (optional) |
    | Variable | `PUBLIC_URL` | `https://api.akidev.live` |
    | Variable | `NEXT_PUBLIC_API_URL` | `https://api.akidev.live` |
@@ -425,7 +417,7 @@ The binary is built for x86-64, which is what the reference server is; `scripts/
 to run on any other architecture with a message saying so.
 
 The verification goes through Cloudflare, and through the video host once `STREAM_URL` is set, so a
-broken tunnel, DNS record or certificate fails the deploy rather than passing silently. It checks the health endpoint, the site and the two redirects, the catalogue and
+broken DNS record, certificate or Caddy fails the deploy rather than passing silently. It checks the health endpoint, the site and the two redirects, the catalogue and
 title routes, and then finds real sources: an anime episode (and fetches its first bytes), a series
 episode out of a season pack, a title only the id-searched indexer can find, and a later season
 that must *not* resolve to the wrong one.

@@ -45,7 +45,6 @@ require_env() {
 }
 
 require_env PUBLIC_URL
-require_env CLOUDFLARE_TUNNEL_TOKEN
 # Without this the build bakes in the localhost fallback, and the site then loads but
 # every request fails - a silent break that is hard to trace back to a missing variable.
 require_env NEXT_PUBLIC_API_URL

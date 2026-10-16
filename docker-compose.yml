@@ -1,17 +1,15 @@
-# Akidev production stack: one server, four containers.
+# Akidev production stack: one server, three containers.
 #
-#   cloudflared    how the site and the API reach the internet, over an outbound tunnel, so
-#                  neither needs an open port or a certificate on this box.
-#   caddy          serves the video, from stream.<zone>, straight from this server (ports 80 and
-#                  443) so the video does not pass through Cloudflare. Nothing else comes here.
+#   caddy          the only thing that publishes ports (80 and 443). It terminates TLS with its
+#                  own Let's Encrypt certificates and routes by hostname (caddy/Caddyfile). The
+#                  site and the API are proxied by Cloudflare; stream.<zone> is not, so video goes
+#                  from this server to the viewer without passing through Cloudflare.
 #   api            the REST API and the video delivery, one Rust binary built on the same
 #                  library as the desktop app (port 9000, internal only).
 #   frontend       every site (port 3000, internal only).
 #
-# Four hostnames reach the same tunnel and are routed by hostname in the tunnel's
-# ingress config (scripts/cloudflare.sh), which is why no reverse proxy is needed
-# for them. The site talks to the API directly on api.akidev.live. Video URLs name
-# stream.akidev.live when STREAM_URL is set, and that one goes to caddy.
+# The site talks to the API directly on api.akidev.live. Video URLs name stream.akidev.live
+# when STREAM_URL is set.
 #
 # One container serves all of them. The bare zone is the site, with Anime, Series and Films
 # tabs. anime. and tv. are retired: the middleware (src/middleware.ts) redirects them to the
@@ -27,25 +25,6 @@
 name: konflix
 
 services:
-  cloudflared:
-    image: cloudflare/cloudflared:latest
-    restart: unless-stopped
-    environment:
-      # Passed as an environment variable rather than a `--token` argument, so the
-      # secret is not visible in the host process list.
-      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
-    command: tunnel --no-autoupdate run
-    depends_on:
-      - api
-      - frontend
-    logging: &logging
-      # Bounded, because the disk is a fixed size and a chatty container would
-      # otherwise fill it. The default json-file driver has no limit.
-      driver: json-file
-      options:
-        max-size: 10m
-        max-file: "3"
-
   caddy:
     image: caddy:2.11-alpine
     restart: unless-stopped
@@ -72,7 +51,13 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
-    logging: *logging
+    logging: &logging
+      # Bounded, because the disk is a fixed size and a chatty container would
+      # otherwise fill it. The default json-file driver has no limit.
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
 
   api:
     image: ${API_IMAGE}

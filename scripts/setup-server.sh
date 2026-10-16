@@ -17,8 +17,7 @@
 # Or, to install a deploy key in the same step:
 #   ssh ubuntu@SERVER "DEPLOY_PUBLIC_KEY='$(cat ~/.ssh/konflix_deploy.pub)' sudo -E bash -s" < scripts/setup-server.sh
 #
-# Afterwards only SSH, and ports 80 and 443 for the video host, are reachable. The site and the
-# API are published through an outbound Cloudflare tunnel, so they need no inbound port.
+# Afterwards only SSH and the web ports (80 and 443, which Caddy serves) are reachable.
 
 set -euo pipefail
 
@@ -120,8 +119,8 @@ CONF
 systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || true
 
 echo "==> Restricting the firewall"
-# SSH, and the two ports caddy serves the video on: 80 for the certificate check and the redirect
-# to https, 443 for the video. cloudflared dials out, so the site and the API need no port.
+# SSH, and the two ports Caddy serves on: 80 for the certificate check and the redirect to https,
+# 443 for everything else.
 ufw --force reset >/dev/null
 ufw default deny incoming >/dev/null
 ufw default allow outgoing >/dev/null
