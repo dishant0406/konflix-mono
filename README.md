@@ -324,14 +324,14 @@ work but requires the Workers Paid plan, and its request-scoped model fits a
    ```bash
    aws lightsail create-key-pair --key-pair-name akidev-lightsail --region us-east-1
    aws lightsail create-instances --region us-east-1 \
-     --instance-names akidev --availability-zone us-east-1a \
+     --instance-names konflix --availability-zone us-east-1a \
      --blueprint-id ubuntu_24_04 --bundle-id medium_3_0 \
      --key-pair-name akidev-lightsail
-   aws lightsail allocate-static-ip --static-ip-name akidev-ip --region us-east-1
-   aws lightsail attach-static-ip --static-ip-name akidev-ip \
-     --instance-name akidev --region us-east-1
+   aws lightsail allocate-static-ip --static-ip-name konflix-ip --region us-east-1
+   aws lightsail attach-static-ip --static-ip-name konflix-ip \
+     --instance-name konflix --region us-east-1
    # Open SSH, and 80 and 443 for the video host.
-   aws lightsail put-instance-public-ports --region us-east-1 --instance-name akidev \
+   aws lightsail put-instance-public-ports --region us-east-1 --instance-name konflix \
      --port-infos '[{"fromPort":22,"toPort":22,"protocol":"tcp","cidrs":["0.0.0.0/0"]},{"fromPort":80,"toPort":80,"protocol":"tcp","cidrs":["0.0.0.0/0"]},{"fromPort":443,"toPort":443,"protocol":"tcp","cidrs":["0.0.0.0/0"]}]'
    ```
 
