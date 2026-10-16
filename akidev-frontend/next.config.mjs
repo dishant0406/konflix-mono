@@ -15,6 +15,17 @@ const nextConfig = {
   // A self-contained server bundle, so the runtime image does not need the full
   // workspace tree.
   output: "standalone",
+  // PostHog's own paths end in a slash, which Next would otherwise strip and redirect.
+  skipTrailingSlashRedirect: true,
+  // Analytics goes through this domain (see src/instrumentation-client.ts). The static files are
+  // a different PostHog host from the events.
+  async rewrites() {
+    return [
+      { source: "/ingest/static/:path*", destination: "https://us-assets.i.posthog.com/static/:path*" },
+      { source: "/ingest/array/:path*", destination: "https://us-assets.i.posthog.com/array/:path*" },
+      { source: "/ingest/:path*", destination: "https://us.i.posthog.com/:path*" },
+    ];
+  },
   async headers() {
     return [
       { source: "/", headers: pageCache },

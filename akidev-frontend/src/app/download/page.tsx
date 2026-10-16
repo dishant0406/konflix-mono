@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-import { Button } from "@/components/button";
+import { DownloadButton } from "@/components/download-button";
 import { Page, Section } from "@/components/prose";
 import { REPO_URL } from "@/constants/site";
 import { latestDownloads, type Download } from "@/lib/desktop-release";
@@ -68,7 +68,7 @@ export default async function DownloadPage() {
 
       <Section title="Privacy">
         <p>
-          No accounts, no analytics. What the app does send over the network is in the{" "}
+          No accounts. The site counts visits and downloads without knowing who you are, and the app sends nothing unless you turn that on. What the app does send over the network is in the{" "}
           <Link href="/privacy" className={link}>
             privacy policy
           </Link>
@@ -107,9 +107,14 @@ function Platform({
         )}
       </div>
       <div className="flex shrink-0 flex-col gap-1.5 sm:items-end">
-        <Button href={download?.url ?? RELEASES} look={primary ? "primary" : "secondary"}>
+        <DownloadButton
+          platform={name.toLowerCase()}
+          version={download?.version ?? null}
+          href={download?.url ?? RELEASES}
+          look={primary ? "primary" : "secondary"}
+        >
           {label}
-        </Button>
+        </DownloadButton>
         {download && <span className="text-xs text-faint">Version {download.version}</span>}
       </div>
     </section>

@@ -36,6 +36,10 @@ ARG NEXT_PUBLIC_SITE_DOMAIN=akidev.live
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_SITE_DOMAIN=$NEXT_PUBLIC_SITE_DOMAIN
 
+# The PostHog project token. Public by design, and optional: without it nothing is reported.
+ARG NEXT_PUBLIC_POSTHOG_TOKEN=
+ENV NEXT_PUBLIC_POSTHOG_TOKEN=$NEXT_PUBLIC_POSTHOG_TOKEN
+
 # An empty value produces a build that succeeds and a browser bundle that calls the
 # viewer's own localhost, which looks like a broken API rather than a missing build
 # argument. Failing here makes the mistake visible where it is made.

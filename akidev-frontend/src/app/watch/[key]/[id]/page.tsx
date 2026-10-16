@@ -10,6 +10,7 @@ import { SidePanel } from "@/components/side-panel";
 import Sources from "@/components/sources";
 import { ErrorState, Spinner } from "@/components/states";
 import { ROUTES, titlePath, watchPath } from "@/constants/routes";
+import { track } from "@/lib/analytics";
 import { episodeCount, neighbour, titleLine } from "@/lib/episodes";
 import { parseMediaId } from "@/lib/media-id";
 import { playErrorMessage } from "@/lib/play";
@@ -171,7 +172,11 @@ export default function WatchPage() {
         title={titleLine(data, id)}
         startAt={resumeFrom}
         onBack={leave}
-        onError={(message) => id && setPlaybackError({ id, message })}
+        onError={(message) => {
+          track("playback_failed", { title_key: key ?? null, stream_type: link.stream_type, message });
+          if (id) setPlaybackError({ id, message });
+        }}
+        onStarted={() => track("playback_started", { title_key: key ?? null, stream_type: link.stream_type })}
         onProgress={onProgress}
         onNext={next ? onNext : undefined}
         sources={({ position, close }) => (

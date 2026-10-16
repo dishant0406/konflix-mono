@@ -87,11 +87,14 @@ services:
         # of them.
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
         NEXT_PUBLIC_SITE_DOMAIN: ${NEXT_PUBLIC_SITE_DOMAIN:-akidev.live}
+        NEXT_PUBLIC_POSTHOG_TOKEN: ${NEXT_PUBLIC_POSTHOG_TOKEN:-}
     restart: unless-stopped
     environment:
       NODE_ENV: production
       PORT: 3000
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+      # The server reports its own errors to PostHog with the same token.
+      NEXT_PUBLIC_POSTHOG_TOKEN: ${NEXT_PUBLIC_POSTHOG_TOKEN:-}
       # Pages are rendered with their data in them, and the server that renders them asks the API
       # on the internal network rather than across the internet at its public address.
       API_INTERNAL_URL: http://api:9000

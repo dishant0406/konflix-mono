@@ -74,6 +74,7 @@ export API_IMAGE="konflix-api:$IMAGE_TAG"
 # One image serves every hostname, so there is no per-site build and no second tag.
 export FRONTEND_IMAGE="konflix-frontend:$IMAGE_TAG"
 export NEXT_PUBLIC_API_URL="$(read_env NEXT_PUBLIC_API_URL)"
+export NEXT_PUBLIC_POSTHOG_TOKEN="$(read_env NEXT_PUBLIC_POSTHOG_TOKEN)"
 
 compose() {
   docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"

@@ -58,6 +58,8 @@ type Props = {
   startAt: number | null;
   onBack: () => void;
   onError: (message: string) => void;
+  /** Called once, the first time the picture is actually playing. */
+  onStarted?: () => void;
   /** Reported every few seconds and when playback pauses, so the home page can offer to carry on. */
   onProgress: (position: number, duration: number) => void;
   /** Absent for a film or the last episode. */
@@ -90,6 +92,7 @@ export default function Player({
   startAt,
   onBack,
   onError,
+  onStarted,
   onProgress,
   onNext,
   episodes,
@@ -122,9 +125,10 @@ export default function Player({
 
   // Callbacks are held in refs so a caller passing inline functions cannot tear down and
   // rebuild the stream on every render.
-  const callbacks = useRef({ onError, onProgress, onNext });
+  const callbacks = useRef({ onError, onStarted, onProgress, onNext });
+  const started = useRef(false);
   useEffect(() => {
-    callbacks.current = { onError, onProgress, onNext };
+    callbacks.current = { onError, onStarted, onProgress, onNext };
   });
 
   useEffect(() => {
@@ -410,7 +414,13 @@ export default function Player({
           if (element.buffered.length > 0) setBuffered(element.buffered.end(element.buffered.length - 1));
         }}
         onWaiting={() => setReady(false)}
-        onPlaying={() => setReady(true)}
+        onPlaying={() => {
+          setReady(true);
+          if (!started.current) {
+            started.current = true;
+            callbacks.current.onStarted?.();
+          }
+        }}
         onEnded={() => callbacks.current.onNext?.()}
         onError={(event) => {
           // The common real failure is a codec the browser lacks; "could not play" with no

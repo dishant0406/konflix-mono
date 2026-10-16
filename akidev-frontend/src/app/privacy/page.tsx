@@ -14,12 +14,11 @@ export default function PrivacyPage() {
   return (
     <Page
       title="Privacy."
-      lead="No accounts, no analytics, nothing sold or shared. Streaming still needs some of your connection, and this is all of it."
+      lead="No accounts, nothing sold or shared. The site counts visits without knowing who you are, the app sends nothing unless you turn it on, and streaming still needs some of your connection. This is all of it."
     >
       <Section title="What we collect">
         <p>
-          Nothing that identifies you. There is no sign-up, no tracking script, no advertising and no cookie set by
-          Akidev. Where you stopped in a title, your subtitle language and your settings are kept on your own device
+          Nothing that identifies you. There is no sign-up, no advertising and no cookie set by Akidev. Where you stopped in a title, your subtitle language and your settings are kept on your own device
           (in the browser, or in the desktop app&apos;s folder) and are never sent to us.
         </p>
       </Section>
@@ -32,13 +31,24 @@ export default function PrivacyPage() {
         </p>
       </Section>
 
+      <Section title="Analytics and error reports">
+        <p>
+          To learn what is used and what breaks, the site uses PostHog (US cloud). It records the pages you open, when
+          you press play on a title and whether playback worked, which download you clicked, and the errors the site
+          runs into. Each visitor is a random identifier kept in your browser&apos;s local storage; it is not linked to a
+          name, an email or an account, there are no session recordings, and nothing is sold or used for advertising.
+          Events go through <code>akidev.live</code> to PostHog, so your browser contacts only Akidev. Clear the
+          site&apos;s data to reset the identifier, or turn on Do Not Track in your browser, which the site honours.
+        </p>
+      </Section>
+
       <Section title="The desktop app">
         <p>
           The app makes the requests that its features need, and only those: it asks the catalogue providers (AniList,
           Cinemeta, TVMaze, YTS) for titles and artwork, searches public torrent indexers and subtitle providers
           (OpenSubtitles through its public addon) for what you chose to watch, and checks{" "}
-          <code>sources.akidev.live</code> for updated source definitions. It sends no usage statistics or crash
-          reports.
+          <code>sources.akidev.live</code> for updated source definitions. Apart from that it sends no usage
+          statistics or crash reports unless you turn that on in Settings.
         </p>
         <p>
           Playing a title joins a BitTorrent swarm. As with any BitTorrent client, the other peers in that swarm can see
