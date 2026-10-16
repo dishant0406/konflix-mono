@@ -1,16 +1,17 @@
-# Akidev production stack: one server, three containers.
+# Akidev production stack: one server, four containers.
 #
-#   cloudflared    the only thing exposed to the internet, over an outbound tunnel.
-#                  Nothing binds a public port, so there is no open firewall hole and
-#                  no certificate to renew on this box.
+#   cloudflared    how the site and the API reach the internet, over an outbound tunnel, so
+#                  neither needs an open port or a certificate on this box.
+#   caddy          serves the video, from stream.<zone>, straight from this server (ports 80 and
+#                  443) so the video does not pass through Cloudflare. Nothing else comes here.
 #   api            the REST API and the video delivery, one Rust binary built on the same
 #                  library as the desktop app (port 9000, internal only).
 #   frontend       every site (port 3000, internal only).
 #
 # Four hostnames reach the same tunnel and are routed by hostname in the tunnel's
 # ingress config (scripts/cloudflare.sh), which is why no reverse proxy is needed
-# here. Each site talks to the API directly on api.akidev.live, so no proxy sits in
-# the video byte path.
+# for them. The site talks to the API directly on api.akidev.live. Video URLs name
+# stream.akidev.live when STREAM_URL is set, and that one goes to caddy.
 #
 # One container serves all of them. The bare zone is the site, with Anime, Series and Films
 # tabs. anime. and tv. are retired: the middleware (src/middleware.ts) redirects them to the
@@ -45,6 +46,33 @@ services:
         max-size: 10m
         max-file: "3"
 
+  caddy:
+    image: caddy:2.11-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      SITE_DOMAIN: ${NEXT_PUBLIC_SITE_DOMAIN:-akidev.live}
+    volumes:
+      # The folder, not the file: a deploy replaces the file, and a running container keeps
+      # seeing the old one if only the file is mounted.
+      - ./caddy:/etc/caddy:ro
+      # The certificate and its account key. They must survive a redeploy: Let's Encrypt limits
+      # how many certificates a hostname may be issued per week.
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - api
+    healthcheck:
+      # Caddy's admin API answers on this port inside the container once its configuration is loaded.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging: *logging
+
   api:
     image: ${API_IMAGE}
     build:
@@ -54,8 +82,12 @@ services:
     restart: unless-stopped
     environment:
       PORT: 9000
-      # Stream URLs are built from this, so it must be the public API origin.
+      # The public API origin.
       PUBLIC_URL: ${PUBLIC_URL}
+      # The origin of the video URLs it hands out. Empty means the same as PUBLIC_URL.
+      STREAM_URL: ${STREAM_URL:-}
+      # Video one visitor may be sent in a day, in bytes. 0, the default, is no limit.
+      MAX_STREAM_BYTES_PER_DAY: ${MAX_STREAM_BYTES_PER_DAY:-0}
       # The browser calls the API from the site, so that origin must be allowed.
       CORS_ORIGINS: https://${NEXT_PUBLIC_SITE_DOMAIN:-akidev.live}
       CACHE_DIR: /data
@@ -72,7 +104,7 @@ services:
       # container runs as.
       - torrent-cache:/data
     # The health check is the image's own (`akidev-server --check`), run inside the container,
-    # which is the only place these ports are reachable from. Nothing is published to the host.
+    # which is the only place this port is reachable from. The api publishes nothing to the host.
     logging: *logging
 
   frontend:
@@ -110,3 +142,5 @@ services:
 
 volumes:
   torrent-cache:
+  caddy-data:
+  caddy-config:

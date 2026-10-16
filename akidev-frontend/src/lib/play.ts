@@ -15,6 +15,10 @@ export function canPlayHevc(): boolean {
   return hevc;
 }
 
+/** What to tell a viewer the server has stopped sending video to for the day (its answer is 429). */
+export const DAILY_LIMIT_MESSAGE =
+  "That is today's limit for watching on the web. It resets tomorrow, and the desktop app has no limit: akidev.live/download";
+
 /** What to tell the viewer when the play request itself failed. */
 export function playErrorMessage(error: unknown): string {
   if (error instanceof ApiError && error.status === 503) return "The server is busy, try again in a moment.";

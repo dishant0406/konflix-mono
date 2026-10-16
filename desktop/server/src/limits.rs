@@ -86,15 +86,19 @@ impl Usage {
     fn add_on(&self, client: &str, bytes: u64, day: u64) {
         self.total.fetch_add(bytes, Ordering::Relaxed);
         let mut today = self.today.lock().unwrap();
-        // Clients from earlier days are forgotten, so the map does not grow with every address seen.
+        if let Some(entry) = today.get_mut(client) {
+            if entry.0 != day {
+                *entry = (day, 0);
+            }
+            entry.1 += bytes;
+            return;
+        }
+        // A new client. Those from earlier days are forgotten now, so the map does not grow with
+        // every address seen, and the sweep happens only when something is added, not per chunk.
         if today.len() > 10_000 {
             today.retain(|_, (counted_on, _)| *counted_on == day);
         }
-        let entry = today.entry(client.to_string()).or_insert((day, 0));
-        if entry.0 != day {
-            *entry = (day, 0);
-        }
-        entry.1 += bytes;
+        today.insert(client.to_string(), (day, bytes));
     }
 
     fn sent_on(&self, client: &str, day: u64) -> u64 {
@@ -112,6 +116,18 @@ fn day() -> u64 {
         .map_or(0, |since| since.as_secs() / 86_400)
 }
 
+/// An address as a visitor's identity. An IPv6 visitor holds a whole /64, so every address in it is
+/// the same visitor; counting each separately would let one visitor dodge the allowance.
+fn whole_network(address: IpAddr) -> String {
+    match address {
+        IpAddr::V4(v4) => v4.to_string(),
+        IpAddr::V6(v6) => {
+            let [a, b, c, d, ..] = v6.segments();
+            format!("{a:x}:{b:x}:{c:x}:{d:x}::/64")
+        }
+    }
+}
+
 /// Who is asking. The proxy in front of this server (Caddy) puts the visitor's address in
 /// `CF-Connecting-IP` and `X-Forwarded-For`, replacing whatever the client sent; with neither it is
 /// the connection itself.
@@ -122,8 +138,8 @@ pub fn client_of(headers: &HeaderMap, peer: Option<SocketAddr>) -> String {
     forwarded
         .map(str::trim)
         .and_then(|address| address.parse::<IpAddr>().ok())
-        .map(|address| address.to_string())
-        .or_else(|| peer.map(|peer| peer.ip().to_string()))
+        .map(whole_network)
+        .or_else(|| peer.map(|peer| whole_network(peer.ip())))
         .unwrap_or_else(|| "unknown".into())
 }
 
@@ -187,5 +203,30 @@ mod tests {
         let peer: SocketAddr = "192.0.2.7:5000".parse().unwrap();
         assert_eq!(client_of(&headers, Some(peer)), "192.0.2.7");
         assert_eq!(client_of(&HeaderMap::new(), None), "unknown");
+    }
+
+    #[test]
+    fn an_ipv6_visitor_is_one_client_across_its_whole_network() {
+        let mut one = HeaderMap::new();
+        one.insert("cf-connecting-ip", "2001:db8:1:2::1".parse().unwrap());
+        let mut other = HeaderMap::new();
+        other.insert(
+            "cf-connecting-ip",
+            "2001:db8:1:2:aaaa:bbbb:cccc:dddd".parse().unwrap(),
+        );
+        let mut elsewhere = HeaderMap::new();
+        elsewhere.insert("cf-connecting-ip", "2001:db8:1:3::1".parse().unwrap());
+        assert_eq!(client_of(&one, None), client_of(&other, None));
+        assert_ne!(client_of(&one, None), client_of(&elsewhere, None));
+    }
+
+    #[test]
+    fn clients_from_earlier_days_are_forgotten_when_a_new_one_arrives_past_the_cap() {
+        let usage = Usage::default();
+        for n in 0..10_001 {
+            usage.add_on(&format!("old-{n}"), 1, 1);
+        }
+        usage.add_on("new", 1, 2);
+        assert_eq!(usage.today.lock().unwrap().len(), 1);
     }
 }

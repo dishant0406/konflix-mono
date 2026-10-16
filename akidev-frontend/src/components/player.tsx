@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
+import { DAILY_LIMIT_MESSAGE } from "@/lib/play";
 import { optionForChoice, readChoice, writeChoice } from "@/lib/subtitles";
 import { cn, formatSeconds } from "@/lib/utils";
 import type { SubtitleOption } from "@/types/media";
@@ -187,7 +188,11 @@ export default function Player({
         if (!data.fatal) return;
         // A manifest that will not load cannot be fixed by loading it again: the usual cause
         // is an expired session, which answers 404 every time.
-        if (data.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR) {
+        if (data.response?.code === 429) {
+          // Loading again would only be refused again, until tomorrow.
+          hls.destroy();
+          callbacks.current.onError(DAILY_LIMIT_MESSAGE);
+        } else if (data.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR) {
           hls.destroy();
           callbacks.current.onError("This stream has expired. Reload the episode to start it again.");
         } else if (data.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad();
@@ -426,11 +431,21 @@ export default function Player({
           // The common real failure is a codec the browser lacks; "could not play" with no
           // detail is what makes that look like a broken site.
           const code = event.currentTarget.error?.code;
-          callbacks.current.onError(
-            code === 4
-              ? "Your browser cannot play this file. The release uses a codec it does not support."
-              : "Playback failed. The stream may have expired - reload the episode to try again.",
-          );
+          if (code === 4) {
+            callbacks.current.onError("Your browser cannot play this file. The release uses a codec it does not support.");
+            return;
+          }
+          // The element does not say why a request failed, so ask: a HEAD sends no video.
+          void fetch(src, { method: "HEAD" })
+            .then((response) => response.status === 429)
+            .catch(() => false)
+            .then((limited) =>
+              callbacks.current.onError(
+                limited
+                  ? DAILY_LIMIT_MESSAGE
+                  : "Playback failed. The stream may have expired - reload the episode to try again.",
+              ),
+            );
         }}
       >
         {active && <track key={active.id} id={active.id} kind="subtitles" src={active.url} srcLang={active.lang} label={active.language} />}

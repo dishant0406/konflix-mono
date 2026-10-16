@@ -6,11 +6,16 @@
 # that the cloudflared container needs. Safe to re-run: an existing tunnel and
 # existing DNS records are updated rather than duplicated.
 #
+# With STREAM_IP set it also creates the video host, stream.<zone>, as a record that is NOT
+# proxied and points at this server, so video skips Cloudflare. Leave it unset until the server's
+# ports 80 and 443 are open; see "The video host" in README.md.
+#
 # Requires: `cf auth login` already done, and the akidev.live zone on this account.
 #
 # Usage:
 #   ./scripts/cloudflare.sh              # create/update everything, print the token
 #   ZONE=example.com ./scripts/cloudflare.sh
+#   STREAM_IP=203.0.113.7 ./scripts/cloudflare.sh   # also create stream.<zone> pointing there
 #   DRY_RUN=1 ./scripts/cloudflare.sh    # show the cf commands without running them
 
 set -euo pipefail
@@ -135,6 +140,36 @@ JSON
 )"
   fi
 done
+
+if [ -n "${STREAM_IP:-}" ]; then
+  echo "==> Pointing the video host at the server"
+  case "$STREAM_IP" in
+    *[!0-9.]*|*.*.*.*.*.*|'')
+      echo "    STREAM_IP must be an IPv4 address, got '$STREAM_IP'" >&2
+      exit 1
+      ;;
+  esac
+  STREAM_HOST="${STREAM_HOST:-stream.$ZONE}"
+  # Only an address or alias record is replaced, so a TXT or MX record on the same name is left.
+  RECORD_ID="$(
+    cf dns records list -q -z "$ZONE" | node -e "
+      let d = ''
+      process.stdin.on('data', (c) => (d += c)).on('end', () => {
+        const list = JSON.parse(d)
+        const match = list.find((r) => r.name === process.argv[1] && ['A', 'AAAA', 'CNAME'].includes(r.type))
+        process.stdout.write(match ? match.id : '')
+      })
+    " "$STREAM_HOST"
+  )"
+  BODY="{ \"type\": \"A\", \"name\": \"$STREAM_HOST\", \"content\": \"$STREAM_IP\", \"proxied\": false, \"ttl\": 300 }"
+  if [ -z "$RECORD_ID" ]; then
+    echo "    $STREAM_HOST: creating (DNS only)"
+    run cf dns records create -z "$ZONE" --body "$BODY"
+  else
+    echo "    $STREAM_HOST: updating (DNS only)"
+    run cf dns records update "$RECORD_ID" -z "$ZONE" --body "$BODY"
+  fi
+fi
 
 echo "==> Ensuring TLS mode is full"
 # The tunnel terminates TLS at the edge and speaks http to the container, so the

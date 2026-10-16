@@ -16,7 +16,7 @@ use axum::body::Body;
 use axum::extract::{ConnectInfo, Path, State};
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use futures::TryStreamExt;
+use futures::{StreamExt, TryStreamExt};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
@@ -126,13 +126,20 @@ impl Deliverer {
         (!self.usage.used_up(&client, self.daily_allowance)).then_some(client)
     }
 
-    /// A video body that adds what is actually sent to the client's count for the day.
+    /// A video body that adds what is actually sent to the client's count for the day, and ends
+    /// once the allowance is used up, so one long response cannot go on past it.
     fn counted<S>(&self, client: String, stream: S) -> Body
     where
         S: futures::Stream<Item = std::io::Result<axum::body::Bytes>> + Send + 'static,
     {
-        let usage = self.usage.clone();
-        Body::from_stream(stream.inspect_ok(move |chunk| usage.add(&client, chunk.len() as u64)))
+        let (usage, allowance) = (self.usage.clone(), self.daily_allowance);
+        let counter = usage.clone();
+        let adding = client.clone();
+        Body::from_stream(
+            stream
+                .inspect_ok(move |chunk| counter.add(&adding, chunk.len() as u64))
+                .take_while(move |_| futures::future::ready(!usage.used_up(&client, allowance))),
+        )
     }
 }
 

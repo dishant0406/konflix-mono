@@ -271,22 +271,41 @@ npm run dev      # the site on :3000 (start the server first)
 
 ## Deployment
 
-One server runs the site and the API. Three containers, defined in `docker-compose.yml`:
+One server runs the site and the API. Four containers, defined in `docker-compose.yml`:
 
 | Container | Role |
 | --- | --- |
-| `cloudflared` | The only thing reachable from the internet, over an outbound tunnel |
+| `cloudflared` | How the site and the API reach the internet, over an outbound tunnel |
+| `caddy` | The video host, `stream.akidev.live`: ports 80 and 443, video only |
 | `api` | The REST API and the video (`:9000`, internal only) |
 | `frontend` | Next.js, the site (`:3000`, internal only) |
 
 Four hostnames reach the same tunnel and are routed by hostname in its ingress
 config: `anime.akidev.live`, `tv.akidev.live` and `akidev.live` all go to
 `frontend`, and `api.akidev.live` to the API. The two retired hosts have to reach the
-container so it can redirect them. **No reverse proxy**, because the tunnel already routes by
-hostname, and the browser loads the API directly.
+container so it can redirect them. No reverse proxy sits in front of those, because the tunnel
+already routes by hostname, and the browser loads the API directly.
 
-Nothing binds a public port. `cloudflared` dials out, so there is no open firewall
-hole and no certificate to renew on the server. The torrent engine only dials out as well.
+The site and the API bind no public port: `cloudflared` dials out, so they need no open firewall
+hole and no certificate. Only `caddy` listens, and only for the video host.
+
+### The video host
+
+Video is what costs money: about 5 Mbps, so an hour of watching is about 2.25 GB, and the
+reference server's 4 TB a month is about 1,800 hours. Cloudflare's free plan is not meant for
+streaming video, and the tunnel adds a hop, so the video skips both. The API hands out video URLs
+on `stream.akidev.live` (`STREAM_URL`), a DNS-only record that points straight at this server.
+`caddy` answers there, gets its own certificate from Let's Encrypt, and passes `/s/*` to the API.
+Every other path on that host is a 404.
+
+What this costs: the server's address is public (it has to be, for that record), so it can be
+attacked directly. Only ports 80 and 443 are open and only the video is served. A visitor can
+also be capped to `MAX_STREAM_BYTES_PER_DAY` of web video a day; the desktop app plays on the
+user's own machine and costs the server nothing.
+
+Dropping the tunnel for the site and the API as well is possible, but not done: it needs a
+certificate for hostnames that Cloudflare proxies, either an Origin CA certificate or a DNS
+challenge, and it moves the cache and attack protection onto this one box.
 
 ### Why not Cloudflare Workers or Containers
 
@@ -311,9 +330,9 @@ work but requires the Workers Paid plan, and its request-scoped model fits a
    aws lightsail allocate-static-ip --static-ip-name akidev-ip --region us-east-1
    aws lightsail attach-static-ip --static-ip-name akidev-ip \
      --instance-name akidev --region us-east-1
-   # Open SSH only. Nothing else is ever published.
+   # Open SSH, and 80 and 443 for the video host.
    aws lightsail put-instance-public-ports --region us-east-1 --instance-name akidev \
-     --port-infos '[{"fromPort":22,"toPort":22,"protocol":"tcp","cidrs":["0.0.0.0/0"]}]'
+     --port-infos '[{"fromPort":22,"toPort":22,"protocol":"tcp","cidrs":["0.0.0.0/0"]},{"fromPort":80,"toPort":80,"protocol":"tcp","cidrs":["0.0.0.0/0"]},{"fromPort":443,"toPort":443,"protocol":"tcp","cidrs":["0.0.0.0/0"]}]'
    ```
 
    Ubuntu 24.04 or Debian 12. **Attach a static IP** — without one, a stop/start
@@ -327,7 +346,7 @@ work but requires the Workers Paid plan, and its request-scoped model fits a
    ```
 
    This installs Docker, creates a `akidev` deploy user, restricts the firewall to
-   SSH, and raises the open-file limit for concurrent streams. Re-running is safe.
+   SSH, 80 and 443, and raises the open-file limit for concurrent streams. Re-running is safe.
 
 3. **Create the tunnel and DNS.**
 
@@ -338,6 +357,17 @@ work but requires the Workers Paid plan, and its request-scoped model fits a
 
    This creates the tunnel, sets its ingress rules, points every hostname at it with
    proxied CNAMEs, and sets TLS mode to `full`.
+
+   **The video host** comes last, once ports 80 and 443 are open and the stack is deployed with
+   them. Deploy first (so `caddy` is listening), then:
+
+   ```bash
+   STREAM_IP=SERVER_IP ./scripts/cloudflare.sh   # creates stream.akidev.live, DNS only
+   curl -sI https://stream.akidev.live/s/x       # a 400 means the certificate and the route work
+   ```
+
+   Then set the `STREAM_URL` repository variable to `https://stream.akidev.live` and deploy again.
+   Until it is set the video keeps going through the tunnel, so none of this can break playback.
 
 4. **Create an SSH key for deploys** and authorise it on the server:
 
@@ -394,8 +424,8 @@ failed build leaves the previous revision running.
 The binary is built for x86-64, which is what the reference server is; `scripts/deploy.sh` refuses
 to run on any other architecture with a message saying so.
 
-The verification goes through Cloudflare, so a broken tunnel or DNS fails the deploy rather than
-passing silently. It checks the health endpoint, the site and the two redirects, the catalogue and
+The verification goes through Cloudflare, and through the video host once `STREAM_URL` is set, so a
+broken tunnel, DNS record or certificate fails the deploy rather than passing silently. It checks the health endpoint, the site and the two redirects, the catalogue and
 title routes, and then finds real sources: an anime episode (and fetches its first bytes), a series
 episode out of a season pack, a title only the id-searched indexer can find, and a later season
 that must *not* resolve to the wrong one.
@@ -408,7 +438,7 @@ docker compose ps                      # what is running
 docker compose logs -f api             # follow the API
 docker compose restart api             # restart one service
 
-# Nothing is published to the host, so /health is read from the frontend container, which
+# The api port is not published to the host, so /health is read from the frontend container, which
 # sits on the same network (the api image has no shell tools beyond its own binary).
 docker compose exec frontend node -e \
   "fetch('http://api:9000/health').then(r=>r.json()).then(h=>console.log(h))"

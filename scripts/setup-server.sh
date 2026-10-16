@@ -17,8 +17,8 @@
 # Or, to install a deploy key in the same step:
 #   ssh ubuntu@SERVER "DEPLOY_PUBLIC_KEY='$(cat ~/.ssh/konflix_deploy.pub)' sudo -E bash -s" < scripts/setup-server.sh
 #
-# Nothing but SSH is reachable afterwards. The stack is published through an outbound
-# Cloudflare tunnel, so no inbound port needs to be open.
+# Afterwards only SSH, and ports 80 and 443 for the video host, are reachable. The site and the
+# API are published through an outbound Cloudflare tunnel, so they need no inbound port.
 
 set -euo pipefail
 
@@ -120,12 +120,14 @@ CONF
 systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || true
 
 echo "==> Restricting the firewall"
-# SSH is the only inbound port. cloudflared dials out, so the HTTP ports stay closed
-# and are unreachable from the internet even though the containers listen on them.
+# SSH, and the two ports caddy serves the video on: 80 for the certificate check and the redirect
+# to https, 443 for the video. cloudflared dials out, so the site and the API need no port.
 ufw --force reset >/dev/null
 ufw default deny incoming >/dev/null
 ufw default allow outgoing >/dev/null
 ufw allow "$SSH_PORT/tcp" >/dev/null
+ufw allow 80/tcp >/dev/null
+ufw allow 443/tcp >/dev/null
 ufw --force enable >/dev/null
 
 echo "==> Tuning the kernel for many concurrent sockets"

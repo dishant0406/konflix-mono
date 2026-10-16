@@ -4,15 +4,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { ApiError } from "../src/lib/api.ts";
-import { canPlayHevc, playErrorMessage } from "../src/lib/play.ts";
+import { DAILY_LIMIT_MESSAGE, canPlayHevc, playErrorMessage } from "../src/lib/play.ts";
 
 test("a busy server is explained, not quoted", () => {
   assert.equal(playErrorMessage(new ApiError("busy", 503)), "The server is busy, try again in a moment.");
 });
 
 test("a used-up day is shown with the server's own words, which name the desktop app", () => {
-  const words = "That is today's limit for watching on the web. It resets tomorrow, and the desktop app has no limit: akidev.live/download";
-  assert.equal(playErrorMessage(new ApiError(words, 429)), words);
+  assert.equal(playErrorMessage(new ApiError(DAILY_LIMIT_MESSAGE, 429)), DAILY_LIMIT_MESSAGE);
 });
 
 test("any other failure keeps its own message", () => {

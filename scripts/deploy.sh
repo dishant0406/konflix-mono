@@ -125,11 +125,15 @@ echo "==> Starting the stack"
 # a renamed or deleted service stops running instead of lingering.
 compose up -d --remove-orphans
 
+# A changed Caddyfile is picked up without a restart, so no connection is dropped.
+compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile
+
 echo "==> Waiting for the containers to report healthy"
-# The health checks run inside each container, which is the only place these ports are
-# reachable from: nothing is published to the host.
+# The api and frontend ports are only reachable from inside the stack. Caddy is the one thing that
+# publishes ports.
 wait_for_health konflix-api-1 api
 wait_for_health konflix-frontend-1 frontend
+wait_for_health konflix-caddy-1 caddy
 
 # Reports what is actually configured, which is the difference between "the process
 # started" and "it can do its job". Run inside the container so the host needs no node.
@@ -172,3 +176,6 @@ echo
 echo "Deployed $IMAGE_TAG."
 echo "  site        https://$ZONE_VALUE"
 echo "  api         $PUBLIC_URL_VALUE"
+if [ -n "$(read_env STREAM_URL)" ]; then
+  echo "  video       $(read_env STREAM_URL)"
+fi

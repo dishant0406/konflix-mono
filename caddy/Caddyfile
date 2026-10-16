@@ -1,0 +1,39 @@
+# The video host: video goes from this server to the viewer without passing through Cloudflare.
+# docker-compose.yml runs it as the `caddy` service. SITE_DOMAIN is the zone, set from
+# NEXT_PUBLIC_SITE_DOMAIN.
+#
+# Only this hostname comes here. The site and the API stay behind the Cloudflare tunnel, which
+# keeps their cache and attack protection and keeps this server's address off their records.
+# stream. is a DNS-only record that points at this server, so Caddy gets its certificate straight
+# from Let's Encrypt (HTTP-01 on port 80) and renews it the same way. See "The video host" in
+# README.md.
+{
+	servers {
+		# This host is reachable directly, so give a client that sends nothing a few seconds, not
+		# forever. Nothing here limits how long a response may take: an episode is one long response.
+		timeouts {
+			read_header 10s
+		}
+		# Port 443/udp is not published, so do not advertise HTTP/3.
+		protocols h1 h2
+	}
+}
+
+stream.{$SITE_DOMAIN} {
+	# Only the video is served here. The API's other routes, /health among them, are not for this
+	# host, and nothing here is logged, because the address of a stream is the key to watching it.
+	@video path /s/*
+	handle @video {
+		# flush_interval -1 sends every chunk as it arrives, so HLS segments and range responses
+		# are not held back. The API rate-limits by client address and reads these two headers, so
+		# whatever the client sent is replaced with the address of the connection.
+		reverse_proxy api:9000 {
+			flush_interval -1
+			header_up Cf-Connecting-Ip {client_ip}
+			header_up X-Forwarded-For {client_ip}
+		}
+	}
+	handle {
+		respond "Not found" 404
+	}
+}
