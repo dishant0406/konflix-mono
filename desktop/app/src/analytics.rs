@@ -11,7 +11,9 @@
 //! background, and the one wait (on quit) is capped at a second.
 
 use akidev_core::config::Config;
-use posthog_rs::{CaptureExceptionOptions, ClientOptionsBuilder, ErrorTrackingOptionsBuilder, Event};
+use posthog_rs::{
+    CaptureExceptionOptions, ClientOptionsBuilder, ErrorTrackingOptionsBuilder, Event,
+};
 use serde_json::{Value, json};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Mutex, OnceLock};
@@ -159,7 +161,9 @@ pub fn error(context: &str, message: &str) {
     if !matches!(*STATE.lock().unwrap(), State::Ready | State::Starting(_)) {
         return;
     }
-    let Some(id) = INSTALL.get().cloned() else { return };
+    let Some(id) = INSTALL.get().cloned() else {
+        return;
+    };
     if ERRORS.fetch_add(1, Ordering::Relaxed) >= ERRORS_MAX {
         return;
     }
@@ -175,7 +179,9 @@ pub fn error(context: &str, message: &str) {
         let options = CaptureExceptionOptions::new()
             .distinct_id(id)
             .fingerprint(context.clone());
-        let Ok(options) = options.property("context", json!(context)) else { return };
+        let Ok(options) = options.property("context", json!(context)) else {
+            return;
+        };
         let _ = posthog_rs::capture_exception_with(&failure, options).await;
     });
 }

@@ -141,7 +141,10 @@ impl Updates {
         if self.working() {
             return;
         }
-        crate::analytics::capture("update_started", serde_json::json!({ "version": update.version }));
+        crate::analytics::capture(
+            "update_started",
+            serde_json::json!({ "version": update.version }),
+        );
         self.phase = Phase::Working;
         let progress = Arc::new(Progress::default());
         self.progress = progress.clone();
