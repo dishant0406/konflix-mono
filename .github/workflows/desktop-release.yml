@@ -47,6 +47,11 @@ jobs:
           fi
 
       - run: brew install mpv
+      # The runner's own python3 moves on to new releases that cannot always build a virtualenv,
+      # and the disk image script makes one for dmgbuild.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
