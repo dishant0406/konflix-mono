@@ -106,6 +106,7 @@ impl<'a> Asking<'a> {
             url: fill.address(&request.url.replace("{base}", &self.def.base_url))?,
             query,
             json,
+            timeout: None,
         })
     }
 }
@@ -116,9 +117,17 @@ pub struct Prepared {
     url: String,
     query: Vec<(String, String)>,
     json: Option<Value>,
+    /// Gives up sooner than the client's own limit. Not part of what is asked, so not of the key.
+    timeout: Option<Duration>,
 }
 
 impl Prepared {
+    /// Waits at most `timeout` for the answer.
+    pub fn within(mut self, timeout: Duration) -> Self {
+        self.timeout = Some(timeout);
+        self
+    }
+
     #[cfg(test)]
     pub fn json_for_test(&self) -> Value {
         self.json.clone().unwrap_or(Value::Null)
@@ -256,6 +265,9 @@ async fn send(
     if let Some(body) = &request.json {
         builder = builder.json(body);
     }
+    if let Some(timeout) = request.timeout {
+        builder = builder.timeout(timeout);
+    }
     let response = builder.send().await?;
     let status = response.status();
     if status == reqwest::StatusCode::NOT_FOUND {
@@ -362,6 +374,7 @@ mod tests {
             url: url.to_string(),
             query: vec![("t".to_string(), url.to_string())],
             json: None,
+            timeout: None,
         }
     }
 
@@ -377,6 +390,25 @@ mod tests {
         )
         .await
         .unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_request_given_a_short_time_fails_rather_than_wait_for_a_slow_answer() {
+        let _held = crate::sources::definitions_change_lock().lock().await;
+        let (url, _) = counting_server(r#"{"rows":[1]}"#).await;
+        let started = std::time::Instant::now();
+        let answer = get(
+            "test-short",
+            Kind::Movie,
+            request(&url).within(Duration::from_millis(40)),
+            None,
+            Duration::from_secs(600),
+            "rows",
+            false,
+        )
+        .await;
+        assert!(answer.is_err());
+        assert!(started.elapsed() < Duration::from_millis(140));
     }
 
     #[tokio::test]

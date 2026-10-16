@@ -79,10 +79,13 @@ export function useSearch(term: string, limit: number) {
   const query = useQuery(
     [QUERY_KEYS.SEARCH, trimmed, limit],
     () => get<{ results: Media[] }>("/v1/search", { q: trimmed, limit }).then((data) => data.results),
-    { enabled: trimmed.length > 0, staleTime: 5 * MINUTE, retry: false },
+    // The last term's matches stay up while the next term's come, so the list does not go blank on
+    // every keystroke. `stale` says that is what is showing.
+    { enabled: trimmed.length > 0, staleTime: 5 * MINUTE, retry: false, keepPreviousData: true },
   );
   return {
-    results: query.data ?? NONE,
+    results: trimmed ? (query.data ?? NONE) : NONE,
+    stale: query.isPreviousData,
     searching: query.isFetching,
     failed: trimmed.length > 0 && query.isError,
   };

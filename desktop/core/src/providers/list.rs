@@ -332,6 +332,9 @@ fn sort_rows(rows: &mut Vec<&Value>, order: &[Order], kind: Kind) {
     *rows = keyed.into_iter().map(|(_, value)| value).collect();
 }
 
+/// How long a provider has to answer a search.
+const SEARCH_TIMEOUT: Duration = Duration::from_secs(8);
+
 pub async fn search(def: &ProviderDef, kind: Kind, term: &str) -> anyhow::Result<Page> {
     let term = term.trim();
     let Some(search) = &def.search else {
@@ -344,9 +347,12 @@ pub async fn search(def: &ProviderDef, kind: Kind, term: &str) -> anyhow::Result
     let mut asking = Asking::new(def, kind);
     asking.term = Some(term);
     asking.per_page = per_page;
+    // Someone is waiting at a search box. A provider that does not answer quickly is skipped for
+    // the next one, not waited on for as long as a catalogue row would be.
     let request = asking
         .prepare(&search.request)
-        .ok_or_else(|| anyhow::anyhow!("the request cannot be filled in"))?;
+        .ok_or_else(|| anyhow::anyhow!("the request cannot be filled in"))?
+        .within(SEARCH_TIMEOUT);
     let ttl = Duration::from_secs(search.ttl_secs);
     let body = get(
         &def.id,

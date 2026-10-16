@@ -4,7 +4,7 @@
 //! Searching a single kind would silently hide the rest: "Breaking Bad" is a series,
 //! "Dangal" is a film and "Bocchi" is an anime, and one search box must find all three.
 
-use crate::model::{Kind, Media, Page};
+use crate::model::{Kind, Media};
 use crate::providers;
 
 /// Searches each kind at once and merges the answers into one list of at most `limit`.
@@ -14,19 +14,28 @@ pub async fn search(term: &str, kinds: &[Kind], limit: usize) -> anyhow::Result<
     if term.is_empty() {
         return Ok(Vec::new());
     }
-    let pages =
-        futures::future::join_all(kinds.iter().map(|&kind| providers::search(kind, term))).await;
-    let lists = answered(pages)?;
-    Ok(prefer_title_matches(interleave(lists, limit), term))
+    let pages = futures::future::join_all(kinds.iter().map(|&kind| search_kind(kind, term))).await;
+    Ok(combine(answered(pages)?, term, limit))
+}
+
+/// One catalogue's matches, for a caller that shows each as it arrives rather than waiting for
+/// the slowest.
+pub async fn search_kind(kind: Kind, term: &str) -> anyhow::Result<Vec<Media>> {
+    Ok(providers::search(kind, term.trim()).await?.results)
+}
+
+/// The answers of the catalogues that came back, as one list of at most `limit`.
+pub fn combine(lists: Vec<Vec<Media>>, term: &str, limit: usize) -> Vec<Media> {
+    prefer_title_matches(interleave(lists, limit), term.trim())
 }
 
 /// The result lists of the kinds that answered. `Err` when none did.
-fn answered(pages: Vec<anyhow::Result<Page>>) -> anyhow::Result<Vec<Vec<Media>>> {
+fn answered(pages: Vec<anyhow::Result<Vec<Media>>>) -> anyhow::Result<Vec<Vec<Media>>> {
     let mut lists = Vec::new();
     let mut last_error = None;
     for page in pages {
         match page {
-            Ok(page) => lists.push(page.results),
+            Ok(page) => lists.push(page),
             Err(error) => last_error = Some(error),
         }
     }
@@ -122,19 +131,9 @@ mod tests {
         list.iter().map(|media| media.id.as_str()).collect()
     }
 
-    fn page(list: Vec<Media>) -> Page {
-        Page {
-            results: list,
-            ..Page::default()
-        }
-    }
-
     #[test]
     fn a_kind_that_failed_is_skipped_when_another_answered() {
-        let lists = answered(vec![
-            Err(anyhow::anyhow!("down")),
-            Ok(page(vec![item("a", "")])),
-        ]);
+        let lists = answered(vec![Err(anyhow::anyhow!("down")), Ok(vec![item("a", "")])]);
         assert_eq!(lists.unwrap().len(), 1);
     }
 

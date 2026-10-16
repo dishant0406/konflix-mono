@@ -11,6 +11,9 @@ pub fn client() -> &'static reqwest::Client {
     CLIENT.get_or_init(|| {
         reqwest::Client::builder()
             .user_agent(USER_AGENT)
+            // A host that does not answer at all (a blocked address, a name that will not resolve)
+            // is given up on in seconds, not after the whole timeout.
+            .connect_timeout(Duration::from_secs(5))
             .timeout(Duration::from_secs(20))
             .build()
             .expect("http client builds")

@@ -4,7 +4,7 @@ use crate::design::state::{kind_label, meta_line};
 use crate::design::tokens::{CANVAS, LINE, RAISED, SURFACE, TEXT, TEXT_DIM, TEXT_FAINT, color};
 use crate::route::{Route, navigate};
 use akidev_core::model::{Kind, Media};
-use akidev_core::search::search;
+use akidev_core::search::{combine, search_kind};
 use gpui_kit::assets::IconName;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::{Icon, Sizable as _};
@@ -22,8 +22,15 @@ pub struct Palette {
     input: Entity<InputState>,
     open: bool,
     results: Vec<Media>,
+    /// What each catalogue has said about the term being searched, `None` for one that failed.
+    answers: Vec<(Kind, Option<Vec<Media>>)>,
+    /// Searches still out for the current term.
+    pending: usize,
     searching: bool,
     failed: bool,
+    /// The results on screen are for an earlier term, kept until the new ones come so the list
+    /// does not blink empty while typing. Enter does not open one of them.
+    stale: bool,
     selected: usize,
     /// The newest request. A search that finds it has changed after its pause drops out.
     latest: Arc<AtomicU32>,
@@ -43,8 +50,11 @@ impl Palette {
             input,
             open: false,
             results: Vec::new(),
+            answers: Vec::new(),
+            pending: 0,
             searching: false,
             failed: false,
+            stale: false,
             selected: 0,
             latest: Arc::new(AtomicU32::new(0)),
             _events: events,
@@ -62,7 +72,10 @@ impl Palette {
             input.focus(window, cx);
         });
         self.results.clear();
+        self.answers.clear();
+        self.pending = 0;
         self.searching = false;
+        self.stale = false;
         cx.notify();
     }
 
@@ -80,47 +93,87 @@ impl Palette {
         let term = self.term(cx);
         let request = self.latest.fetch_add(1, Ordering::SeqCst) + 1;
         self.selected = 0;
+        self.answers.clear();
         if term.is_empty() {
             self.results.clear();
+            self.pending = 0;
             self.searching = false;
+            self.stale = false;
             cx.notify();
             return;
         }
-        // Old results are not offered while a new search is pending: Enter would open one.
-        self.results.clear();
+        // The last results stay up, marked as old, until the first of the new ones arrives.
+        self.stale = !self.results.is_empty();
         self.searching = true;
         self.failed = false;
+        self.pending = Kind::ALL.len();
         cx.notify();
 
-        let latest = self.latest.clone();
-        crate::task::load(
-            cx,
-            async move {
-                tokio::time::sleep(PAUSE).await;
-                if latest.load(Ordering::SeqCst) != request {
-                    return None;
-                }
-                Some(search(&term, &Kind::ALL, MAX_RESULTS).await)
-            },
-            move |palette, answer, cx| {
-                // Typing on has superseded this search, or the palette was closed.
-                let Some(answer) =
-                    answer.filter(|_| palette.latest.load(Ordering::SeqCst) == request)
-                else {
-                    return;
-                };
-                palette.failed = answer.is_err();
-                palette.results = answer.unwrap_or_default();
-                palette.searching = false;
-                cx.notify();
-            },
-        );
+        // One search per catalogue, each shown when it arrives: one that is slow, or has to try
+        // several providers, does not hold back the others.
+        for kind in Kind::ALL {
+            let (latest, wanted) = (self.latest.clone(), term.clone());
+            crate::task::load(
+                cx,
+                async move {
+                    tokio::time::sleep(PAUSE).await;
+                    if latest.load(Ordering::SeqCst) != request {
+                        return None;
+                    }
+                    Some(search_kind(kind, &wanted).await.ok())
+                },
+                {
+                    let term = term.clone();
+                    move |palette, answer, cx| {
+                        // Typing on has superseded this search, or the palette was closed.
+                        let Some(answer) =
+                            answer.filter(|_| palette.latest.load(Ordering::SeqCst) == request)
+                        else {
+                            return;
+                        };
+                        palette.received(kind, answer, &term, cx);
+                    }
+                },
+            );
+        }
+    }
+
+    /// One catalogue's answer to the current term: the list is rebuilt from everything that has
+    /// come back so far.
+    fn received(
+        &mut self,
+        kind: Kind,
+        answer: Option<Vec<Media>>,
+        term: &str,
+        cx: &mut Context<Self>,
+    ) {
+        self.answers.push((kind, answer));
+        self.pending = self.pending.saturating_sub(1);
+        // In the order of the catalogues, so a late answer slots in and does not shuffle the rest.
+        let lists = Kind::ALL
+            .iter()
+            .filter_map(|kind| {
+                self.answers
+                    .iter()
+                    .find(|(answered, _)| answered == kind)
+                    .and_then(|(_, media)| media.clone())
+            })
+            .collect();
+        self.results = combine(lists, term, MAX_RESULTS);
+        self.stale = false;
+        self.selected = 0;
+        self.searching = self.pending > 0;
+        self.failed = self.pending == 0 && self.answers.iter().all(|(_, media)| media.is_none());
+        cx.notify();
     }
 
     /// Enter: the highlighted result, or the full results page when nothing is highlighted.
     fn confirm(&mut self, cx: &mut Context<Self>) {
         let term = self.term(cx);
-        if let Some(media) = self.results.get(self.selected) {
+        let settled = (!self.stale)
+            .then(|| self.results.get(self.selected))
+            .flatten();
+        if let Some(media) = settled {
             navigate(
                 Route::Title {
                     id: media.id.clone(),
@@ -206,6 +259,7 @@ impl Palette {
 impl Render for Palette {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let term_empty = self.input.read(cx).value().trim().is_empty();
+        let stale = self.stale;
         let results: Vec<Stateful<Div>> = self
             .results
             .iter()
@@ -290,6 +344,7 @@ impl Render for Palette {
                                 .flex()
                                 .flex_col()
                                 .p_2()
+                                .when(stale, |list| list.opacity(0.5))
                                 .children(results)
                                 .children(hint.map(|text| {
                                     div()

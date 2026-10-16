@@ -146,7 +146,7 @@ export function SearchView({ term }: { term: string }) {
 
   return (
     <Page heading={`Results for “${term}”`} filters={filters}>
-      {search.searching && search.results.length === 0 ? (
+      {search.searching && (search.results.length === 0 || search.stale) ? (
         <Loading />
       ) : search.failed ? (
         <ErrorState title="Couldn't reach the catalogue" detail="Check your connection and try again." />

@@ -22,7 +22,7 @@ export default function Palette({ onClose }: { onClose: () => void }) {
   const [typed, setTyped] = useState("");
   const [term, setTerm] = useState("");
   const [selected, setSelected] = useState(0);
-  const { results, searching, failed } = useSearch(term, SHOWN);
+  const { results, stale, searching, failed } = useSearch(term, SHOWN);
 
   useEffect(() => input.current?.focus(), []);
 
@@ -58,7 +58,7 @@ export default function Palette({ onClose }: { onClose: () => void }) {
       setSelected((index) => (index + results.length - 1) % results.length);
     } else if (event.key === "Enter") {
       event.preventDefault();
-      if (results[selected] && term === typed.trim()) open(results[selected].id);
+      if (results[selected] && !stale && term === typed.trim()) open(results[selected].id);
       else if (typed.trim()) {
         onClose();
         router.push(searchPath(typed.trim()));
@@ -105,7 +105,7 @@ export default function Palette({ onClose }: { onClose: () => void }) {
         </div>
 
         {(hint || results.length > 0) && (
-          <div className="flex max-h-[60vh] flex-col overflow-y-auto border-t border-line p-2">
+          <div className={cn("flex max-h-[60vh] flex-col overflow-y-auto border-t border-line p-2", stale && "opacity-50")}>
             {results.map((card, index) => (
               <button
                 key={card.id}
