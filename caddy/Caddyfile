@@ -1,16 +1,37 @@
-# The video host: video goes from this server to the viewer without passing through Cloudflare.
-# docker-compose.yml runs it as the `caddy` service. SITE_DOMAIN is the zone, set from
-# NEXT_PUBLIC_SITE_DOMAIN.
+# The public entry for the Akidev stack: TLS, routing by hostname, and the client address.
+# docker-compose.yml runs it as the `caddy` service, the only thing that publishes ports (80 and
+# 443). SITE_DOMAIN is the zone, set from NEXT_PUBLIC_SITE_DOMAIN.
 #
-# Only this hostname comes here. The site and the API stay behind the Cloudflare tunnel, which
-# keeps their cache and attack protection and keeps this server's address off their records.
-# stream. is a DNS-only record that points at this server, so Caddy gets its certificate straight
-# from Let's Encrypt (HTTP-01 on port 80) and renews it the same way. See "The video host" in
-# README.md.
+# Certificates are issued and renewed by Caddy itself from Let's Encrypt over HTTP-01 and kept in
+# the caddy-data volume.
+#
+# Cloudflare proxies the site and the API, for its cache and attack protection (scripts/cloudflare.sh
+# creates those records). stream. is DNS only: the video goes from here to the viewer without
+# passing through Cloudflare. See "Deployment" in README.md.
 {
 	servers {
-		# This host is reachable directly, so give a client that sends nothing a few seconds, not
-		# forever. Nothing here limits how long a response may take: an episode is one long response.
+		# The client address. Only a connection that really comes from a Cloudflare address may say
+		# who the visitor is, in CF-Connecting-IP. For any other connection (stream., or a caller
+		# going around Cloudflare straight to this server) client_ip is the connection's own address
+		# and every header the caller sent is ignored. The api trusts the two headers set below and
+		# rate-limits on them, so they must never be passed through from outside.
+		#
+		# Cloudflare's published ranges, copied on 2026-10-16 from
+		# https://www.cloudflare.com/ips-v4/ and https://www.cloudflare.com/ips-v6/
+		# They change rarely. To refresh: fetch both lists, replace the ranges below, and run
+		# `docker compose restart caddy`.
+		trusted_proxies static \
+ 173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 \
+ 141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 \
+ 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 \
+ 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22 \
+ 2400:cb00::/32 2606:4700::/32 2803:f800::/32 2405:b500::/32 \
+ 2405:8100::/32 2a06:98c0::/29 2c0f:f248::/32
+		client_ip_headers CF-Connecting-IP
+
+		# Some of these hosts are reachable directly, so give a client that sends nothing a few
+		# seconds, not forever. Nothing limits how long a response may take: an episode is one long
+		# response.
 		timeouts {
 			read_header 10s
 		}
@@ -19,14 +40,42 @@
 	}
 }
 
+# The site. anime. and tv. are retired: the frontend's middleware redirects them, and sees the
+# original Host header because Caddy passes it through.
+{$SITE_DOMAIN}, anime.{$SITE_DOMAIN}, tv.{$SITE_DOMAIN} {
+	encode zstd gzip
+
+	reverse_proxy frontend:3000 {
+		header_up Cf-Connecting-Ip {client_ip}
+		header_up X-Forwarded-For {client_ip}
+	}
+}
+
+# The API. Only JSON is compressed: video and playlists are already compressed or too small to
+# matter. flush_interval -1 sends every chunk as it arrives, so HLS segments and range responses
+# are not held back.
+api.{$SITE_DOMAIN} {
+	encode {
+		zstd
+		gzip
+		match {
+			header Content-Type application/json*
+		}
+	}
+
+	reverse_proxy api:9000 {
+		flush_interval -1
+		header_up Cf-Connecting-Ip {client_ip}
+		header_up X-Forwarded-For {client_ip}
+	}
+}
+
+# The video host. Only the video is served here. The API's other routes, /health among them, are
+# not for this host, and nothing is logged, because the address of a stream is the key to watching
+# it.
 stream.{$SITE_DOMAIN} {
-	# Only the video is served here. The API's other routes, /health among them, are not for this
-	# host, and nothing here is logged, because the address of a stream is the key to watching it.
 	@video path /s/*
 	handle @video {
-		# flush_interval -1 sends every chunk as it arrives, so HLS segments and range responses
-		# are not held back. The API rate-limits by client address and reads these two headers, so
-		# whatever the client sent is replaced with the address of the connection.
 		reverse_proxy api:9000 {
 			flush_interval -1
 			header_up Cf-Connecting-Ip {client_ip}
