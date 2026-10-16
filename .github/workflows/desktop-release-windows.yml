@@ -62,8 +62,8 @@ jobs:
         shell: pwsh
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          # The PostHog project token, compiled in. Public by design; empty builds cannot report.
-          POSTHOG_TOKEN: ${{ vars.POSTHOG_TOKEN }}
+          # The PostHog project token, compiled in. Public by design (it only lets events in).
+          POSTHOG_TOKEN: ${{ secrets.POSTHOG_TOKEN }}
         run: ./scripts/bundle-windows.ps1
 
       - name: Start it, wait, and take a picture

@@ -52,6 +52,13 @@ impl Backend {
             let _ = std::fs::rename(&config_path, kept);
             Config::default()
         });
+        // Reporting starts here, before the engine, so a failure to start it is reported too.
+        let mut config = config;
+        let (install, first_run) = crate::analytics::install_id(&mut config);
+        if first_run && let Err(error) = config.save(&config_path) {
+            tracing::warn!("[config] could not save the install id: {error:#}");
+        }
+        crate::analytics::start(install, first_run);
         let torrent_dir = config.cache_dir.clone().unwrap_or(default_torrent_dir);
         let downloads_dir = akidev_core::torrent::Engine::downloads_dir(&torrent_dir);
         let streamer =
@@ -60,7 +67,6 @@ impl Backend {
                 .map_err(|error| format!("{error:#}"));
         if let Err(error) = &streamer {
             tracing::error!("[backend] could not start streaming: {error}");
-            crate::analytics::report_later("streaming_start", error);
         }
         Backend {
             streamer,

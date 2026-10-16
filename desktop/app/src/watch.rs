@@ -61,6 +61,44 @@ enum Sources {
     Failed(String),
 }
 
+/// What the page tells analytics: how long it took to start, and how long it played.
+struct Stats {
+    id: String,
+    resolving_since: Option<Instant>,
+    playing_since: Option<Instant>,
+    watched: Duration,
+}
+
+impl Stats {
+    fn new(id: String) -> Stats {
+        Stats {
+            id,
+            resolving_since: None,
+            playing_since: None,
+            watched: Duration::ZERO,
+        }
+    }
+
+    /// Closes the stretch that was playing, if one was.
+    fn stop(&mut self) {
+        if let Some(since) = self.playing_since.take() {
+            self.watched += since.elapsed();
+        }
+    }
+}
+
+impl Drop for Stats {
+    fn drop(&mut self) {
+        self.stop();
+        if self.watched >= Duration::from_secs(5) {
+            crate::analytics::capture(
+                "playback_ended",
+                serde_json::json!({ "title_id": self.id, "watched_seconds": self.watched.as_secs() }),
+            );
+        }
+    }
+}
+
 enum Phase {
     Resolving,
     Unavailable(String),
@@ -173,6 +211,7 @@ pub struct WatchPage {
     /// the finished episode is not saved again over it.
     finished: bool,
     resolving: Option<AbortOnDrop>,
+    stats: Stats,
     _tick: Task<()>,
 }
 
@@ -220,6 +259,7 @@ impl WatchPage {
         cx.on_release(|page, cx| page.save_progress(cx)).detach();
 
         let mut page = WatchPage {
+            stats: Stats::new(id.clone()),
             id,
             parsed,
             detail: None,
@@ -273,6 +313,8 @@ impl WatchPage {
         if release.is_some() && self.state.position > 0. {
             self.resume_from = Some(self.state.position);
         }
+        self.stats.stop();
+        self.stats.resolving_since = Some(Instant::now());
         self.online_in_use = None;
         self.subtitles_started = false;
         self.player = None;
@@ -315,7 +357,10 @@ impl WatchPage {
                 stream,
             } => (url, release, stream),
             Resolution::Unavailable { reason } => {
-                crate::analytics::capture("playback_failed", serde_json::json!({ "stage": "no_source" }));
+                crate::analytics::capture(
+                    "playback_failed",
+                    serde_json::json!({ "stage": "no_source", "title_id": self.id }),
+                );
                 self.phase = Phase::Unavailable(reason);
                 cx.notify();
                 return;
@@ -336,10 +381,21 @@ impl WatchPage {
                 self.release = Some(release);
                 self.stream = Some(stream);
                 self.phase = Phase::Playing;
-                crate::analytics::capture("playback_started", serde_json::Value::Null);
+                self.stats.playing_since = Some(Instant::now());
+                crate::analytics::capture(
+                    "playback_started",
+                    serde_json::json!({
+                        "title_id": self.id,
+                        "start_ms": self.stats.resolving_since.map(|since| since.elapsed().as_millis() as u64),
+                        "resumed": resume.is_some(),
+                    }),
+                );
             }
             Err(error) => {
-                crate::analytics::capture("playback_failed", serde_json::json!({ "stage": "player" }));
+                crate::analytics::capture(
+                    "playback_failed",
+                    serde_json::json!({ "stage": "player", "title_id": self.id }),
+                );
                 crate::analytics::error("player_start", &error);
                 self.phase = Phase::Unavailable(error);
             }
@@ -602,8 +658,20 @@ impl WatchPage {
             async move { streamer.plan(&id).await.map(|plan| plan.choices()) },
             |page, plan, cx| {
                 page.sources = Some(match plan {
-                    Ok(choices) => Sources::Ready(choices),
-                    Err(reason) => Sources::Failed(reason),
+                    Ok(choices) => {
+                        crate::analytics::capture(
+                            "sources_loaded",
+                            serde_json::json!({ "title_id": page.id, "count": choices.len() }),
+                        );
+                        Sources::Ready(choices)
+                    }
+                    Err(reason) => {
+                        crate::analytics::capture(
+                            "sources_failed",
+                            serde_json::json!({ "title_id": page.id }),
+                        );
+                        Sources::Failed(reason)
+                    }
                 });
                 cx.notify();
             },
@@ -689,6 +757,12 @@ impl WatchPage {
     fn use_online(&mut self, subtitle: Subtitle, remember: bool, cx: &mut Context<Self>) {
         let dir = cx.global::<Backend>().subtitles_dir.clone();
         self.online_in_use = Some(subtitle.id.clone());
+        if remember {
+            crate::analytics::capture(
+                "subtitle_chosen",
+                serde_json::json!({ "language": subtitle.lang, "provider": subtitle.provider }),
+            );
+        }
         crate::task::load(
             cx,
             captions::download(dir, subtitle.url.clone()),

@@ -30,10 +30,8 @@ pub struct Config {
     pub upload_limit_bps: Option<u32>,
     /// Whether the desktop app looks for a newer version of itself now and then.
     pub check_for_updates: bool,
-    /// Whether the app may report what is used and what breaks. Off until the viewer turns it on.
-    pub analytics: bool,
-    /// The random name this install reports under. Made when analytics is first turned on, and
-    /// tied to nothing about the viewer.
+    /// The random name this install reports usage under. Made at the first start, and tied to
+    /// nothing about the viewer.
     pub analytics_id: Option<String>,
 }
 
@@ -49,7 +47,6 @@ impl Default for Config {
             resolve_deadline_ms: 75_000,
             upload_limit_bps: None,
             check_for_updates: true,
-            analytics: false,
             analytics_id: None,
         }
     }
@@ -102,12 +99,10 @@ mod tests {
     }
 
     #[test]
-    fn analytics_is_off_until_turned_on() {
-        let config = Config::default();
-        assert!(!config.analytics);
-        assert_eq!(config.analytics_id, None);
-        let old: Config = toml::from_str("max_torrents = 2").unwrap();
-        assert!(!old.analytics);
+    fn an_old_file_has_no_analytics_id_yet() {
+        assert_eq!(Config::default().analytics_id, None);
+        let old: Config = toml::from_str("max_torrents = 2\nanalytics = false").unwrap();
+        assert_eq!(old.analytics_id, None);
     }
 
     #[test]

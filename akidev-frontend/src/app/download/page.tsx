@@ -68,7 +68,7 @@ export default async function DownloadPage() {
 
       <Section title="Privacy">
         <p>
-          No accounts. The site counts visits and downloads without knowing who you are, and the app sends nothing unless you turn that on in Settings. What the app does send over the network is in the{" "}
+          No accounts. The site counts visits and downloads without knowing who you are, and the app counts how it is used and what breaks. What the app does send over the network is in the{" "}
           <Link href="/privacy" className={link}>
             privacy policy
           </Link>

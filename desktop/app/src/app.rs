@@ -50,13 +50,15 @@ pub struct AkidevApp {
 
 impl AkidevApp {
     pub fn new(first: Route, window: &mut Window, cx: &mut Context<Self>) -> AkidevApp {
-        let page = Self::build(&first, cx);
+        crate::analytics::screen_of(&first);
         cx.set_global(Navigator(cx.weak_entity()));
         let palette = cx.new(|cx| Palette::new(window, cx));
         let palette_changes = cx.observe(&palette, |_, _, cx| cx.notify());
         let updates = cx.new(Updates::new);
         cx.set_global(Shared(updates.clone()));
         let update_changes = cx.observe(&updates, |_, _, cx| cx.notify());
+        // Built last: a screen may read the update state (Settings does) or navigate.
+        let page = Self::build(&first, cx);
         AkidevApp {
             page,
             history: vec![first],
@@ -150,6 +152,7 @@ impl AkidevApp {
 
     /// Swaps the screen and starts it at the top.
     fn show(&mut self, route: &Route, cx: &mut Context<Self>) {
+        crate::analytics::screen_of(route);
         self.page = Self::build(route, cx);
         self.scroll = ScrollHandle::new();
         cx.notify();

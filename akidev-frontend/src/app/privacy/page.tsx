@@ -14,7 +14,7 @@ export default function PrivacyPage() {
   return (
     <Page
       title="Privacy."
-      lead="No accounts, nothing sold or shared. The site counts visits without knowing who you are, the app sends nothing unless you turn it on, and streaming still needs some of your connection. This is all of it."
+      lead="No accounts, nothing sold or shared. The site and the app count how they are used without knowing who you are, and streaming still needs some of your connection. This is all of it."
     >
       <Section title="What we collect">
         <p>
@@ -50,11 +50,15 @@ export default function PrivacyPage() {
           <code>sources.akidev.live</code> for updated source definitions. Apart from that it sends nothing about you.
         </p>
         <p>
-          Settings has one switch, off by default, for sharing usage and crash reports with PostHog (US cloud). When it
-          is on, the app reports that it opened, whether playback started or failed, errors it handled, and crashes
-          (the error message and where in the code it happened), each with the app version and your operating system.
-          An install is a random identifier made when you turn the switch on; your address is not kept, and what you
-          watch or search for is never sent. Turning the switch off stops everything at once.
+          The app also reports how it is used and what breaks, to PostHog (US cloud). That is: when it opens and closes
+          and for how long, which screens you open, which title you open or play and how long it took to start and how
+          long it played, whether finding a source and playback worked, which subtitle language you chose, update
+          checks and installs, and the errors and crashes it runs into (the message and where in the code it happened).
+          Each report carries the app version and your operating system. An install is a random identifier made at the
+          first start and kept in the app&apos;s settings file; it is not linked to a name, an email or an account.
+          Your address is not kept, and the words you search for are never sent, only how long they were. This cannot be
+          turned off in the app; deleting <code>config.toml</code> in the app&apos;s folder gives the install a new
+          identifier, and you can block <code>us.i.posthog.com</code> to stop it entirely.
         </p>
         <p>
           Playing a title joins a BitTorrent swarm. As with any BitTorrent client, the other peers in that swarm can see

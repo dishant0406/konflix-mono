@@ -35,12 +35,18 @@ use route::Route;
 use std::sync::Arc;
 
 fn main() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "warn,akidev=info".into()),
-        )
-        .init();
+    {
+        use tracing_subscriber::layer::SubscriberExt as _;
+        use tracing_subscriber::util::SubscriberInitExt as _;
+        tracing_subscriber::registry()
+            .with(
+                tracing_subscriber::EnvFilter::try_from_default_env()
+                    .unwrap_or_else(|_| "warn,akidev=info".into()),
+            )
+            .with(tracing_subscriber::fmt::layer())
+            .with(analytics::ErrorLogs)
+            .init();
+    }
     let dirs = directories::ProjectDirs::from("live", "akidev", "Akidev")
         .expect("a home directory exists");
     let image_cache = dirs.cache_dir().join("images");
@@ -69,11 +75,6 @@ fn main() {
             torrent_cache,
             sources_dir,
         ));
-        {
-            let config = &cx.global::<backend::Backend>().config;
-            analytics::apply(config);
-            analytics::capture("app_opened", serde_json::Value::Null);
-        }
         theme::apply(cx);
         cx.set_http_client(Arc::new(images::ImageClient::new(image_cache)));
         cx.bind_keys([KeyBinding::new("secondary-k", app::OpenSearch, None)]);
@@ -125,7 +126,7 @@ fn quit_with_the_window(cx: &mut App) {
         let dir = cx.global::<backend::Backend>().downloads_dir.clone();
         async move {
             let _ = std::fs::remove_dir_all(dir);
-            runtime::run(analytics::flush()).await;
+            runtime::run(analytics::finish()).await;
         }
     })
     .detach();

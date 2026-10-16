@@ -84,8 +84,8 @@ jobs:
 
       - name: Build the app and the disk image
         env:
-          # The PostHog project token, compiled in. Public by design; empty builds cannot report.
-          POSTHOG_TOKEN: ${{ vars.POSTHOG_TOKEN }}
+          # The PostHog project token, compiled in. Public by design (it only lets events in).
+          POSTHOG_TOKEN: ${{ secrets.POSTHOG_TOKEN }}
         run: ./scripts/dmg-macos.sh
 
       - name: Check what was built

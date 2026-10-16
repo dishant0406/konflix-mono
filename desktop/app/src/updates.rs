@@ -77,6 +77,12 @@ impl Updates {
                             .await;
                     match found {
                         Some(Ok(found)) => {
+                            if let Some(update) = &found {
+                                crate::analytics::capture(
+                                    "update_available",
+                                    serde_json::json!({ "version": update.version }),
+                                );
+                            }
                             let _ = updates.update(cx, |updates, cx| updates.found(found, cx));
                         }
                         Some(Err(error)) => tracing::info!("[update] check failed: {error:#}"),
@@ -135,6 +141,7 @@ impl Updates {
         if self.working() {
             return;
         }
+        crate::analytics::capture("update_started", serde_json::json!({ "version": update.version }));
         self.phase = Phase::Working;
         let progress = Arc::new(Progress::default());
         self.progress = progress.clone();
@@ -163,7 +170,10 @@ impl Updates {
             let outcome = runtime::run(apply(update, progress)).await;
             let outcome = outcome.unwrap_or_else(|| Err("The update stopped unexpectedly.".into()));
             let _ = updates.update(cx, |updates, cx| match outcome {
-                Ok(Installed::Restart) => updates.restart(cx),
+                Ok(Installed::Restart) => {
+                    crate::analytics::capture("update_installed", serde_json::Value::Null);
+                    updates.restart(cx)
+                }
                 Ok(Installed::OpenPage(reason)) => {
                     tracing::info!("[update] not installed here: {reason}");
                     updates.phase = Phase::Page;

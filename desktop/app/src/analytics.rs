@@ -1,97 +1,124 @@
-//! Usage statistics and error reports, through PostHog, only for a viewer who turned them on.
+//! Usage statistics and error reports, through PostHog.
 //!
-//! Nothing runs until `Config::analytics` is true, and a build without a project token (a
-//! local one) has no way to turn it on at all. What is sent is in the privacy policy: a few
-//! named events (the app opened, playback started or failed, an update failed), handled errors,
-//! and panics, each with the app version and the platform. The install is a random id made
-//! when the viewer first opts in; the connection's address is not kept (`$geoip_disable`).
+//! Always on in a release build that carries a project token, and nowhere else (a local build has
+//! no token, so it never reports). What is sent is in the privacy policy: screens opened, titles
+//! played and whether that worked and how fast, handled errors and panics, each with the app
+//! version and the platform. An install is a random id made at the first start; the connection's
+//! address is not kept (`$geoip_disable`), and what was typed into a search is never sent.
 //!
-//! Turning it off is immediate: every event passes `before_send`, which drops it while the
-//! switch is off, panics included.
+//! It must not cost the viewer anything. Capturing is a push onto a queue that the SDK's own
+//! thread sends in batches, so nothing here waits for the network, the client starts in the
+//! background, and the one wait (on quit) is capped at a second.
 
 use akidev_core::config::Config;
 use posthog_rs::{CaptureExceptionOptions, ClientOptionsBuilder, ErrorTrackingOptionsBuilder, Event};
 use serde_json::{Value, json};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Mutex, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
+use tracing::field::{Field, Visit};
+use tracing_subscriber::Layer;
+use tracing_subscriber::layer::Context;
 
 /// The PostHog project token, put in by the release workflows. It only lets events in, so it is
 /// not a secret.
 const TOKEN: Option<&str> = option_env!("POSTHOG_TOKEN");
 const HOST: &str = "https://us.i.posthog.com";
 
-static ENABLED: AtomicBool = AtomicBool::new(false);
-static STARTED: AtomicBool = AtomicBool::new(false);
+/// Events asked for before the client is up (the first screen, mostly) wait here, so none is lost.
+const WAITING_MAX: usize = 64;
+/// A failure in a loop must not become a flood. Errors past this many in a run are not sent.
+const ERRORS_MAX: u32 = 25;
 
-fn id() -> &'static Mutex<Option<String>> {
-    static ID: OnceLock<Mutex<Option<String>>> = OnceLock::new();
-    ID.get_or_init(|| Mutex::new(None))
+enum State {
+    /// Not started, or no token: events are dropped.
+    Off,
+    Starting(Vec<Event>),
+    Ready,
 }
 
-/// Whether this build can report at all. Settings shows the switch only when it can.
-pub fn available() -> bool {
-    TOKEN.is_some_and(|token| !token.is_empty())
+static STATE: Mutex<State> = Mutex::new(State::Off);
+static ERRORS: AtomicU32 = AtomicU32::new(0);
+static INSTALL: OnceLock<String> = OnceLock::new();
+static OPENED: OnceLock<Instant> = OnceLock::new();
+
+/// A new random id, for an install or a session.
+pub fn new_id() -> String {
+    Event::new_anon("id").distinct_id().to_string()
 }
 
-/// Turns reporting on in `config`, giving this install its id the first time.
-pub fn enable(config: &mut Config) {
-    config.analytics = true;
-    if config.analytics_id.is_none() {
-        config.analytics_id = Some(Event::new_anon("id").distinct_id().to_string());
-    }
-}
-
-/// Makes the running app match `config`: starts the client the first time it is on, and keeps
-/// the switch every event is checked against.
-pub fn apply(config: &Config) {
-    let on = available() && config.analytics && config.analytics_id.is_some();
-    ENABLED.store(on, Ordering::SeqCst);
-    if !on {
+/// Starts reporting under `install`. Returns at once: the client is made on the runtime, and
+/// what was asked for meanwhile is sent when it is up.
+pub fn start(install: String, first_run: bool) {
+    let Some(token) = TOKEN.filter(|token| !token.is_empty()) else {
+        return;
+    };
+    if INSTALL.set(install).is_err() {
         return;
     }
-    *id().lock().unwrap() = config.analytics_id.clone();
-    if STARTED.swap(true, Ordering::SeqCst) {
-        return;
-    }
-    let Some(token) = TOKEN else { return };
-    let options = ClientOptionsBuilder::default()
-        .api_key(token.to_string())
-        .host(HOST)
-        .error_tracking(
-            ErrorTrackingOptionsBuilder::default()
-                .capture_panics(true)
-                .build()
-                .expect("error tracking options are valid"),
-        )
-        .before_send(|mut event: Event| {
-            if !ENABLED.load(Ordering::SeqCst) {
-                return None;
+    let _ = OPENED.set(Instant::now());
+    *STATE.lock().unwrap() = State::Starting(Vec::new());
+    let session = new_id();
+    crate::runtime::spawn(async move {
+        let options = ClientOptionsBuilder::default()
+            .api_key(token.to_string())
+            .host(HOST)
+            .error_tracking(
+                ErrorTrackingOptionsBuilder::default()
+                    .capture_panics(true)
+                    .build()
+                    .expect("error tracking options are valid"),
+            )
+            .before_send(move |mut event: Event| {
+                let _ = event.insert_prop("$geoip_disable", true);
+                let _ = event.insert_prop("$session_id", session.as_str());
+                let _ = event.insert_prop("app_version", env!("CARGO_PKG_VERSION"));
+                let _ = event.insert_prop("platform", std::env::consts::OS);
+                let _ = event.insert_prop("arch", std::env::consts::ARCH);
+                Some(event)
+            })
+            .build();
+        let started = match options {
+            Ok(options) => posthog_rs::init_global(options).await.is_ok(),
+            Err(_) => false,
+        };
+        let waiting = {
+            let mut state = STATE.lock().unwrap();
+            let waiting = match std::mem::replace(&mut *state, State::Off) {
+                State::Starting(events) => events,
+                _ => Vec::new(),
+            };
+            if started {
+                *state = State::Ready;
             }
-            let _ = event.insert_prop("$geoip_disable", true);
-            let _ = event.insert_prop("app_version", env!("CARGO_PKG_VERSION"));
-            let _ = event.insert_prop("platform", std::env::consts::OS);
-            let _ = event.insert_prop("arch", std::env::consts::ARCH);
-            Some(event)
-        })
-        .build();
-    let Ok(options) = options else { return };
-    if let Err(error) = crate::runtime::block_on(posthog_rs::init_global(options)) {
-        tracing::warn!("[analytics] could not start: {error}");
-        return;
-    }
-    let pending: Vec<_> = PENDING.lock().unwrap().drain(..).collect();
-    for (context, message) in pending {
-        error(&context, &message);
+            waiting
+        };
+        if !started {
+            tracing::warn!("[analytics] could not start");
+            return;
+        }
+        capture("app_opened", json!({ "first_run": first_run }));
+        for event in waiting {
+            posthog_rs::capture(event);
+        }
+    });
+}
+
+/// Gives this install its id the first time, and returns it with whether it was the first.
+pub fn install_id(config: &mut Config) -> (String, bool) {
+    match &config.analytics_id {
+        Some(id) => (id.clone(), false),
+        None => {
+            let id = new_id();
+            config.analytics_id = Some(id.clone());
+            (id, true)
+        }
     }
 }
 
 /// Records one named event. `properties` is a JSON object, or `Value::Null` for none.
 pub fn capture(name: &str, properties: Value) {
-    if !ENABLED.load(Ordering::SeqCst) {
-        return;
-    }
-    let Some(id) = id().lock().unwrap().clone() else { return };
+    let Some(id) = INSTALL.get() else { return };
     let mut event = Event::new(name, id.as_str());
     // One person per install is all that is needed; a profile for each would be noise.
     let _ = event.insert_prop("$process_person_profile", false);
@@ -100,18 +127,51 @@ pub fn capture(name: &str, properties: Value) {
             let _ = event.insert_prop(key, value);
         }
     }
-    posthog_rs::capture(event);
+    let mut state = STATE.lock().unwrap();
+    match &mut *state {
+        State::Off => {}
+        State::Starting(waiting) => {
+            if waiting.len() < WAITING_MAX {
+                waiting.push(event);
+            }
+        }
+        State::Ready => {
+            drop(state);
+            posthog_rs::capture(event);
+        }
+    }
+}
+
+/// A screen the viewer opened. PostHog treats `$screen` as a page view.
+pub fn screen(name: &str, properties: Value) {
+    let mut properties = properties;
+    if let Value::Object(map) = &mut properties {
+        map.insert("$screen_name".into(), json!(name));
+    } else {
+        properties = json!({ "$screen_name": name });
+    }
+    capture("$screen", properties);
 }
 
 /// An error the app handled but that a developer should know about. `context` says where, and
 /// groups the same failure together.
 pub fn error(context: &str, message: &str) {
-    if !ENABLED.load(Ordering::SeqCst) {
+    if !matches!(*STATE.lock().unwrap(), State::Ready | State::Starting(_)) {
         return;
     }
-    let Some(id) = id().lock().unwrap().clone() else { return };
+    let Some(id) = INSTALL.get().cloned() else { return };
+    if ERRORS.fetch_add(1, Ordering::Relaxed) >= ERRORS_MAX {
+        return;
+    }
     let (context, failure) = (context.to_string(), Failure(message.to_string()));
     crate::runtime::spawn(async move {
+        // The client may still be starting; a moment's wait beats losing the first error.
+        for _ in 0..20 {
+            if matches!(*STATE.lock().unwrap(), State::Ready) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
         let options = CaptureExceptionOptions::new()
             .distinct_id(id)
             .fingerprint(context.clone());
@@ -120,11 +180,15 @@ pub fn error(context: &str, message: &str) {
     });
 }
 
-/// Sends what is queued. Called as the app quits, and given only a moment.
-pub async fn flush() {
-    if STARTED.load(Ordering::SeqCst) {
-        let _ = tokio::time::timeout(Duration::from_secs(2), posthog_rs::shutdown()).await;
+/// Records how long the app was open, then sends what is queued. Called as the app quits, and
+/// given only a moment.
+pub async fn finish() {
+    if !matches!(*STATE.lock().unwrap(), State::Ready) {
+        return;
     }
+    let seconds = OPENED.get().map_or(0, |opened| opened.elapsed().as_secs());
+    capture("app_closed", json!({ "session_seconds": seconds }));
+    let _ = tokio::time::timeout(Duration::from_secs(1), posthog_rs::shutdown()).await;
 }
 
 #[derive(Debug)]
@@ -138,11 +202,52 @@ impl std::fmt::Display for Failure {
 
 impl std::error::Error for Failure {}
 
-/// For a failure before the settings are loaded into the app (startup): remembered, and reported
-/// by `error` once it can be.
-pub fn report_later(context: &str, message: &str) {
-    let mut pending = PENDING.lock().unwrap();
-    pending.push((context.to_string(), message.to_string()));
+/// Sends every `tracing::error!` the app itself logs, so a failure that is only logged is not
+/// invisible. Other crates' errors, and the SDK's own, are left out (the SDK reporting its own
+/// trouble would be a loop).
+pub struct ErrorLogs;
+
+impl<S: tracing::Subscriber> Layer<S> for ErrorLogs {
+    fn on_event(&self, event: &tracing::Event<'_>, _: Context<'_, S>) {
+        let meta = event.metadata();
+        if *meta.level() != tracing::Level::ERROR || !meta.target().starts_with("akidev") {
+            return;
+        }
+        let mut message = Message(String::new());
+        event.record(&mut message);
+        error(meta.target(), &message.0);
+    }
 }
 
-static PENDING: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
+struct Message(String);
+
+impl Visit for Message {
+    fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
+        if field.name() == "message" {
+            self.0 = format!("{value:?}");
+        }
+    }
+}
+
+/// The screen a route is, with what identifies it (a title's id; for a search only how long
+/// the words were, never the words).
+pub fn screen_of(route: &crate::route::Route) {
+    use crate::route::Route;
+    match route {
+        Route::Home => screen("home", Value::Null),
+        Route::Browse { kind, term } if term.is_empty() => screen(
+            "browse",
+            json!({ "kind": kind.map(|kind| format!("{kind:?}").to_lowercase()) }),
+        ),
+        Route::Browse { kind, term } => screen(
+            "search",
+            json!({
+                "kind": kind.map(|kind| format!("{kind:?}").to_lowercase()),
+                "term_length": term.chars().count(),
+            }),
+        ),
+        Route::Title { id } => screen("title", json!({ "title_id": id })),
+        Route::Watch { id } => screen("watch", json!({ "title_id": id })),
+        Route::Settings => screen("settings", Value::Null),
+    }
+}
