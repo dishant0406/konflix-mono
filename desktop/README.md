@@ -144,10 +144,12 @@ hours (Settings, "Check for updates", on by default). It asks the GitHub release
 `dishant0406/konflix-mono` (one constant, `REPO` in `core/src/update.rs`, so a rename is a one-line
 change) for the newest non-draft, non-prerelease tag with this platform's prefix,
 `desktop-mac-v<version>` or `desktop-windows-v<version>`, and compares it by number with the
-running version (0.1.10 is newer than 0.1.9). When there is one, a quiet "Update available" pill
-appears in the top bar, with a small card: the first lines of the release notes, **Update and
-restart** and **Later** ("Later" hides it until the next start). Nothing is downloaded until the
-button is pressed, the pill is never drawn on the watch page, and nothing is ever a modal. Intel
+running version (0.1.10 is newer than 0.1.9). When there is one, a small download icon with a
+dot appears in the top bar, beside search (hover for "Update to 0.1.5"). Pressing it updates right
+away: no card and no confirmation. A thin ring around the icon fills as the file downloads, turns
+while it is checked and installed, and the tooltip names the stage. Nothing is downloaded until the icon is pressed, it is never drawn on the
+watch page, and nothing is ever a modal. Settings has an About row with the version and the same
+state in words ("Up to date", "0.1.5 available" with an **Update** button). Intel
 Macs and other systems report nothing available.
 
 Pressing the button downloads the installer from GitHub (only `github.com` and its asset hosts,
@@ -161,10 +163,11 @@ beside it. The hash guards against a corrupt download; the signature is what is 
   read-only copy), nothing is installed and the download page is opened instead.
 - **Windows**: the installer is run (`/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS
   /RESTARTAPPLICATIONS`) only when its Authenticode status is `Valid` and the signer is SignPath
-  Foundation. While releases are unsigned, the release page is opened and the card says why.
+  Foundation. While releases are unsigned, the release page is opened instead.
 
-A failure shows its reason in the card with **Open download page**. A Homebrew install updates
-itself the same way, since the cask installs the same notarised app into `/Applications`, which an
+A failure turns the dot red, the tooltip says what happened in a sentence, and pressing the icon
+again retries. When the update cannot be installed from here, pressing it opens the download page
+and the tooltip says so. A Homebrew install updates itself the same way, since the cask installs the same notarised app into `/Applications`, which an
 administrator can write to; `brew upgrade` keeps working too.
 
 Two environment variables exist for testing the whole flow without a real install:

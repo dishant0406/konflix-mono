@@ -8,7 +8,7 @@ use crate::palette::Palette;
 use crate::route::{Navigator, Route, navigate};
 use crate::settings::SettingsPage;
 use crate::title::TitlePage;
-use crate::updates::Updates;
+use crate::updates::{Shared, Updates};
 use crate::watch::WatchPage;
 use akidev_core::model::Kind;
 use gpui_kit::assets::IconName;
@@ -55,6 +55,7 @@ impl AkidevApp {
         let palette = cx.new(|cx| Palette::new(window, cx));
         let palette_changes = cx.observe(&palette, |_, _, cx| cx.notify());
         let updates = cx.new(Updates::new);
+        cx.set_global(Shared(updates.clone()));
         let update_changes = cx.observe(&updates, |_, _, cx| cx.notify());
         AkidevApp {
             page,
@@ -248,7 +249,7 @@ impl AkidevApp {
                                 },
                             )))
                             .child(div().flex_1())
-                            .children(self.updates.update(cx, |updates, cx| updates.pill(cx)))
+                            .children(self.updates.update(cx, |updates, cx| updates.button(cx)))
                             .child(icon_button("search", IconName::Search, |_, _, cx| {
                                 navigate(
                                     Route::Browse {
@@ -302,19 +303,6 @@ impl Render for AkidevApp {
                     .child(self.page.clone()),
             )
             .when(!immersive, |shell| shell.child(self.top_bar(cx)))
-            // Under the pill, and never over the picture.
-            .when(!immersive, |shell| {
-                match self.updates.update(cx, |updates, cx| updates.card(cx)) {
-                    Some(card) => shell.child(
-                        div()
-                            .absolute()
-                            .top(px(TOP_BAR - 6.))
-                            .right(px(24.))
-                            .child(card),
-                    ),
-                    None => shell,
-                }
-            })
             .when(palette_open, |shell| shell.child(self.palette.clone()))
             .child(
                 div()

@@ -87,6 +87,28 @@ pub fn icon_button(
         .child(Icon::new(icon).text_color(color(TEXT)))
 }
 
+/// A quiet text button: no fill until the pointer is over it.
+pub fn ghost_button(
+    id: impl Into<ElementId>,
+    label: &str,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
+    div()
+        .id(id)
+        .flex_none()
+        .px_2()
+        .py_1()
+        .rounded_md()
+        .text_size(px(13.))
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(color(TEXT))
+        .cursor_pointer()
+        .hover(|style| style.bg(color(TEXT).opacity(0.1)))
+        .active(|style| style.bg(color(TEXT).opacity(0.16)))
+        .on_click(on_click)
+        .child(label.to_string())
+}
+
 /// A navigation tab: text only, the active one bright with an accent underline.
 pub fn tab(
     id: impl Into<ElementId>,

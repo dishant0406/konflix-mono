@@ -2,8 +2,12 @@
 //! snap to a few sensible stops, saved as soon as they are let go.
 
 use crate::backend::Backend;
+use crate::design::button::ghost_button;
 use crate::design::toggle::toggle;
-use crate::design::tokens::{ACCENT, GUTTER, TEXT, TEXT_DIM, TEXT_FAINT, TOP_BAR, color, size};
+use crate::design::tokens::{
+    ACCENT, DANGER, GUTTER, TEXT, TEXT_DIM, TEXT_FAINT, TOP_BAR, color, size,
+};
+use crate::updates::{Shared, Status};
 use akidev_core::config::Config;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -56,6 +60,9 @@ pub struct SettingsPage {
 
 impl SettingsPage {
     pub fn new(cx: &mut Context<Self>) -> SettingsPage {
+        // The About row follows the update as it downloads.
+        let updates = cx.global::<Shared>().0.clone();
+        cx.observe(&updates, |_, _, cx| cx.notify()).detach();
         SettingsPage {
             config: cx.global::<Backend>().config.clone(),
             disk_bar: Rc::new(Cell::new(Bounds::default())),
@@ -281,6 +288,51 @@ impl SettingsPage {
     }
 }
 
+impl SettingsPage {
+    /// The version, and quietly beside it whether there is a newer one.
+    fn about(&self, cx: &mut Context<Self>) -> Div {
+        let updates = cx.global::<Shared>().0.clone();
+        let status = updates.read(cx).status(cx);
+        let press = {
+            let updates = updates.clone();
+            move |_: &ClickEvent, _: &mut Window, cx: &mut App| {
+                updates.update(cx, |updates, cx| updates.activate(cx))
+            }
+        };
+        let quiet =
+            |text: String, tone: u32| div().text_size(px(13.)).text_color(color(tone)).child(text);
+        // The button's padding hangs out so its text lines up with the toggle above.
+        let side = div().flex().items_center().gap_1().mr(px(-8.));
+        let side = match status {
+            Status::UpToDate => side.child(quiet("Up to date".into(), TEXT_FAINT)),
+            Status::Available(version) => side
+                .child(quiet(format!("{version} available"), TEXT_DIM))
+                .child(ghost_button("about-update", "Update", press)),
+            Status::Busy(text) => side.child(quiet(text, TEXT_DIM)),
+            Status::Failed(sentence) => side.child(quiet(sentence, DANGER)).child(ghost_button(
+                "about-retry",
+                "Retry",
+                press,
+            )),
+            Status::Page => side.child(ghost_button("about-page", "Open the download page", press)),
+        };
+        div()
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap_8()
+            .h(px(28.))
+            .child(
+                div()
+                    .text_size(px(13.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(color(TEXT_DIM))
+                    .child(concat!("Akidev ", env!("CARGO_PKG_VERSION"))),
+            )
+            .child(side)
+    }
+}
+
 impl Render for SettingsPage {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let started = &cx.global::<Backend>().started_with;
@@ -382,12 +434,7 @@ impl Render for SettingsPage {
                                     .child("Takes effect the next time Akidev starts")
                             })),
                     )
-                    .child(
-                        div()
-                            .text_size(px(13.))
-                            .text_color(color(TEXT_FAINT))
-                            .child(concat!("Akidev ", env!("CARGO_PKG_VERSION"))),
-                    ),
+                    .child(self.about(cx)),
             )
     }
 }
