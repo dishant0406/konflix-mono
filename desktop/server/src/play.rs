@@ -30,12 +30,132 @@ const CONCURRENT_RESOLVES: usize = 4;
 const QUEUE_FOR: Duration = Duration::from_secs(3);
 /// How many torrents are tried in turn when the one that opened cannot be played.
 const TORRENT_TRIES: usize = 3;
+/// How long a search is kept after the last request waiting for it has gone.
+const ABANDON_AFTER: Duration = Duration::from_secs(20);
+/// How long past its own deadline one search may run before it is given up, so a step that never
+/// answers cannot hold a search slot for good.
+const RESOLVE_GRACE: Duration = Duration::from_secs(60);
 
 #[derive(Clone)]
 pub enum Outcome {
     Ready(Ready),
     Unavailable(String),
     Busy,
+}
+
+/// Searches in flight, one per episode, shared by everyone who asks for that episode while it runs.
+///
+/// Each search is a task of its own, so it is not tied to the request that started it. When its last
+/// waiter leaves (a browser tab closed, a request timed out) it is given `abandon_after` for someone
+/// to come back, and then cancelled, which gives back the search slot it held. Without this a search
+/// nobody waited for either ran on for minutes or, when kept as a bare shared future, stopped where
+/// it was and held its slot until the server restarted; four of those made every visitor see "busy".
+struct Flights<T> {
+    running: Mutex<HashMap<String, Flight<T>>>,
+}
+
+#[derive(Clone)]
+struct Flight<T> {
+    shared: Shared<BoxFuture<'static, T>>,
+    waiters: Arc<std::sync::atomic::AtomicUsize>,
+    task: tokio::task::AbortHandle,
+}
+
+impl<T> Flights<T>
+where
+    T: Clone + Send + Sync + 'static,
+{
+    fn new() -> Arc<Flights<T>> {
+        Arc::new(Flights {
+            running: Mutex::new(HashMap::new()),
+        })
+    }
+
+    /// Joins the search for `key`, starting `work` if none is running. `lost` answers the waiters if
+    /// the task dies.
+    async fn run<F>(
+        self: &Arc<Self>,
+        key: String,
+        lost: T,
+        abandon_after: Duration,
+        work: impl FnOnce() -> F + Send + 'static,
+    ) -> T
+    where
+        F: std::future::Future<Output = T> + Send + 'static,
+    {
+        let flight = {
+            let mut running = self.running.lock().unwrap();
+            if let Some(flight) = running.get(&key) {
+                flight.clone()
+            } else {
+                let (flights, forget) = (self.clone(), key.clone());
+                let task = tokio::spawn(async move {
+                    let outcome = work().await;
+                    flights.running.lock().unwrap().remove(&forget);
+                    outcome
+                });
+                let flight = Flight {
+                    task: task.abort_handle(),
+                    shared: async move { task.await.unwrap_or(lost) }.boxed().shared(),
+                    waiters: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+                };
+                running.insert(key.clone(), flight.clone());
+                flight
+            }
+        };
+        flight
+            .waiters
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let _waiter = Waiter {
+            flights: self.clone(),
+            key,
+            flight: flight.clone(),
+            abandon_after,
+        };
+        flight.shared.await
+    }
+}
+
+/// One request waiting on a search. When the last one leaves, the search is cancelled after a grace.
+struct Waiter<T: Clone + Send + Sync + 'static> {
+    flights: Arc<Flights<T>>,
+    key: String,
+    flight: Flight<T>,
+    abandon_after: Duration,
+}
+
+impl<T: Clone + Send + Sync + 'static> Drop for Waiter<T> {
+    fn drop(&mut self) {
+        use std::sync::atomic::Ordering::SeqCst;
+        if self.flight.waiters.fetch_sub(1, SeqCst) != 1 {
+            return;
+        }
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
+        let (flights, key, flight, wait) = (
+            self.flights.clone(),
+            self.key.clone(),
+            self.flight.clone(),
+            self.abandon_after,
+        );
+        runtime.spawn(async move {
+            tokio::time::sleep(wait).await;
+            if flight.waiters.load(SeqCst) != 0 {
+                return;
+            }
+            let mut running = flights.running.lock().unwrap();
+            if running
+                .get(&key)
+                .is_some_and(|each| Arc::ptr_eq(&each.waiters, &flight.waiters))
+            {
+                running.remove(&key);
+                drop(running);
+                flight.task.abort();
+                tracing::info!("[play] {key}: nobody is waiting any more, search cancelled");
+            }
+        });
+    }
 }
 
 pub struct Player {
@@ -47,7 +167,7 @@ pub struct Player {
     registry: Arc<Registry>,
     slots: Arc<Semaphore>,
     /// Requests for the same episode made together are answered by one search.
-    flights: Mutex<HashMap<String, Shared<BoxFuture<'static, Outcome>>>>,
+    flights: Arc<Flights<Outcome>>,
 }
 
 /// Why one source did not give a playable file.
@@ -71,7 +191,7 @@ impl Player {
             hls,
             registry,
             slots: Arc::new(Semaphore::new(CONCURRENT_RESOLVES)),
-            flights: Mutex::new(HashMap::new()),
+            flights: Flights::new(),
         })
     }
 
@@ -94,6 +214,11 @@ impl Player {
             None => None,
         };
         Ok((plan.choices(), held))
+    }
+
+    /// How many searches are running now, out of `CONCURRENT_RESOLVES`.
+    pub fn resolving(&self) -> usize {
+        CONCURRENT_RESOLVES - self.slots.available_permits().min(CONCURRENT_RESOLVES)
     }
 
     pub fn sources(&self) -> Vec<String> {
@@ -119,27 +244,28 @@ impl Player {
             "{id}|{hevc}|{}",
             start.map_or(0, |seconds| (seconds / 60.) as u64)
         );
-        let flight = {
-            let mut flights = self.flights.lock().unwrap();
-            if let Some(running) = flights.get(&key) {
-                running.clone()
-            } else {
-                let player = self.clone();
-                let id = id.to_string();
-                let release = release.clone();
-                let forget = key.clone();
-                let flight = async move {
-                    let outcome = player.resolve(&id, hevc, start, release.as_deref()).await;
-                    player.flights.lock().unwrap().remove(&forget);
-                    outcome
-                }
-                .boxed()
-                .shared();
-                flights.insert(key.clone(), flight.clone());
-                flight
-            }
-        };
-        flight.await
+        let (player, id, release) = (self.clone(), id.to_string(), release);
+        let limit = Duration::from_millis(self.settings.resolve_deadline_ms) + RESOLVE_GRACE;
+        self.flights
+            .run(
+                key,
+                Outcome::Unavailable("The search was interrupted. Try again.".into()),
+                ABANDON_AFTER,
+                move || async move {
+                    match tokio::time::timeout(
+                        limit,
+                        player.resolve(&id, hevc, start, release.as_deref()),
+                    )
+                    .await
+                    {
+                        Ok(outcome) => outcome,
+                        Err(_) => {
+                            Outcome::Unavailable("Timed out looking for a playable source.".into())
+                        }
+                    }
+                },
+            )
+            .await
     }
 
     async fn resolve(
@@ -406,6 +532,98 @@ pub fn needs_encode_by_name(title: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A search that holds a slot until `done` is told, and says 7.
+    fn holding(
+        slots: &Arc<Semaphore>,
+        done: &Arc<tokio::sync::Notify>,
+    ) -> impl FnOnce() -> BoxFuture<'static, u32> + Send + 'static {
+        let (slots, done) = (slots.clone(), done.clone());
+        move || {
+            async move {
+                let _slot = slots.acquire_owned().await.unwrap();
+                done.notified().await;
+                7
+            }
+            .boxed()
+        }
+    }
+
+    /// The bug this guards against: a search whose every waiter had gone away kept its slot, and four
+    /// such searches made the server answer "busy" until it was restarted.
+    #[tokio::test]
+    async fn a_search_nobody_waits_for_is_cancelled_and_gives_back_its_slot() {
+        let flights: Arc<Flights<u32>> = Flights::new();
+        let slots = Arc::new(Semaphore::new(1));
+        let done = Arc::new(tokio::sync::Notify::new());
+
+        // A waiter that gives up, as a browser does when the tab closes.
+        let waiter = {
+            let (flights, work) = (flights.clone(), holding(&slots, &done));
+            tokio::spawn(async move {
+                flights
+                    .run("a".into(), 0, Duration::from_millis(50), work)
+                    .await
+            })
+        };
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert_eq!(
+            slots.available_permits(),
+            0,
+            "the search holds the slot while it runs"
+        );
+        waiter.abort();
+        let _ = waiter.await;
+
+        let freed = tokio::time::timeout(Duration::from_secs(2), slots.acquire()).await;
+        assert!(freed.is_ok(), "the slot was never given back");
+        assert!(flights.running.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_waiter_who_comes_back_in_time_gets_the_search_that_was_running() {
+        let flights: Arc<Flights<u32>> = Flights::new();
+        let slots = Arc::new(Semaphore::new(1));
+        let done = Arc::new(tokio::sync::Notify::new());
+
+        let first = {
+            let (flights, work) = (flights.clone(), holding(&slots, &done));
+            tokio::spawn(async move {
+                flights
+                    .run("a".into(), 0, Duration::from_secs(5), work)
+                    .await
+            })
+        };
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        first.abort();
+        let _ = first.await;
+
+        // Back within the grace: joins the same search (a second one would find the slot taken).
+        let back = {
+            let (flights, work) = (flights.clone(), holding(&slots, &done));
+            tokio::spawn(async move {
+                flights
+                    .run("a".into(), 0, Duration::from_secs(5), work)
+                    .await
+            })
+        };
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        done.notify_one();
+        assert_eq!(back.await.unwrap(), 7);
+    }
+
+    #[tokio::test]
+    async fn waiters_on_one_search_get_the_same_answer() {
+        let flights: Arc<Flights<u32>> = Flights::new();
+        let (a, b) = tokio::join!(
+            flights.run("k".into(), 0, Duration::from_secs(1), || async {
+                tokio::time::sleep(Duration::from_millis(30)).await;
+                42
+            }),
+            flights.run("k".into(), 0, Duration::from_secs(1), || async { 99 }),
+        );
+        assert_eq!((a, b), (42, 42));
+    }
 
     #[test]
     fn ten_bit_releases_are_the_ones_tried_last() {

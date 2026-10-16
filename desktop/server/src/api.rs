@@ -288,6 +288,7 @@ async fn health(State(state): State<AppState>) -> Response {
         "debrid": debrid,
         "active_torrents": state.engine.as_ref().map_or(0, |engine| engine.active_torrents()),
         "hls_sessions": state.hls.count(),
+        "resolving": state.player.resolving(),
         "streams": state.registry.len(),
         "cache_bytes": cache,
     }))
