@@ -11,6 +11,9 @@ pub struct Settings {
     pub port: u16,
     /// What the browser is told to call this server, in the URLs it is handed.
     pub public_url: String,
+    /// The origin of the `/s/` video URLs. The same as `public_url` unless video is served from a
+    /// host of its own, which keeps its bytes off a proxy that only the pages and the catalogue need.
+    pub stream_url: String,
     /// Origins allowed to call the API from a page.
     pub cors_origins: Vec<String>,
     /// Scratch data: torrent downloads, HLS output, the catalogue cache, the signed definitions.
@@ -47,6 +50,8 @@ pub struct Settings {
     pub play_limit: usize,
     /// Catalogue requests a client may make a minute.
     pub api_limit: usize,
+    /// Video bytes one client may be sent in a day. Zero means no limit.
+    pub max_stream_bytes_per_day: u64,
 }
 
 fn text(name: &str, default: &str) -> String {
@@ -80,9 +85,11 @@ impl Settings {
     pub fn from_env() -> Settings {
         let port: u16 = number("PORT", 9000);
         let public_url = text("PUBLIC_URL", &format!("http://localhost:{port}"));
+        let stream_url = text("STREAM_URL", &public_url);
         Settings {
             port,
             public_url: public_url.trim_end_matches('/').to_string(),
+            stream_url: stream_url.trim_end_matches('/').to_string(),
             cors_origins: list(
                 "CORS_ORIGINS",
                 "https://akidev.live,http://localhost:3000,http://localhost:3100",
@@ -113,6 +120,7 @@ impl Settings {
             image_cache_bytes: number("IMAGE_CACHE_BYTES", 768 * 1024 * 1024),
             play_limit: number("PLAY_LIMIT_PER_10_MIN", 20),
             api_limit: number("API_LIMIT_PER_MIN", 240),
+            max_stream_bytes_per_day: number("MAX_STREAM_BYTES_PER_DAY", 0),
         }
     }
 
@@ -168,6 +176,9 @@ mod tests {
                 .contains(&"https://akidev.live".to_string())
         );
         assert!(!settings.public_url.ends_with('/'));
+        // Video comes from the same address as the API unless told otherwise, and with no allowance.
+        assert_eq!(settings.stream_url, settings.public_url);
+        assert_eq!(settings.max_stream_bytes_per_day, 0);
     }
 
     #[test]

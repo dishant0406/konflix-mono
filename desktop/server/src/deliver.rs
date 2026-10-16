@@ -9,13 +9,16 @@
 //! vanishes with a restart, which the player answers by asking for a source again.
 
 use crate::hls::{Hls, SegmentError, Session};
+use crate::limits::{Usage, client_of};
 use crate::origin::Origin;
 use akidev_core::serve::parse_range;
 use axum::body::Body;
-use axum::extract::{Path, State};
+use axum::extract::{ConnectInfo, Path, State};
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, header};
 use axum::response::{IntoResponse, Response};
+use futures::TryStreamExt;
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::io::AsyncReadExt;
@@ -111,10 +114,31 @@ fn well_formed(token: &str) -> bool {
 pub struct Deliverer {
     pub registry: Arc<Registry>,
     pub hls: Arc<Hls>,
+    pub usage: Arc<Usage>,
+    /// Video bytes one client may be sent in a day. Zero means no limit.
+    pub daily_allowance: u64,
+}
+
+impl Deliverer {
+    /// The client's address, or `None` if it has been sent its day's allowance of video.
+    fn admit(&self, headers: &HeaderMap, peer: SocketAddr) -> Option<String> {
+        let client = client_of(headers, Some(peer));
+        (!self.usage.used_up(&client, self.daily_allowance)).then_some(client)
+    }
+
+    /// A video body that adds what is actually sent to the client's count for the day.
+    fn counted<S>(&self, client: String, stream: S) -> Body
+    where
+        S: futures::Stream<Item = std::io::Result<axum::body::Bytes>> + Send + 'static,
+    {
+        let usage = self.usage.clone();
+        Body::from_stream(stream.inspect_ok(move |chunk| usage.add(&client, chunk.len() as u64)))
+    }
 }
 
 pub async fn direct(
     State(deliverer): State<Deliverer>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     Path(token): Path<String>,
     method: Method,
     headers: HeaderMap,
@@ -122,19 +146,29 @@ pub async fn direct(
     if !well_formed(&token) {
         return json_error(StatusCode::BAD_REQUEST, "Invalid stream token.");
     }
+    let Some(client) = deliverer.admit(&headers, peer) else {
+        return crate::api::daily_limit();
+    };
     match deliverer.registry.get(&token) {
-        Some(Delivery::Direct { origin }) => serve_range(&origin, method, &headers).await,
+        Some(Delivery::Direct { origin }) => {
+            serve_range(&deliverer, client, &origin, method, &headers).await
+        }
         _ => expired(),
     }
 }
 
 pub async fn hls(
     State(deliverer): State<Deliverer>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     Path((token, file)): Path<(String, String)>,
+    headers: HeaderMap,
 ) -> Response {
     if !well_formed(&token) {
         return json_error(StatusCode::BAD_REQUEST, "Invalid stream token.");
     }
+    let Some(client) = deliverer.admit(&headers, peer) else {
+        return crate::api::daily_limit();
+    };
     let Some(Delivery::Hls { session }) = deliverer.registry.get(&token) else {
         return expired();
     };
@@ -160,7 +194,7 @@ pub async fn hls(
                 .header(header::CONTENT_TYPE, "video/mp4")
                 .header(header::CONTENT_LENGTH, length)
                 .header(header::CACHE_CONTROL, "private, max-age=3600")
-                .body(Body::from_stream(ReaderStream::new(opened)))
+                .body(deliverer.counted(client, ReaderStream::new(opened)))
                 .unwrap(),
             Err(_) => json_error(StatusCode::NOT_FOUND, "That segment is not available yet."),
         },
@@ -174,7 +208,13 @@ pub async fn hls(
 
 /// An MP4 with range support. A range that cannot be satisfied is answered with 416, never with
 /// the whole file.
-async fn serve_range(origin: &Origin, method: Method, headers: &HeaderMap) -> Response {
+async fn serve_range(
+    deliverer: &Deliverer,
+    client: String,
+    origin: &Origin,
+    method: Method,
+    headers: &HeaderMap,
+) -> Response {
     let size = origin.length();
     let range = headers
         .get(header::RANGE)
@@ -218,7 +258,7 @@ async fn serve_range(origin: &Origin, method: Method, headers: &HeaderMap) -> Re
     // The reader carries its pin with it, so a torrent stays held until the response ends or the
     // player hangs up.
     response
-        .body(Body::from_stream(ReaderStream::new(opened.take(length))))
+        .body(deliverer.counted(client, ReaderStream::new(opened.take(length))))
         .unwrap()
 }
 

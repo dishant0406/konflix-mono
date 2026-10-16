@@ -53,6 +53,7 @@ async fn rig(name: &str, tweak: impl FnOnce(&mut Settings)) -> Option<Rig> {
     let mut settings = Settings::from_env();
     settings.cache_dir = dir.clone();
     settings.public_url = "http://api.test".into();
+    settings.stream_url = "http://api.test".into();
     settings.stream_sources = vec!["torrent".into()];
     tweak(&mut settings);
     let settings = Arc::new(settings);
@@ -65,6 +66,7 @@ async fn rig(name: &str, tweak: impl FnOnce(&mut Settings)) -> Option<Rig> {
         hls: hls.clone(),
         registry,
         limiter: Arc::new(Limiter::default()),
+        usage: Arc::new(crate::limits::Usage::default()),
         engine: None,
         subs: Arc::new(crate::subs::Subs::new(dir.join("subs"))),
         images: crate::img::Images::for_tests(dir.join("img"), vec!["127.0.0.1".into()]),
@@ -431,6 +433,92 @@ async fn an_unknown_or_malformed_token_is_not_a_stream() {
     )
     .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn video_urls_name_the_stream_host_when_there_is_one() {
+    let Some(rig) = rig("stream-host", |settings| {
+        settings.stream_url = "http://stream.test".into();
+    })
+    .await
+    else {
+        return;
+    };
+    let mut args = H264.to_vec();
+    args.extend(["-movflags", "+faststart"]);
+    let path = clip(&rig.dir, "a.mp4", &args, &AAC);
+
+    let ready = deliver(&rig, &path, false).await.unwrap();
+    assert!(
+        ready.url.starts_with("http://stream.test/s/"),
+        "{}",
+        ready.url
+    );
+}
+
+#[tokio::test]
+async fn video_sent_is_counted_and_a_client_past_its_day_is_turned_away() {
+    let Some(rig) = rig("daily", |settings| {
+        settings.max_stream_bytes_per_day = 1000;
+    })
+    .await
+    else {
+        return;
+    };
+    let mut args = H264.to_vec();
+    args.extend(["-movflags", "+faststart"]);
+    let path = clip(&rig.dir, "a.mp4", &args, &AAC);
+    let ready = deliver(&rig, &path, false).await.unwrap();
+
+    let (_, _, before) = get(&rig.router, "/health", None).await;
+    let before: serde_json::Value = serde_json::from_slice(&before).unwrap();
+    assert_eq!(before["video_bytes_sent"], 0);
+
+    // Under the allowance, a range is served and counted.
+    let (status, _, body) = get(&rig.router, &ready.url, Some("bytes=0-499")).await;
+    assert_eq!(status, StatusCode::PARTIAL_CONTENT);
+    assert_eq!(body.len(), 500);
+    let (_, _, after) = get(&rig.router, "/health", None).await;
+    let after: serde_json::Value = serde_json::from_slice(&after).unwrap();
+    assert_eq!(after["video_bytes_sent"], 500);
+
+    // The rest of the allowance goes in one more request, which is allowed because the client was
+    // under it when the request began.
+    let (status, _, _) = get(&rig.router, &ready.url, Some("bytes=500-1499")).await;
+    assert_eq!(status, StatusCode::PARTIAL_CONTENT);
+
+    // Now the day's allowance is used up: the video and a new play are both refused, and the answer
+    // names the desktop app.
+    let (status, _, body) = get(&rig.router, &ready.url, Some("bytes=0-99")).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+    assert!(contains(&body, b"akidev.live/download"));
+
+    let mut request = Request::builder()
+        .method("POST")
+        .uri("/v1/play")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(r#"{"id":"movie-tt0111161"}"#))
+        .unwrap();
+    request
+        .extensions_mut()
+        .insert(ConnectInfo("192.0.2.1:4000".parse::<SocketAddr>().unwrap()));
+    let response = rig.router.clone().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+}
+
+#[tokio::test]
+async fn without_an_allowance_video_is_never_refused() {
+    let Some(rig) = rig("no-allowance", |_| {}).await else {
+        return;
+    };
+    let mut args = H264.to_vec();
+    args.extend(["-movflags", "+faststart"]);
+    let path = clip(&rig.dir, "a.mp4", &args, &AAC);
+    let ready = deliver(&rig, &path, false).await.unwrap();
+    for _ in 0..3 {
+        let (status, _, _) = get(&rig.router, &ready.url, None).await;
+        assert_eq!(status, StatusCode::OK);
+    }
 }
 
 #[tokio::test]

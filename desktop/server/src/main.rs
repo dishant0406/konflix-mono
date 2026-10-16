@@ -131,6 +131,7 @@ async fn run() -> anyhow::Result<()> {
         hls: hls.clone(),
         registry,
         limiter: Arc::new(limits::Limiter::default()),
+        usage: Arc::new(limits::Usage::default()),
         engine: Some(engine.clone()),
         images: images.clone(),
         subs: subs.clone(),

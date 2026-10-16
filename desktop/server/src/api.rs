@@ -4,7 +4,7 @@ use crate::config::Settings;
 use crate::deliver::{self, Deliverer, Registry};
 use crate::dto::{DetailOut, HomeOut, PageOut, RowOut, media_list};
 use crate::hls::Hls;
-use crate::limits::{Limiter, client_of};
+use crate::limits::{Limiter, Usage, client_of};
 use crate::play::{Outcome, Player};
 use akidev_core::media_id;
 use akidev_core::model::{Filters, Kind, Media, Sort};
@@ -29,6 +29,7 @@ pub struct AppState {
     pub hls: Arc<Hls>,
     pub registry: Arc<Registry>,
     pub limiter: Arc<Limiter>,
+    pub usage: Arc<Usage>,
     pub engine: Option<Arc<akidev_core::torrent::Engine>>,
     pub images: Arc<crate::img::Images>,
     pub subs: Arc<crate::subs::Subs>,
@@ -156,6 +157,8 @@ pub fn router(state: AppState) -> Router {
     let deliverer = Deliverer {
         registry: state.registry.clone(),
         hls: state.hls.clone(),
+        usage: state.usage.clone(),
+        daily_allowance: state.settings.max_stream_bytes_per_day,
     };
     let streams = Router::new()
         .route("/s/{token}", get(deliver::direct))
@@ -262,6 +265,15 @@ fn within_api_limit(state: &AppState, headers: &HeaderMap, peer: SocketAddr) -> 
     )
 }
 
+/// The answer to a client that has been sent its day's allowance of video. It names the way out,
+/// because the desktop app streams on the viewer's own machine and costs the server nothing.
+pub fn daily_limit() -> Response {
+    error(
+        StatusCode::TOO_MANY_REQUESTS,
+        "That is today's limit for watching on the web. It resets tomorrow, and the desktop app has no limit: akidev.live/download",
+    )
+}
+
 fn too_many() -> Response {
     let mut response = error(
         StatusCode::TOO_MANY_REQUESTS,
@@ -289,6 +301,7 @@ async fn health(State(state): State<AppState>) -> Response {
         "active_torrents": state.engine.as_ref().map_or(0, |engine| engine.active_torrents()),
         "hls_sessions": state.hls.count(),
         "resolving": state.player.resolving(),
+        "video_bytes_sent": state.usage.total(),
         "streams": state.registry.len(),
         "cache_bytes": cache,
     }))
@@ -501,6 +514,12 @@ async fn play(
         Duration::from_secs(600),
     ) {
         return too_many();
+    }
+    if state
+        .usage
+        .used_up(&client, state.settings.max_stream_bytes_per_day)
+    {
+        return daily_limit();
     }
     match media_id::parse(&body.id) {
         Some(parsed) if parsed.kind == Kind::Movie || parsed.episode.is_some() => {}

@@ -2,13 +2,14 @@
 //!
 //! Finding a source searches indexers and may join a swarm, so `/v1/play` is limited hard; the
 //! catalogue is cheap and cached, so it is limited loosely. The key is the client's address, taken
-//! from the header Cloudflare sets, because every request arrives from the tunnel.
+//! from the headers the proxy in front of this server sets.
 
 use axum::http::HeaderMap;
 use std::collections::{HashMap, VecDeque};
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 #[derive(Default)]
 pub struct Limiter {
@@ -58,8 +59,62 @@ impl Limiter {
     }
 }
 
-/// Who is asking. Cloudflare puts the visitor's address in `CF-Connecting-IP`; behind any other
-/// proxy it is the first `X-Forwarded-For` entry; with neither it is the connection itself.
+/// How many video bytes this server has sent, in all and to each client today. Video is what costs
+/// bandwidth, so this is what a daily allowance is counted in.
+#[derive(Default)]
+pub struct Usage {
+    total: AtomicU64,
+    /// Client -> (the day it counts for, bytes sent that day).
+    today: Mutex<HashMap<String, (u64, u64)>>,
+}
+
+impl Usage {
+    pub fn add(&self, client: &str, bytes: u64) {
+        self.add_on(client, bytes, day());
+    }
+
+    /// Whether the client has been sent `allowance` bytes or more today. Zero means no limit.
+    pub fn used_up(&self, client: &str, allowance: u64) -> bool {
+        allowance > 0 && self.sent_on(client, day()) >= allowance
+    }
+
+    /// Video bytes sent since the server started.
+    pub fn total(&self) -> u64 {
+        self.total.load(Ordering::Relaxed)
+    }
+
+    fn add_on(&self, client: &str, bytes: u64, day: u64) {
+        self.total.fetch_add(bytes, Ordering::Relaxed);
+        let mut today = self.today.lock().unwrap();
+        // Clients from earlier days are forgotten, so the map does not grow with every address seen.
+        if today.len() > 10_000 {
+            today.retain(|_, (counted_on, _)| *counted_on == day);
+        }
+        let entry = today.entry(client.to_string()).or_insert((day, 0));
+        if entry.0 != day {
+            *entry = (day, 0);
+        }
+        entry.1 += bytes;
+    }
+
+    fn sent_on(&self, client: &str, day: u64) -> u64 {
+        match self.today.lock().unwrap().get(client) {
+            Some((counted_on, bytes)) if *counted_on == day => *bytes,
+            _ => 0,
+        }
+    }
+}
+
+/// The day number since the Unix epoch, in UTC.
+fn day() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |since| since.as_secs() / 86_400)
+}
+
+/// Who is asking. The proxy in front of this server (Caddy) puts the visitor's address in
+/// `CF-Connecting-IP` and `X-Forwarded-For`, replacing whatever the client sent; with neither it is
+/// the connection itself.
 pub fn client_of(headers: &HeaderMap, peer: Option<SocketAddr>) -> String {
     let header = |name: &str| headers.get(name).and_then(|value| value.to_str().ok());
     let forwarded = header("cf-connecting-ip")
@@ -75,6 +130,31 @@ pub fn client_of(headers: &HeaderMap, peer: Option<SocketAddr>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_client_is_counted_per_day_and_total_counts_everyone() {
+        let usage = Usage::default();
+        usage.add_on("a", 600, 10);
+        usage.add_on("a", 600, 10);
+        usage.add_on("b", 50, 10);
+        assert_eq!(usage.sent_on("a", 10), 1200);
+        assert_eq!(usage.sent_on("b", 10), 50);
+        assert_eq!(usage.total(), 1250);
+        // A new day starts the client at zero again.
+        assert_eq!(usage.sent_on("a", 11), 0);
+        usage.add_on("a", 5, 11);
+        assert_eq!(usage.sent_on("a", 11), 5);
+    }
+
+    #[test]
+    fn no_allowance_means_no_limit_and_an_allowance_is_reached_not_exceeded() {
+        let usage = Usage::default();
+        usage.add("a", 1_000_000);
+        assert!(!usage.used_up("a", 0));
+        assert!(!usage.used_up("a", 1_000_001));
+        assert!(usage.used_up("a", 1_000_000));
+        assert!(!usage.used_up("someone else", 1_000_000));
+    }
 
     #[test]
     fn a_client_is_held_to_its_limit_and_released_when_the_window_passes() {

@@ -453,7 +453,7 @@ impl Player {
             probe.video
         );
 
-        let public = &self.settings.public_url;
+        let public = &self.settings.stream_url;
         match plan {
             Plan::Unsupported(reason) => Err(Miss::Reason(reason)),
             Plan::Direct => {

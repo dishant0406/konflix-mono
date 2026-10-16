@@ -10,6 +10,11 @@ test("a busy server is explained, not quoted", () => {
   assert.equal(playErrorMessage(new ApiError("busy", 503)), "The server is busy, try again in a moment.");
 });
 
+test("a used-up day is shown with the server's own words, which name the desktop app", () => {
+  const words = "That is today's limit for watching on the web. It resets tomorrow, and the desktop app has no limit: akidev.live/download";
+  assert.equal(playErrorMessage(new ApiError(words, 429)), words);
+});
+
 test("any other failure keeps its own message", () => {
   assert.equal(playErrorMessage(new ApiError("No such title.", 404)), "No such title.");
   assert.equal(playErrorMessage(new Error("Could not reach the Akidev API.")), "Could not reach the Akidev API.");

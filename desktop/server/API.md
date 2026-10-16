@@ -15,8 +15,11 @@ A film is played by its own title id.
 ```json
 { "status": "ok", "version": "0.1.1", "ffmpeg": true, "sources": ["debrid", "torrent", "archive-org"],
   "debrid": { "configured": true, "reachable": true },
-  "active_torrents": 0, "hls_sessions": 0, "cache_bytes": 0 }
+  "active_torrents": 0, "hls_sessions": 0, "resolving": 0, "video_bytes_sent": 0, "cache_bytes": 0 }
 ```
+
+`resolving` is how many source searches are running (out of 4), and `video_bytes_sent` is the video
+this server has sent since it started, which is what to watch to know what the bandwidth costs.
 
 ## `GET /v1/home`
 
@@ -79,7 +82,12 @@ Finding a source searches indexers and can take up to a minute, so the request s
 ```
 
 or `{ "available": false, "reason": "No torrent found for \"...\"." }`. The reason is for the
-viewer. `503` with `{ "error": "busy" }` when the server is at its limits; try again shortly.
+viewer. `503` with `{ "error": "busy" }` when the server is at its limits; try again shortly. `429` when
+the client has used up its allowance: the video of a day (`MAX_STREAM_BYTES_PER_DAY`, off unless
+set) or the plays of ten minutes.
+
+The origin of `url` is `STREAM_URL` when that is set (video can be served from a host of its own),
+otherwise `PUBLIC_URL`.
 
 `stream_type` is `file` (give `url` to a `<video>` element) or `hls` (attach hls.js to `url`;
 Safari plays it natively). `duration` is seconds when known. `subtitles` is always empty now (kept so older clients parse the reply); use
