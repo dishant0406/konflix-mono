@@ -131,16 +131,31 @@ async fn fetch(url: String, dir: PathBuf) -> anyhow::Result<Vec<u8>> {
     Ok(bytes)
 }
 
-/// How many decoded pictures are kept. A page shows a few dozen; the rest of what was scrolled
-/// past comes back from the disk copy, which is quick, instead of staying decoded in memory
-/// (a poster is about 0.7 MB decoded) and on the graphics card for as long as the app runs.
-const KEPT: usize = 96;
+/// How much decoded picture is kept, in bytes, once more than `ALWAYS_KEPT` are held. A poster is
+/// about 0.7 MB decoded and a banner about 5.7 MB, so a count alone would let the banners of the
+/// titles visited pile up. What is not drawn for a while comes back from the disk copy, which is
+/// quick, instead of staying decoded in memory and on the graphics card for as long as the app runs.
+const BUDGET: usize = 40 * 1024 * 1024;
 
-/// Decoded pictures, with the least recently drawn dropped past `KEPT`. GPUI's default keeps
+/// A picture drawn this recently is never dropped, so what is on screen does not flicker or get
+/// decoded again every frame, however many there are.
+const IN_USE: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Decoded pictures, with the least recently drawn dropped past `BUDGET`. GPUI's default keeps
 /// every picture it has ever drawn.
 pub struct PictureCache {
-    items: std::collections::HashMap<gpui_kit::Resource, (gpui_kit::ImageCacheItem, u64)>,
-    clock: u64,
+    items: std::collections::HashMap<
+        gpui_kit::Resource,
+        (gpui_kit::ImageCacheItem, std::time::Instant),
+    >,
+    loads: u64,
+}
+
+fn weight(item: &gpui_kit::ImageCacheItem) -> usize {
+    match item.get() {
+        Some(Ok(image)) => image.as_bytes(0).map_or(0, <[u8]>::len),
+        _ => 0,
+    }
 }
 
 impl PictureCache {
@@ -148,7 +163,7 @@ impl PictureCache {
         use gpui_kit::AppContext as _;
         let cache = cx.new(|_| PictureCache {
             items: Default::default(),
-            clock: 0,
+            loads: 0,
         });
         cx.observe_release(&cache, |cache, cx| {
             for (_, (item, _)) in std::mem::take(&mut cache.items) {
@@ -160,6 +175,32 @@ impl PictureCache {
         .detach();
         cache
     }
+
+    /// Drops the pictures drawn longest ago until what is left fits the budget.
+    fn trim(&mut self, window: &mut gpui_kit::Window, cx: &mut gpui_kit::App) {
+        let mut total: usize = self.items.values().map(|(item, _)| weight(item)).sum();
+        if total <= BUDGET {
+            return;
+        }
+        let mut by_age: Vec<_> = self
+            .items
+            .iter()
+            .filter(|(_, (_, at))| at.elapsed() > IN_USE)
+            .map(|(key, (_, at))| (*at, key.clone()))
+            .collect();
+        by_age.sort_unstable_by_key(|(at, _)| *at);
+        for (_, key) in by_age {
+            if total <= BUDGET {
+                break;
+            }
+            if let Some((item, _)) = self.items.remove(&key) {
+                total -= weight(&item);
+                if let Some(Ok(image)) = item.get() {
+                    cx.drop_image(image, Some(window));
+                }
+            }
+        }
+    }
 }
 
 impl gpui_kit::ImageCache for PictureCache {
@@ -169,25 +210,18 @@ impl gpui_kit::ImageCache for PictureCache {
         window: &mut gpui_kit::Window,
         cx: &mut gpui_kit::App,
     ) -> Option<Result<std::sync::Arc<gpui_kit::RenderImage>, gpui_kit::ImageCacheError>> {
-        self.clock += 1;
-        let clock = self.clock;
+        self.loads += 1;
+        let now = std::time::Instant::now();
+        let new = !self.items.contains_key(resource);
         let entry = self
             .items
             .entry(resource.clone())
-            .or_insert_with(|| (gpui_kit::ImageCacheItem::new(resource, cx), clock));
-        entry.1 = clock;
+            .or_insert_with(|| (gpui_kit::ImageCacheItem::new(resource, cx), now));
+        entry.1 = now;
         let loaded = entry.0.use_image(window);
-        if self.items.len() > KEPT {
-            // Only what the last frames did not draw is dropped, so nothing on screen flickers.
-            let mut by_age: Vec<_> = self.items.iter().map(|(key, (_, at))| (*at, key.clone())).collect();
-            by_age.sort_unstable_by_key(|(at, _)| *at);
-            for (_, key) in by_age.into_iter().take(self.items.len() - KEPT * 3 / 4) {
-                if let Some((item, _)) = self.items.remove(&key)
-                    && let Some(Ok(image)) = item.get()
-                {
-                    cx.drop_image(image, Some(window));
-                }
-            }
+        // Checked when a picture is added, and now and then as they finish loading.
+        if new || self.loads.is_multiple_of(256) {
+            self.trim(window, cx);
         }
         loaded
     }
