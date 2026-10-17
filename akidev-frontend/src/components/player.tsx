@@ -15,11 +15,11 @@ import {
   Volume2,
   VolumeX,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 import { fix, positionNow } from "@/lib/party/sync";
 import { DAILY_LIMIT_MESSAGE } from "@/lib/play";
-import { optionForChoice, readChoice, writeChoice } from "@/lib/subtitles";
+import { optionForChoice, preferRelease, readChoice, shiftCues, writeChoice } from "@/lib/subtitles";
 import { cn, formatSeconds } from "@/lib/utils";
 import { useMusicPlayer } from "@/providers/music-player";
 import { useParty } from "@/providers/party";
@@ -65,6 +65,8 @@ type Props = {
   streamType: string | null;
   /** The subtitle files the API found; empty when there are none. */
   subtitles?: SubtitleOption[];
+  /** The name of the release being played, so the subtitles made for it are offered first. */
+  release?: string | null;
   /** Still looking for them, so the captions button says so instead of "none". */
   subtitlesLoading?: boolean;
   /** The line in the top bar: title, episode, name. */
@@ -102,7 +104,8 @@ export default function Player({
   mediaId,
   src,
   streamType,
-  subtitles = NO_SUBTITLES,
+  subtitles: listed = NO_SUBTITLES,
+  release = null,
   subtitlesLoading = false,
   title,
   startAt,
@@ -120,6 +123,13 @@ export default function Player({
   const resumed = useRef(false);
   /** Where to jump to once the file (or, for HLS, the conversion) has reached it. */
   const pendingStart = useRef<number | null>(null);
+
+  const subtitles = useMemo(() => preferRelease(listed, release), [listed, release]);
+  /** How far the viewer has moved the subtitles, in seconds, and how far the shown cues already are. */
+  const [subtitleShift, setSubtitleShift] = useState(0);
+  const shiftNow = useRef(0);
+  const shiftApplied = useRef(0);
+  const shiftedTrack = useRef<string | null>(null);
 
   const [ready, setReady] = useState(false);
   const [playing, setPlaying] = useState(false);
@@ -285,6 +295,31 @@ export default function Player({
       element.textTracks.removeEventListener("addtrack", apply);
     };
   }, [active]);
+
+  // A file made for another cut of the film runs early or late; z and x move it a tenth of a
+  // second. The cues are moved where they are, so it needs no new file, and a track loaded later
+  // starts from its own times.
+  const shiftCuesNow = useCallback(() => {
+    const track = active ? Array.from(video.current?.textTracks ?? []).find((t) => t.id === active.id) : undefined;
+    if (!track?.cues) return;
+    if (shiftedTrack.current !== track.id) {
+      shiftedTrack.current = track.id;
+      shiftApplied.current = 0;
+    }
+    shiftCues(Array.from(track.cues), subtitleShift - shiftApplied.current);
+    shiftApplied.current = subtitleShift;
+  }, [active, subtitleShift]);
+  useEffect(shiftCuesNow, [shiftCuesNow]);
+
+  const shiftSubtitles = useCallback(
+    (delta: number) => {
+      const next = Math.round((shiftNow.current + delta) * 10) / 10;
+      shiftNow.current = next;
+      setSubtitleShift(next);
+      say(next === 0 ? "Subtitle timing: in step" : `Subtitle timing: ${next > 0 ? "+" : ""}${next.toFixed(1)}s`);
+    },
+    [say],
+  );
 
   const toggle = useCallback(() => {
     const element = video.current;
@@ -471,6 +506,12 @@ export default function Player({
           case "m":
             setMuted((value) => !value);
             return true;
+          case "z":
+            shiftSubtitles(-0.1);
+            return true;
+          case "x":
+            shiftSubtitles(0.1);
+            return true;
           case "f":
             void toggleFullscreen();
             return true;
@@ -488,7 +529,7 @@ export default function Player({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [panel, seekBy, toggle, toggleFullscreen, wake]);
+  }, [panel, seekBy, shiftSubtitles, toggle, toggleFullscreen, wake]);
 
   const remaining = Math.max(duration - position, 0);
   const offerNext = Boolean(onNext) && duration > 0 && remaining <= NEXT_OFFER;
@@ -584,7 +625,7 @@ export default function Player({
             );
         }}
       >
-        {active && <track key={active.id} id={active.id} kind="subtitles" src={active.url} srcLang={active.lang} label={active.language} />}
+        {active && <track key={active.id} id={active.id} kind="subtitles" src={active.url} srcLang={active.lang} label={active.language} onLoad={shiftCuesNow} />}
       </video>
 
       {!ready && (

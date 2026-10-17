@@ -457,9 +457,66 @@ pub fn arrange(found: Vec<Subtitle>) -> Vec<Subtitle> {
     });
     by_language
         .into_iter()
-        .flat_map(|(_, _, list)| list.into_iter().take(PER_LANGUAGE))
+        .flat_map(|(_, _, mut list)| {
+            // Files for one disc of a film split in two start their clock again at that disc,
+            // so they run an hour out against a whole film: they go last, the rest keep order.
+            list.sort_by_key(|subtitle| split_disc(&subtitle.label));
+            list.into_iter().take(PER_LANGUAGE)
+        })
         .take(MOST)
         .collect()
+}
+
+/// Whether a file name says it is one disc or part of a film that was shared in pieces.
+fn split_disc(name: &str) -> bool {
+    let name = name.to_lowercase();
+    let tokens: Vec<&str> = name
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|token| !token.is_empty())
+        .collect();
+    tokens.iter().any(|token| {
+        ["cd", "disc", "disk", "part", "pt"].iter().any(|word| {
+            token
+                .strip_prefix(word)
+                .is_some_and(|n| n.parse::<u8>().is_ok())
+        })
+    }) || tokens.windows(2).any(|pair| {
+        ["cd", "disc", "disk", "part", "pt"].contains(&pair[0]) && pair[1].parse::<u8>().is_ok()
+    })
+}
+
+/// Words that say which cut a subtitle was timed to: the group, the source, the resolution.
+fn release_words(name: &str) -> std::collections::HashSet<String> {
+    const NOISE: [&str; 12] = [
+        "srt", "ass", "vtt", "sub", "eng", "en", "english", "the", "and", "of", "a", "subs",
+    ];
+    name.to_lowercase()
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|word| word.len() > 1 && !NOISE.contains(word))
+        .map(str::to_string)
+        .collect()
+}
+
+/// Puts the subtitles made for the release being played first within each language, so the
+/// first pick is timed to the same cut of the film. A subtitle that shares words with the
+/// release (its group, "bluray", "1080p") scores up; a split-disc file scores down. The order
+/// among equals stays as the sources gave it.
+pub fn prefer_release(list: &mut [Subtitle], release: &str) {
+    let wanted = release_words(release);
+    let score = |subtitle: &Subtitle| -> i64 {
+        let shared = release_words(&subtitle.label).intersection(&wanted).count() as i64;
+        shared - if split_disc(&subtitle.label) { 100 } else { 0 }
+    };
+    // Stable, and only inside a language: the list is already one language after another.
+    let mut start = 0;
+    while start < list.len() {
+        let end = list[start..]
+            .iter()
+            .position(|subtitle| subtitle.lang != list[start].lang)
+            .map_or(list.len(), |n| start + n);
+        list[start..end].sort_by_key(|subtitle| std::cmp::Reverse(score(subtitle)));
+        start = end;
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -705,6 +762,59 @@ fn ass_time(text: &str) -> Option<(f64, String)> {
 
 #[cfg(test)]
 mod tests {
+    fn named(label: &str, lang: &str) -> Subtitle {
+        Subtitle {
+            id: label.into(),
+            provider: "p".into(),
+            lang: lang.into(),
+            language: lang.into(),
+            label: label.into(),
+            url: format!("https://x/{label}"),
+            format: None,
+            hearing_impaired: false,
+        }
+    }
+
+    #[test]
+    fn a_disc_of_a_split_film_is_recognised_and_other_names_are_not() {
+        assert!(split_disc("The_Shawshank_Redemption_(1994).CD1.aFLDp.srt"));
+        assert!(split_disc(
+            "The Shawshank Redemption SBC AC3 aFLDp CD2.eng.srt"
+        ));
+        assert!(split_disc("movie.part 2.srt"));
+        assert!(split_disc("movie disc2.srt"));
+        assert!(!split_disc("Breaking.Bad.S01E01.720p.HDTV.x264-BiA.srt"));
+        assert!(!split_disc("Spartacus.2010.srt"));
+    }
+
+    #[test]
+    fn split_disc_files_go_last_and_the_played_release_goes_first() {
+        let arranged = arrange(vec![
+            named("Movie.CD2.srt", "en"),
+            named("Movie.DVDRip.XviD-AAA.srt", "en"),
+            named("Movie.1080p.BluRay.x264-BBB.srt", "en"),
+        ]);
+        assert_eq!(arranged[2].label, "Movie.CD2.srt");
+        let mut list = arranged;
+        prefer_release(&mut list, "Movie.2000.1080p.BluRay.x264-BBB");
+        assert_eq!(list[0].label, "Movie.1080p.BluRay.x264-BBB.srt");
+        assert_eq!(list[2].label, "Movie.CD2.srt");
+    }
+
+    #[test]
+    fn preferring_a_release_keeps_languages_apart() {
+        let mut list = vec![
+            named("a.srt", "en"),
+            named("b.BBB.srt", "en"),
+            named("c.BBB.srt", "fr"),
+            named("d.srt", "fr"),
+        ];
+        prefer_release(&mut list, "x.BBB");
+        let langs: Vec<_> = list.iter().map(|s| s.lang.as_str()).collect();
+        assert_eq!(langs, ["en", "en", "fr", "fr"]);
+        assert_eq!(list[0].label, "b.BBB.srt");
+        assert_eq!(list[2].label, "c.BBB.srt");
+    }
     use super::*;
     use serde_json::json;
 

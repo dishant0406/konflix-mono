@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { SUBTITLE_KEY, byLanguage, optionForChoice, optionLine, readChoice, writeChoice } from "../src/lib/subtitles.ts";
+import { SUBTITLE_KEY, byLanguage, isSplitDisc, optionForChoice, optionLine, preferRelease, readChoice, shiftCues, writeChoice } from "../src/lib/subtitles.ts";
 import type { SubtitleOption } from "../src/types/media.ts";
 
 function option(id: string, lang: string, language: string, patch: Partial<SubtitleOption> = {}): SubtitleOption {
@@ -48,4 +48,31 @@ test("the choice is kept under one key, and a blocked store is not an error", ()
   };
   assert.equal(readChoice(blocked), null);
   assert.doesNotThrow(() => writeChoice("en", blocked));
+});
+
+test("a disc of a split film is recognised and ordinary names are not", () => {
+  assert.equal(isSplitDisc("The_Shawshank_Redemption_(1994).CD1.aFLDp.srt"), true);
+  assert.equal(isSplitDisc("The Shawshank Redemption SBC AC3 aFLDp CD2.eng.srt"), true);
+  assert.equal(isSplitDisc("movie.part 2.srt"), true);
+  assert.equal(isSplitDisc("Breaking.Bad.S01E01.720p.HDTV.x264-BiA.srt"), false);
+  assert.equal(isSplitDisc("Spartacus.2010.srt"), false);
+});
+
+test("the subtitles for the played release come first, split discs last, languages stay apart", () => {
+  const list = [
+    option("Movie.CD2", "en", "English"),
+    option("Movie.DVDRip.XviD-AAA", "en", "English"),
+    option("Movie.1080p.BluRay.x264-BBB", "en", "English"),
+    option("x.BBB", "fr", "French"),
+    option("y", "fr", "French"),
+  ];
+  const ranked = preferRelease(list, "Movie.2000.1080p.BluRay.x264-BBB");
+  assert.deepEqual(ranked.map((o) => o.id), ["Movie.1080p.BluRay.x264-BBB", "Movie.DVDRip.XviD-AAA", "Movie.CD2", "x.BBB", "y"]);
+  assert.deepEqual(preferRelease(list, null).map((o) => o.id).slice(0, 2), ["Movie.DVDRip.XviD-AAA", "Movie.1080p.BluRay.x264-BBB"]);
+});
+
+test("moving the cues shifts both ends and never goes below zero", () => {
+  const cues = [{ startTime: 1, endTime: 2 }, { startTime: 0.1, endTime: 0.5 }];
+  shiftCues(cues, -0.3);
+  assert.deepEqual(cues.map((c) => [Math.round(c.startTime * 10) / 10, Math.round(c.endTime * 10) / 10]), [[0.7, 1.7], [0, 0.2]]);
 });

@@ -299,6 +299,11 @@ impl Player {
         self.command(&["sub-add", path, "select", title, lang]);
     }
 
+    /// Shifts the subtitles by `seconds` from where they are now: later when positive.
+    pub fn shift_subtitles(&self, seconds: f64) {
+        self.command(&["add", "sub-delay", &seconds.to_string()]);
+    }
+
     pub fn remove_subtitle(&self, id: i64) {
         self.command(&["sub-remove", &id.to_string()]);
     }

@@ -183,6 +183,7 @@ export default function WatchPage() {
         src={link.url}
         streamType={link.stream_type}
         subtitles={subtitles.subtitles}
+        release={link.release}
         subtitlesLoading={subtitles.loading}
         title={titleLine(data, id)}
         startAt={resumeFrom}

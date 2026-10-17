@@ -52,3 +52,52 @@ export function optionForChoice(subtitles: SubtitleOption[], choice: string | nu
   if (!choice || choice === "off") return null;
   return subtitles.find((option) => option.lang === choice) ?? null;
 }
+
+const NOISE = new Set(["srt", "ass", "vtt", "sub", "eng", "en", "english", "the", "and", "of", "subs"]);
+
+function words(name: string): Set<string> {
+  return new Set(
+    name
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter((word) => word.length > 1 && !NOISE.has(word)),
+  );
+}
+
+/** Whether a file name says it is one disc or part of a film that was shared in pieces: such a file
+ * starts its clock again at that disc, so against a whole film it is out by the first disc's length. */
+export function isSplitDisc(name: string): boolean {
+  const tokens = name.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  const labels = ["cd", "disc", "disk", "part", "pt"];
+  return tokens.some(
+    (token, index) =>
+      labels.some((label) => new RegExp(`^${label}\\d$`).test(token)) ||
+      (labels.includes(token) && /^\d$/.test(tokens[index + 1] ?? "")),
+  );
+}
+
+/** The list with, inside each language, the files made for the release being played first (its
+ * group, "bluray", "1080p" shared with the file's name) and split-disc files last. The order among
+ * equals, and of the languages, stays as the server gave it. */
+export function preferRelease(subtitles: SubtitleOption[], release: string | null): SubtitleOption[] {
+  const wanted = words(release ?? "");
+  const score = (option: SubtitleOption) => {
+    let shared = 0;
+    for (const word of words(option.label)) if (wanted.has(word)) shared += 1;
+    return shared - (isSplitDisc(option.label) ? 100 : 0);
+  };
+  return byLanguage(subtitles).flatMap((group) =>
+    group.options
+      .map((option, index) => ({ option, index, score: score(option) }))
+      .sort((a, b) => b.score - a.score || a.index - b.index)
+      .map((entry) => entry.option),
+  );
+}
+
+/** Moves every cue of a track by `seconds`, later when positive. */
+export function shiftCues(cues: { startTime: number; endTime: number }[], seconds: number): void {
+  for (const cue of cues) {
+    cue.startTime = Math.max(0, cue.startTime + seconds);
+    cue.endTime = Math.max(0, cue.endTime + seconds);
+  }
+}

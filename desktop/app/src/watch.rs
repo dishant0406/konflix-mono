@@ -47,6 +47,8 @@ const MESSAGE_FOR: Duration = Duration::from_millis(1400);
 const NEXT_OFFER: f64 = 40.;
 /// How long to wait for the subtitle sites. Playback never waits for them.
 const SUBTITLES_WAIT: Duration = Duration::from_secs(8);
+/// How far one press of the subtitle timing keys moves them, in seconds.
+const SUB_STEP: f64 = 0.1;
 /// How often a host tells its party where the picture is while it plays.
 const PARTY_BEAT: Duration = Duration::from_secs(2);
 /// A guest seeks to catch up no more often than this, so a seek has time to land.
@@ -213,6 +215,8 @@ pub struct WatchPage {
     video: Option<Entity<VideoView>>,
     state: PlayerState,
     release: Option<String>,
+    /// How far the viewer has moved the subtitles, in seconds: later when positive.
+    sub_delay: f64,
     /// Which torrent file is playing, to ask how its download is going.
     stream: Option<StreamId>,
     transfer: Option<StreamStats>,
@@ -322,6 +326,7 @@ impl WatchPage {
             video: None,
             state: PlayerState::default(),
             release: None,
+            sub_delay: 0.,
             stream: None,
             transfer: None,
             focus: cx.focus_handle(),
@@ -434,6 +439,8 @@ impl WatchPage {
                 self.video = Some(cx.new(|cx| VideoView::new(player.clone(), receiver, cx)));
                 self.player = Some(player);
                 self.release = Some(release);
+                self.sub_delay = 0.;
+                self.rank_online();
                 self.stream = Some(stream);
                 self.phase = Phase::Playing;
                 // The picture has the sound to itself.
@@ -910,6 +917,18 @@ impl WatchPage {
             }
             "m" => self.with_player(cx, Player::toggle_mute),
             "c" => self.with_player(cx, Player::cycle_subtitles),
+            // Subtitles that come early or late are put right a tenth of a second at a time.
+            "z" | "x" => {
+                let step = if key == "z" { -SUB_STEP } else { SUB_STEP };
+                self.sub_delay = ((self.sub_delay + step) * 10.).round() / 10.;
+                self.with_player(cx, |player| player.shift_subtitles(step));
+                let text = if self.sub_delay == 0. {
+                    "Subtitle timing: in step".to_string()
+                } else {
+                    format!("Subtitle timing: {:+.1}s", self.sub_delay)
+                };
+                self.say(text, cx);
+            }
             "a" => self.with_player(cx, Player::cycle_audio),
             "e" if self.episodes.is_some() && !self.guest => self.toggle_panel(Panel::Episodes, cx),
             "n" => {
@@ -974,6 +993,16 @@ impl WatchPage {
         );
     }
 
+    /// Puts the subtitles made for the release being played first in each language.
+    fn rank_online(&mut self) {
+        let Some(release) = &self.release else {
+            return;
+        };
+        for group in &mut self.online {
+            subtitles::prefer_release(&mut group.options, release);
+        }
+    }
+
     /// Looks for subtitles on the sites. Playback does not wait for this, and when it fails
     /// or finds nothing the menu simply has no online section.
     fn find_subtitles(&mut self, detail: Option<&Detail>, cx: &mut Context<Self>) {
@@ -986,6 +1015,7 @@ impl WatchPage {
             async move { subtitles::find(&query, SUBTITLES_WAIT).await },
             |page, found, cx| {
                 page.online = captions::group(found);
+                page.rank_online();
                 page.online_ready = true;
                 cx.notify();
             },
