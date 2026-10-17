@@ -338,7 +338,9 @@ impl AkidevApp {
                                     ) {
                                         app.open_search(window, cx);
                                     } else {
-                                        navigate(
+                                        // Not `navigate`: this handler is already inside the window, which
+                                        // cannot be asked to update itself again.
+                                        app.go(
                                             Route::Browse {
                                                 kind: None,
                                                 term: String::new(),
