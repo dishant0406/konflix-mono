@@ -11,7 +11,15 @@ use tokio::task::JoinHandle;
 
 fn runtime() -> &'static Runtime {
     static RUNTIME: OnceLock<Runtime> = OnceLock::new();
-    RUNTIME.get_or_init(|| Runtime::new().expect("tokio runtime starts"))
+    // Four workers, not one per core: the work here waits on the network, and every extra
+    // worker is a thread and stack that sit idle.
+    RUNTIME.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(4)
+            .enable_all()
+            .build()
+            .expect("tokio runtime starts")
+    })
 }
 
 /// Starts `future` on the tokio runtime. Dropping the handle does not stop it; abort it for that.

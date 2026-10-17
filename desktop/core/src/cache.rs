@@ -10,7 +10,7 @@ use std::future::Future;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-const MAX_ENTRIES: usize = 500;
+const MAX_ENTRIES: usize = 200;
 
 /// How long an empty result stays valid. Short on purpose: an empty answer is usually a
 /// blocked mirror or a rate limit, and caching it for the full TTL would blackhole the
@@ -49,6 +49,9 @@ pub fn put<T: Clone + Send + Sync + 'static>(key: &str, value: T, ttl: Duration)
             value: Arc::new(value),
         },
     );
+    // What has expired is of no use to `peek` and can be large (a parsed catalogue page), so it
+    // goes now and not when 200 newer answers have pushed it out.
+    map.retain(|_, entry| entry.expires > now);
     while map.len() > MAX_ENTRIES {
         let oldest = map
             .iter()
@@ -91,6 +94,14 @@ pub fn list_ttl<T>(full: Duration) -> impl Fn(&Vec<T>) -> Duration {
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn an_expired_answer_is_dropped_when_the_next_is_stored() {
+        put("sweep-old", 1u8, Duration::ZERO);
+        put("sweep-new", 2u8, Duration::from_secs(60));
+        assert!(!store().lock().unwrap().contains_key("sweep-old"));
+        assert_eq!(peek::<u8>("sweep-new"), Some(2));
+    }
 
     #[tokio::test]
     async fn a_hit_does_not_load_again() {

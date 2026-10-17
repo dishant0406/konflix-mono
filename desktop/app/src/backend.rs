@@ -6,9 +6,50 @@ use gpui_kit::Global;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+/// The torrent engine, started the first time something is played and not before: browsing
+/// never needs it, and its peer connections, DHT and threads cost memory the whole time it is up.
+#[derive(Clone)]
+pub struct LazyStreamer {
+    cell: Arc<tokio::sync::OnceCell<Result<Arc<Streamer>, String>>>,
+    config: Arc<std::sync::Mutex<Config>>,
+    dir: PathBuf,
+}
+
+impl LazyStreamer {
+    /// The engine, started now if it has not been. The reason it failed to start, when it did:
+    /// browsing still works without it.
+    pub async fn get(&self) -> Result<Arc<Streamer>, String> {
+        self.cell
+            .get_or_init(|| async {
+                let config = self.config.lock().unwrap().clone();
+                Streamer::start(config, self.dir.clone())
+                    .await
+                    .map(Arc::new)
+                    .map_err(|error| {
+                        tracing::error!("[backend] could not start streaming: {error:#}");
+                        format!("{error:#}")
+                    })
+            })
+            .await
+            .clone()
+    }
+
+    /// The engine if it is already running.
+    pub fn running(&self) -> Option<Arc<Streamer>> {
+        self.cell.get()?.as_ref().ok().cloned()
+    }
+
+    /// New settings: applied now when the engine is up, and used when it is started otherwise.
+    pub fn set_config(&self, config: Config) {
+        *self.config.lock().unwrap() = config.clone();
+        if let Some(streamer) = self.running() {
+            streamer.set_config(config);
+        }
+    }
+}
+
 pub struct Backend {
-    /// The reason it failed to start, when it did: browsing still works without it.
-    pub streamer: Result<Arc<Streamer>, String>,
+    pub streamer: LazyStreamer,
     pub config: Config,
     /// The settings the torrent engine started with. Some apply only at the next start.
     pub started_with: Config,
@@ -61,13 +102,11 @@ impl Backend {
         crate::analytics::start(install, first_run);
         let torrent_dir = config.cache_dir.clone().unwrap_or(default_torrent_dir);
         let downloads_dir = akidev_core::torrent::Engine::downloads_dir(&torrent_dir);
-        let streamer =
-            crate::runtime::block_on(Streamer::start(config.clone(), torrent_dir.clone()))
-                .map(Arc::new)
-                .map_err(|error| format!("{error:#}"));
-        if let Err(error) = &streamer {
-            tracing::error!("[backend] could not start streaming: {error}");
-        }
+        let streamer = LazyStreamer {
+            cell: Default::default(),
+            config: Arc::new(std::sync::Mutex::new(config.clone())),
+            dir: torrent_dir.clone(),
+        };
         Backend {
             streamer,
             started_with: config.clone(),

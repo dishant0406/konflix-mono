@@ -326,15 +326,17 @@ impl WatchPage {
         self.controls_visible = true;
         cx.notify();
 
-        let streamer = match &cx.global::<Backend>().streamer {
-            Ok(streamer) => streamer.clone(),
-            Err(error) => {
-                self.phase = Phase::Unavailable(format!("Streaming could not start: {error}"));
-                return;
-            }
-        };
+        let streamer = cx.global::<Backend>().streamer.clone();
         let id = self.id.clone();
         let handle = runtime::spawn(async move {
+            let streamer = match streamer.get().await {
+                Ok(streamer) => streamer,
+                Err(error) => {
+                    return Resolution::Unavailable {
+                        reason: format!("Streaming could not start: {error}"),
+                    };
+                }
+            };
             match release {
                 Some(info_hash) => streamer.resolve_release(&id, &info_hash).await,
                 None => streamer.resolve(&id, fresh).await,
@@ -425,8 +427,8 @@ impl WatchPage {
         let backend = cx.global_mut::<Backend>();
         (backend.volume, backend.muted) = (self.state.volume, self.state.muted);
 
-        let transfer = match (&self.stream, &cx.global::<Backend>().streamer) {
-            (Some(stream), Ok(streamer)) => streamer.stats(stream),
+        let transfer = match (&self.stream, cx.global::<Backend>().streamer.running()) {
+            (Some(stream), Some(streamer)) => streamer.stats(stream),
             _ => None,
         };
         if transfer != self.transfer {
@@ -642,20 +644,18 @@ impl WatchPage {
     /// Asks for every release of this episode or film. It runs in the background: the first
     /// call searches the indexers and takes several seconds.
     fn load_sources(&mut self, cx: &mut Context<Self>) {
-        let streamer = match &cx.global::<Backend>().streamer {
-            Ok(streamer) => streamer.clone(),
-            Err(error) => {
-                self.sources = Some(Sources::Failed(format!(
-                    "Streaming could not start: {error}"
-                )));
-                return;
-            }
-        };
+        let streamer = cx.global::<Backend>().streamer.clone();
         self.sources = Some(Sources::Loading);
         let id = self.id.clone();
         crate::task::load(
             cx,
-            async move { streamer.plan(&id).await.map(|plan| plan.choices()) },
+            async move {
+                let streamer = streamer
+                    .get()
+                    .await
+                    .map_err(|error| format!("Streaming could not start: {error}"))?;
+                streamer.plan(&id).await.map(|plan| plan.choices())
+            },
             |page, plan, cx| {
                 page.sources = Some(match plan {
                     Ok(choices) => {

@@ -105,9 +105,7 @@ impl SettingsPage {
             let path = cx.global::<Backend>().config_path.clone();
             match self.config.save(&path) {
                 Ok(()) => {
-                    if let Ok(streamer) = &cx.global::<Backend>().streamer {
-                        streamer.set_config(self.config.clone());
-                    }
+                    cx.global::<Backend>().streamer.set_config(self.config.clone());
                     cx.global_mut::<Backend>().config = self.config.clone();
                 }
                 Err(error) => {

@@ -166,9 +166,9 @@ impl Player {
                 // How far ahead mpv reads. The torrent engine fetches only what is read, so
                 // this is also how much is downloaded ahead of the playhead.
                 ("cache", "yes"),
-                ("cache-secs", "60"),
-                ("demuxer-max-bytes", "64MiB"),
-                ("demuxer-max-back-bytes", "16MiB"),
+                ("cache-secs", "40"),
+                ("demuxer-max-bytes", "32MiB"),
+                ("demuxer-max-back-bytes", "8MiB"),
                 ("network-timeout", "60"),
                 ("volume-max", "100"),
             ] {

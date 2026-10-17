@@ -57,6 +57,7 @@ pub struct AkidevApp {
     palette_was_open: bool,
     /// The Akidev mark drawn beside the name.
     mark: Arc<Image>,
+    pictures: Entity<crate::images::PictureCache>,
     _palette_changes: Subscription,
     _update_changes: Subscription,
     /// Redraws the page when music starts or stops, so it leaves room for the bar.
@@ -88,6 +89,7 @@ impl AkidevApp {
             focus: cx.focus_handle(),
             focused: false,
             palette_was_open: false,
+            pictures: crate::images::PictureCache::new(cx),
             mark: Arc::new(Image::from_bytes(
                 ImageFormat::Png,
                 include_bytes!("../assets/mark.png").to_vec(),
@@ -362,7 +364,8 @@ impl Render for AkidevApp {
         let immersive = matches!(self.route(), Route::Watch { .. });
         let has_music = hub(cx).player.read(cx).current().is_some();
 
-        div()
+        let pictures = self.pictures.clone();
+        let shell = div()
             .size_full()
             .relative()
             .bg(color(CANVAS))
@@ -422,6 +425,7 @@ impl Render for AkidevApp {
                             .text_color(color(TEXT))
                             .child(toast.text.clone())
                     })),
-            )
+            );
+        image_cache(pictures).size_full().child(shell)
     }
 }

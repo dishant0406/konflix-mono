@@ -130,3 +130,65 @@ async fn fetch(url: String, dir: PathBuf) -> anyhow::Result<Vec<u8>> {
     }
     Ok(bytes)
 }
+
+/// How many decoded pictures are kept. A page shows a few dozen; the rest of what was scrolled
+/// past comes back from the disk copy, which is quick, instead of staying decoded in memory
+/// (a poster is about 0.7 MB decoded) and on the graphics card for as long as the app runs.
+const KEPT: usize = 96;
+
+/// Decoded pictures, with the least recently drawn dropped past `KEPT`. GPUI's default keeps
+/// every picture it has ever drawn.
+pub struct PictureCache {
+    items: std::collections::HashMap<gpui_kit::Resource, (gpui_kit::ImageCacheItem, u64)>,
+    clock: u64,
+}
+
+impl PictureCache {
+    pub fn new(cx: &mut gpui_kit::App) -> gpui_kit::Entity<PictureCache> {
+        use gpui_kit::AppContext as _;
+        let cache = cx.new(|_| PictureCache {
+            items: Default::default(),
+            clock: 0,
+        });
+        cx.observe_release(&cache, |cache, cx| {
+            for (_, (item, _)) in std::mem::take(&mut cache.items) {
+                if let Some(Ok(image)) = item.get() {
+                    cx.drop_image(image, None);
+                }
+            }
+        })
+        .detach();
+        cache
+    }
+}
+
+impl gpui_kit::ImageCache for PictureCache {
+    fn load(
+        &mut self,
+        resource: &gpui_kit::Resource,
+        window: &mut gpui_kit::Window,
+        cx: &mut gpui_kit::App,
+    ) -> Option<Result<std::sync::Arc<gpui_kit::RenderImage>, gpui_kit::ImageCacheError>> {
+        self.clock += 1;
+        let clock = self.clock;
+        let entry = self
+            .items
+            .entry(resource.clone())
+            .or_insert_with(|| (gpui_kit::ImageCacheItem::new(resource, cx), clock));
+        entry.1 = clock;
+        let loaded = entry.0.use_image(window);
+        if self.items.len() > KEPT {
+            // Only what the last frames did not draw is dropped, so nothing on screen flickers.
+            let mut by_age: Vec<_> = self.items.iter().map(|(key, (_, at))| (*at, key.clone())).collect();
+            by_age.sort_unstable_by_key(|(at, _)| *at);
+            for (_, key) in by_age.into_iter().take(self.items.len() - KEPT * 3 / 4) {
+                if let Some((item, _)) = self.items.remove(&key)
+                    && let Some(Ok(image)) = item.get()
+                {
+                    cx.drop_image(image, Some(window));
+                }
+            }
+        }
+        loaded
+    }
+}
