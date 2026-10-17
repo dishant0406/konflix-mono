@@ -4,15 +4,16 @@ import { Play } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
-import { EmptyState, ErrorState, Skeleton } from "@/components/states";
+import { EmptyState, ErrorState } from "@/components/states";
 import { albumPath, artistPath, type MusicSearch } from "@/lib/music";
 import { cn } from "@/lib/utils";
 import { useMusicSearch } from "@/query/use-music";
 import { useMusicPlayer } from "@/providers/music-player";
 
-import { AlbumCardLink, ArtistCardLink, Shelf } from "./cards";
+import Bone from "./bone";
+import { AlbumCardLink, ArtistCardLink, Shelf, ShelfSkeleton } from "./cards";
 import Cover from "./cover";
-import TrackList from "./track-list";
+import TrackList, { TrackListSkeleton } from "./track-list";
 
 const FILTERS = ["All", "Songs", "Albums", "Artists"] as const;
 type Filter = (typeof FILTERS)[number];
@@ -27,13 +28,13 @@ function TopResult({ found, term }: { found: MusicSearch; term: string }) {
   const href = asArtist ? artistPath(artist.id) : song.album?.id ? albumPath(song.album.id) : "#";
   return (
     <section className="flex flex-col gap-3">
-      <h2 className="text-xl font-bold tracking-tight">Top result</h2>
+      <h2 className="text-xl font-bold leading-7 tracking-tight">Top result</h2>
       <div className="group relative flex flex-col gap-4 rounded-lg bg-white/[0.06] p-5 transition-colors hover:bg-white/10">
         <Link href={href} aria-label={asArtist ? artist.name : song.title} className="absolute inset-0 rounded-lg" />
         <Cover src={asArtist ? artist.cover : song.cover} sizes="96px" round={asArtist} className="size-24" />
         <div className="min-w-0">
-          <p className="truncate text-3xl font-extrabold tracking-tight">{asArtist ? artist.name : song.title}</p>
-          <p className="truncate text-sm text-white/60">
+          <p className="truncate text-3xl font-extrabold leading-9 tracking-tight">{asArtist ? artist.name : song.title}</p>
+          <p className="truncate text-sm leading-5 text-white/60">
             {asArtist ? "Artist" : `Song · ${song.artists.map((a) => a.name).join(", ")}`}
           </p>
         </div>
@@ -57,6 +58,25 @@ export default function SearchView({ term }: { term: string }) {
   const search = useMusicSearch(term);
   const found = search.data;
 
+  const chips = (
+    <div className="flex gap-2 gutter">
+      {FILTERS.map((name) => (
+        <button
+          key={name}
+          type="button"
+          onClick={() => setFilter(name)}
+          aria-pressed={filter === name}
+          className={cn(
+            "h-8 cursor-pointer rounded-full px-4 text-sm font-medium transition-colors",
+            filter === name ? "bg-white text-black" : "bg-white/10 text-white hover:bg-white/[0.16]",
+          )}
+        >
+          {name}
+        </button>
+      ))}
+    </div>
+  );
+
   if (!term) {
     return null;
   }
@@ -65,10 +85,9 @@ export default function SearchView({ term }: { term: string }) {
   }
   if (!found) {
     return (
-      <div className="flex flex-col gap-3 gutter">
-        {Array.from({ length: 7 }, (_, i) => (
-          <Skeleton key={i} className="h-14 bg-white/10" />
-        ))}
+      <div className="flex flex-col gap-8 pb-8">
+        {chips}
+        <SearchSkeleton />
       </div>
     );
   }
@@ -79,29 +98,14 @@ export default function SearchView({ term }: { term: string }) {
   const all = filter === "All";
   return (
     <div className="flex flex-col gap-8 pb-8">
-      <div className="flex gap-2 gutter">
-        {FILTERS.map((name) => (
-          <button
-            key={name}
-            type="button"
-            onClick={() => setFilter(name)}
-            aria-pressed={filter === name}
-            className={cn(
-              "h-8 cursor-pointer rounded-full px-4 text-sm font-medium transition-colors",
-              filter === name ? "bg-white text-black" : "bg-white/10 text-white hover:bg-white/[0.16]",
-            )}
-          >
-            {name}
-          </button>
-        ))}
-      </div>
+      {chips}
 
       {all && (
-        <div className="grid gap-8 px-4 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] md:px-8">
+        <div className="grid gap-8 gutter md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
           <TopResult found={found} term={term} />
           {found.songs.length > 0 && (
             <section className="flex min-w-0 flex-col gap-3">
-              <h2 className="text-xl font-bold tracking-tight">Songs</h2>
+              <h2 className="text-xl font-bold leading-7 tracking-tight">Songs</h2>
               <div className="-mx-4">
                 <TrackList tracks={found.songs.slice(0, 4)} variant="list" />
               </div>
@@ -129,5 +133,41 @@ export default function SearchView({ term }: { term: string }) {
         </Shelf>
       )}
     </div>
+  );
+}
+
+/** The results before they arrive: the same top result card, four song rows and two shelves, in grey. */
+function SearchSkeleton() {
+  return (
+    <>
+      <div className="grid gap-8 gutter md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]" aria-hidden>
+        <section className="flex flex-col gap-3">
+          <div className="flex h-7 items-center">
+            <Bone className="h-5 w-28" />
+          </div>
+          <div className="flex flex-col gap-4 rounded-lg bg-white/[0.06] p-5">
+            <Bone className="size-24 rounded-full" />
+            <div className="min-w-0">
+              <div className="flex h-9 items-center">
+                <Bone className="h-6 w-3/4" />
+              </div>
+              <div className="flex h-5 items-center">
+                <Bone className="h-3.5 w-1/3" />
+              </div>
+            </div>
+          </div>
+        </section>
+        <section className="flex min-w-0 flex-col gap-3">
+          <div className="flex h-7 items-center">
+            <Bone className="h-5 w-16" />
+          </div>
+          <div className="-mx-4">
+            <TrackListSkeleton variant="list" rows={4} />
+          </div>
+        </section>
+      </div>
+      <ShelfSkeleton round />
+      <ShelfSkeleton />
+    </>
   );
 }

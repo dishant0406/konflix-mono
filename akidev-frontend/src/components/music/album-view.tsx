@@ -2,14 +2,14 @@
 
 import Link from "next/link";
 
-import { ErrorState, Skeleton } from "@/components/states";
+import { ErrorState } from "@/components/states";
 import { artistPath } from "@/lib/music";
 import { useAlbum } from "@/query/use-music";
 import { useTint } from "@/query/use-tint";
 
-import Actions from "./actions";
-import Hero from "./hero";
-import TrackList from "./track-list";
+import Actions, { ActionsSkeleton } from "./actions";
+import Hero, { HeroSkeleton } from "./hero";
+import TrackList, { TrackListSkeleton } from "./track-list";
 
 export default function AlbumView({ id }: { id: string }) {
   const album = useAlbum(id);
@@ -25,12 +25,15 @@ export default function AlbumView({ id }: { id: string }) {
   }
   if (!data) {
     return (
-      <div className="flex flex-col gap-3 pt-20 gutter">
-        <Skeleton className="h-56 bg-white/10" />
-        {Array.from({ length: 8 }, (_, i) => (
-          <Skeleton key={i} className="h-12 bg-white/10" />
-        ))}
-      </div>
+      <>
+        <HeroSkeleton />
+        <div className="relative">
+          <ActionsSkeleton />
+          <div className="px-1 md:px-6">
+            <TrackListSkeleton variant="table" rows={10} />
+          </div>
+        </div>
+      </>
     );
   }
 

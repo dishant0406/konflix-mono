@@ -1,9 +1,9 @@
 //! The Music tab: a search box over either the home shelves or the results.
 
-use crate::design::state::{empty_state, error_state, skeleton};
+use crate::design::state::{empty_state, error_state};
 use crate::design::tokens::{GUTTER, TEXT, TEXT_DIM, TOP_BAR, color};
 use crate::music_player::{Changed, hub, play};
-use crate::music_ui::{Shelf, ShelfItem, cover, loading_rows, names, track_list};
+use crate::music_ui::{Shelf, ShelfItem, cover, names, shelf_skeleton, track_list, track_skeleton};
 use crate::route::{Route, navigate};
 use crate::task::load;
 use akidev_core::music::SearchOut;
@@ -172,6 +172,60 @@ impl MusicPage {
             .child(chip("Artists", Filter::Artists, cx))
     }
 
+    /// The results before they arrive: the chips, a top result card, four song rows and two
+    /// shelves, in grey, on the same layout as the real ones.
+    fn results_skeleton(&mut self, cx: &mut Context<Self>) -> Div {
+        let bone = || gpui_kit::component::skeleton::Skeleton::new();
+        let line = |height: f32, bar: f32, width: DefiniteLength| {
+            div()
+                .h(px(height))
+                .flex()
+                .items_center()
+                .child(bone().h(px(bar)).w(width).rounded_md())
+        };
+        div()
+            .flex()
+            .flex_col()
+            .gap_8()
+            .child(self.chips(cx))
+            .child(
+                div()
+                    .flex()
+                    .gap_8()
+                    .px(px(GUTTER))
+                    .child(
+                        div()
+                            .w(px(340.))
+                            .flex_none()
+                            .flex()
+                            .flex_col()
+                            .gap_4()
+                            .p_5()
+                            .rounded_lg()
+                            .bg(color(TEXT).opacity(0.06))
+                            .child(line(28., 20., px(110.).into()))
+                            .child(bone().size(px(96.)).rounded_full())
+                            .child(div().child(line(36., 24., relative(0.75))).child(line(
+                                20.,
+                                14.,
+                                relative(0.35),
+                            ))),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .gap_3()
+                            .child(line(28., 20., px(64.).into()))
+                            .child(div().mx(px(-16.)).child(track_skeleton(false, 4))),
+                    ),
+            )
+            .child(shelf_skeleton(true))
+            .child(shelf_skeleton(false))
+    }
+
     fn results_view(&mut self, found: &SearchOut, cx: &mut Context<Self>) -> Div {
         let all = self.filter == Filter::All;
         let albums = self.result_shelves.get(1).cloned();
@@ -277,6 +331,8 @@ impl MusicPage {
                         .child(
                             div()
                                 .truncate()
+                                .h(px(36.))
+                                .line_height(px(36.))
                                 .text_size(px(28.))
                                 .font_weight(FontWeight::EXTRA_BOLD)
                                 .text_color(color(TEXT))
@@ -285,6 +341,8 @@ impl MusicPage {
                         .child(
                             div()
                                 .truncate()
+                                .h(px(20.))
+                                .line_height(px(20.))
                                 .text_size(px(14.))
                                 .text_color(color(TEXT_DIM))
                                 .child(subtitle),
@@ -316,12 +374,13 @@ impl MusicPage {
     fn home_view(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
         let _ = window;
         let body = match &self.home {
+            // The same two shelves the loaded page has, in grey, so nothing moves when they arrive.
             Answer::Loading => div()
                 .flex()
-                .gap_3()
-                .px(px(GUTTER))
-                .overflow_hidden()
-                .children((0..6).map(|_| skeleton(px(176.), px(224.)))),
+                .flex_col()
+                .gap_10()
+                .child(shelf_skeleton(true))
+                .child(shelf_skeleton(false)),
             Answer::Failed => error_state(
                 "Music is not answering",
                 "Try again in a moment.",
@@ -383,6 +442,8 @@ impl MusicPage {
 
 fn heading(text: &'static str) -> Div {
     div()
+        .h(px(28.))
+        .line_height(px(28.))
         .text_size(px(20.))
         .font_weight(FontWeight::BOLD)
         .text_color(color(TEXT))
@@ -453,7 +514,7 @@ impl Render for MusicPage {
             }
             (false, other) => {
                 self.results = other;
-                loading_rows(6)
+                self.results_skeleton(cx)
             }
         };
         let empty = matches!(&self.results, Some(Answer::Loaded(found)) if found.songs.is_empty() && found.albums.is_empty() && found.artists.is_empty());

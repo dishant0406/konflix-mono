@@ -2,12 +2,12 @@
 
 import Link from "next/link";
 
-import { ErrorState, Skeleton } from "@/components/states";
+import { ErrorState } from "@/components/states";
 import { GENRES } from "@/lib/genres";
 import { musicSearchPath } from "@/lib/music";
 import { useMusicHome } from "@/query/use-music";
 
-import { AlbumCardLink, ArtistCardLink, Shelf } from "./cards";
+import { AlbumCardLink, ArtistCardLink, Shelf, ShelfSkeleton } from "./cards";
 
 export default function HomeView() {
   const home = useMusicHome();
@@ -17,11 +17,10 @@ export default function HomeView() {
       {home.isError && !home.data ? (
         <ErrorState title="Music is not answering" detail="Try again in a moment." onRetry={() => home.refetch()} />
       ) : !home.data ? (
-        <div className="gutter flex gap-3">
-          {Array.from({ length: 6 }, (_, i) => (
-            <Skeleton key={i} className="h-56 w-44 shrink-0 bg-white/10" />
-          ))}
-        </div>
+        <>
+          <ShelfSkeleton round />
+          <ShelfSkeleton />
+        </>
       ) : (
         <>
           {home.data.artists.length > 0 && (

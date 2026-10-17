@@ -3,7 +3,7 @@
 use crate::design::state::error_state;
 use crate::design::tokens::{GUTTER, TEXT, TEXT_DIM, TOP_BAR, color};
 use crate::music_player::{Changed, hub};
-use crate::music_ui::{actions, cover, hero, loading_page, tint_of, track_list};
+use crate::music_ui::{actions, cover, hero, loading_album, tint_of, track_list};
 use crate::route::{Route, navigate};
 use crate::task::load;
 use akidev_core::music::AlbumOut;
@@ -79,13 +79,15 @@ impl Render for AlbumPage {
                     cx.listener(|page, _, _, cx| page.fetch(cx)),
                 ));
             }
-            State::Loading => return loading_page(8),
+            State::Loading => return loading_album(),
         };
         let artists = div()
             .flex()
             .flex_wrap()
             .items_center()
             .gap_x_1()
+            .min_h(px(20.))
+            .line_height(px(20.))
             .text_size(px(14.))
             .text_color(color(TEXT_DIM))
             .children(album.artists.iter().enumerate().flat_map(|(n, artist)| {

@@ -271,6 +271,8 @@ fn card(
                 .child(
                     div()
                         .truncate()
+                        .h(px(20.))
+                        .line_height(px(20.))
                         .text_size(px(14.))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(color(TEXT))
@@ -279,6 +281,8 @@ fn card(
                 .child(
                     div()
                         .truncate()
+                        .h(px(18.))
+                        .line_height(px(18.))
                         .text_size(px(13.))
                         .text_color(color(TEXT_DIM))
                         .child(subtitle),
@@ -410,6 +414,8 @@ impl Render for Shelf {
             .child(
                 div()
                     .px(px(GUTTER))
+                    .h(px(28.))
+                    .line_height(px(28.))
                     .text_size(px(20.))
                     .font_weight(FontWeight::BOLD)
                     .text_color(color(TEXT))
@@ -435,10 +441,11 @@ impl Render for Shelf {
     }
 }
 
-/// The top of an album or artist page: the cover beside a large title, on a wash of the cover's
-/// own colour that fades into the page and starts behind the bar.
-pub fn hero(tint: u32, art: Div, kind: &str, title: &str, details: impl IntoElement) -> Div {
-    let size = if title.chars().count() > 28 { 44. } else { 64. };
+/// Where the title is: it is `TITLE_SIZE` tall and one line, and a long one is made smaller.
+const TITLE_SIZE: f32 = 64.;
+
+/// The wash and the row of cover and text, which the hero and its skeleton are both made on.
+fn hero_frame(tint: u32, art: Div, column: Div) -> Div {
     div()
         .relative()
         .child(
@@ -464,31 +471,42 @@ pub fn hero(tint: u32, art: Div, kind: &str, title: &str, details: impl IntoElem
                 .pb_6()
                 .pt(px(TOP_BAR + 32.))
                 .child(art)
-                .child(
-                    div()
-                        .min_w_0()
-                        .flex()
-                        .flex_col()
-                        .gap_2()
-                        .child(
-                            div()
-                                .text_size(px(13.))
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(color(TEXT))
-                                .child(kind.to_string()),
-                        )
-                        .child(
-                            div()
-                                .text_size(px(size))
-                                .line_height(px(size * 1.05))
-                                .font_weight(FontWeight::EXTRA_BOLD)
-                                .text_color(color(TEXT))
-                                .line_clamp(2)
-                                .child(title.to_string()),
-                        )
-                        .child(details),
-                ),
+                .child(column.min_w_0().flex().flex_col().gap_2()),
         )
+}
+
+/// The top of an album or artist page: the cover beside a large title, on a wash of the cover's
+/// own colour that fades into the page and starts behind the bar.
+pub fn hero(tint: u32, art: Div, kind: &str, title: &str, details: impl IntoElement) -> Div {
+    let size = if title.chars().count() > 28 {
+        44.
+    } else {
+        TITLE_SIZE
+    };
+    hero_frame(
+        tint,
+        art,
+        div()
+            .child(
+                div()
+                    .h(px(20.))
+                    .line_height(px(20.))
+                    .text_size(px(13.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(color(TEXT))
+                    .child(kind.to_string()),
+            )
+            .child(
+                div()
+                    .text_size(px(size))
+                    .line_height(px(size * 1.05))
+                    .font_weight(FontWeight::EXTRA_BOLD)
+                    .text_color(color(TEXT))
+                    .line_clamp(2)
+                    .child(title.to_string()),
+            )
+            .child(details),
+    )
 }
 
 /// The one large white play button under a hero, and shuffle beside it.
@@ -532,64 +550,202 @@ pub fn actions(tracks: &[Track]) -> Div {
         )
 }
 
-/// A grey bar as wide as the space it is in.
-fn bar(height: f32) -> Div {
-    div().w_full().child(
-        gpui_kit::component::skeleton::Skeleton::new()
-            .w_full()
-            .h(px(height))
-            .rounded_md(),
-    )
+/// A grey block. Everything the skeletons are made of.
+fn bone() -> gpui_kit::component::skeleton::Skeleton {
+    gpui_kit::component::skeleton::Skeleton::new()
 }
 
-/// What an album or artist page shows while it loads: the shape of a hero and a list of rows.
-pub fn loading_page(rows: usize) -> Div {
+/// A line of text's worth of height with a grey bar of `width` in it (a share of the line), so a
+/// skeleton line is as tall as the real one and the two swap without anything moving.
+fn line(height: f32, bar: f32, width: DefiniteLength) -> Div {
     div()
-        .pt(px(TOP_BAR + 32.))
-        .px(px(GUTTER))
+        .h(px(height))
+        .flex()
+        .items_center()
+        .child(bone().h(px(bar)).w(width).rounded_md())
+}
+
+/// What a shelf looks like before its cards arrive: the same heading, row and cards, in grey.
+pub fn shelf_skeleton(round: bool) -> Div {
+    let cover = px(CARD_WIDTH - 24.);
+    let cards = (0..10).map(|_| {
+        div()
+            .flex_none()
+            .w(px(CARD_WIDTH))
+            .flex()
+            .flex_col()
+            .gap_3()
+            .p_3()
+            .child(
+                bone()
+                    .size(cover)
+                    .when(round, |cover| cover.rounded_full())
+                    .when(!round, |cover| cover.rounded_md()),
+            )
+            .child(
+                div()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .child(line(20., 14., relative(0.7)))
+                    .child(line(18., 12., relative(0.45))),
+            )
+    });
+    div()
         .flex()
         .flex_col()
-        .gap_8()
+        .gap_3()
+        .child(div().px(px(GUTTER)).child(line(28., 20., px(160.).into())))
         .child(
             div()
                 .flex()
-                .items_end()
-                .gap_6()
+                .gap_1()
+                .px(px(GUTTER - 12.))
+                .overflow_hidden()
+                .children(cards),
+        )
+}
+
+/// The rows of a track list before its tracks arrive: the same header, row height and padding.
+pub fn track_skeleton(table: bool, rows: usize) -> Div {
+    let mut list = div().flex().flex_col();
+    if table {
+        list = list.child(
+            div()
+                .flex()
+                .items_center()
+                .gap_4()
+                .h(px(36.))
+                .px_4()
+                .mb_1()
+                .border_b_1()
+                .border_color(color(TEXT).opacity(0.08))
                 .child(
-                    div().flex_none().size(px(232.)).child(
-                        gpui_kit::component::skeleton::Skeleton::new()
-                            .size_full()
-                            .rounded_md(),
-                    ),
+                    div()
+                        .w(px(32.))
+                        .flex()
+                        .justify_center()
+                        .child(bone().w(px(10.)).h(px(10.)).rounded_md()),
                 )
                 .child(
                     div()
                         .flex_1()
+                        .child(bone().w(px(36.)).h(px(10.)).rounded_md()),
+                )
+                .child(
+                    div()
+                        .w(px(48.))
                         .flex()
-                        .flex_col()
-                        .gap_3()
-                        .child(bar(16.).w(px(80.)))
-                        .child(bar(56.).max_w(px(560.)))
-                        .child(bar(16.).max_w(px(280.))),
+                        .justify_end()
+                        .child(bone().w(px(14.)).h(px(10.)).rounded_md()),
                 ),
-        )
+        );
+    }
+    list.children((0..rows).map(|_| {
+        div()
+            .flex()
+            .items_center()
+            .gap_4()
+            .h(px(56.))
+            .px_4()
+            .child(if table {
+                div()
+                    .flex_none()
+                    .w(px(32.))
+                    .flex()
+                    .justify_center()
+                    .child(bone().w(px(10.)).h(px(12.)).rounded_md())
+            } else {
+                div()
+                    .flex_none()
+                    .size(px(40.))
+                    .child(bone().size(px(40.)).rounded_md())
+            })
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .child(line(20., 14., relative(0.4)))
+                    .child(line(18., 12., relative(0.25))),
+            )
+            .when(!table, |row| {
+                row.child(div().w(relative(0.3)).child(line(18., 12., relative(0.5))))
+            })
+            .child(
+                div()
+                    .w(px(48.))
+                    .flex()
+                    .justify_end()
+                    .child(bone().w(px(30.)).h(px(12.)).rounded_md()),
+            )
+    }))
+}
+
+/// The hero before the page arrives: the same wash, cover and rows of text, in grey.
+fn hero_skeleton(round: bool) -> Div {
+    hero_frame(
+        0x464646,
+        div().flex_none().size(px(232.)).child(
+            bone()
+                .size(px(232.))
+                .when(round, |cover| cover.rounded_full())
+                .when(!round, |cover| cover.rounded_md()),
+        ),
+        div()
+            .child(line(20., 12., px(48.).into()))
+            .child(
+                div()
+                    .h(px(TITLE_SIZE * 1.05))
+                    .flex()
+                    .items_center()
+                    .child(bone().h(px(TITLE_SIZE * 0.8)).w(px(480.)).rounded_md()),
+            )
+            .child(line(20., 14., px(260.).into())),
+    )
+}
+
+/// The play and shuffle buttons, as grey circles of the same size.
+fn actions_skeleton() -> Div {
+    div()
+        .flex()
+        .items_center()
+        .gap_5()
+        .px(px(GUTTER))
+        .py_4()
+        .child(bone().size(px(56.)).rounded_full())
+        .child(bone().size(px(40.)).rounded_full())
+}
+
+/// An album page before it arrives: its hero, buttons and numbered rows.
+pub fn loading_album() -> Div {
+    div()
+        .pb_10()
+        .child(hero_skeleton(false))
+        .child(actions_skeleton())
+        .child(div().px(px(GUTTER - 16.)).child(track_skeleton(true, 12)))
+}
+
+/// An artist page before it arrives: the hero, buttons, popular songs and two shelves.
+pub fn loading_artist() -> Div {
+    div()
+        .pb_10()
+        .flex()
+        .flex_col()
+        .gap_8()
+        .child(div().child(hero_skeleton(true)).child(actions_skeleton()))
         .child(
             div()
                 .flex()
                 .flex_col()
-                .gap_2()
-                .children((0..rows).map(|_| bar(48.))),
+                .gap_1()
+                .px(px(GUTTER - 16.))
+                .child(div().px_4().pb_2().child(line(28., 20., px(90.).into())))
+                .child(track_skeleton(true, 5)),
         )
-}
-
-/// Rows of grey bars, for a list that is on its way.
-pub fn loading_rows(rows: usize) -> Div {
-    div()
-        .flex()
-        .flex_col()
-        .gap_2()
-        .px(px(GUTTER))
-        .children((0..rows).map(|_| bar(48.)))
+        .child(shelf_skeleton(false))
+        .child(shelf_skeleton(false))
 }
 
 /// The colour a cover is mostly made of, as 0xRRGGBB, for the wash behind a page. Colourful pixels

@@ -3,7 +3,9 @@
 use crate::design::state::error_state;
 use crate::design::tokens::{GUTTER, TEXT, TEXT_DIM, TOP_BAR, color};
 use crate::music_player::{Changed, hub};
-use crate::music_ui::{Shelf, ShelfItem, actions, cover, hero, loading_page, tint_of, track_list};
+use crate::music_ui::{
+    Shelf, ShelfItem, actions, cover, hero, loading_artist, tint_of, track_list,
+};
 use crate::task::load;
 use akidev_core::music::ArtistOut;
 use gpui_kit::*;
@@ -99,15 +101,20 @@ impl Render for ArtistPage {
                     cx.listener(|page, _, _, cx| page.fetch(cx)),
                 ));
             }
-            State::Loading => return loading_page(5),
+            State::Loading => return loading_artist(),
         };
-        let details = div().text_size(px(14.)).text_color(color(TEXT_DIM)).child(
-            artist
-                .subscribers
-                .clone()
-                .map(|s| format!("{s} subscribers"))
-                .unwrap_or_default(),
-        );
+        let details = div()
+            .min_h(px(20.))
+            .line_height(px(20.))
+            .text_size(px(14.))
+            .text_color(color(TEXT_DIM))
+            .child(
+                artist
+                    .subscribers
+                    .clone()
+                    .map(|s| format!("{s} subscribers"))
+                    .unwrap_or_default(),
+            );
         div()
             .pb_10()
             .flex()
@@ -131,13 +138,15 @@ impl Render for ArtistPage {
                     .gap_1()
                     .px(px(GUTTER - 16.))
                     .child(
-                        div()
-                            .px_4()
-                            .pb_2()
-                            .text_size(px(20.))
-                            .font_weight(FontWeight::BOLD)
-                            .text_color(color(TEXT))
-                            .child("Popular"),
+                        div().px_4().pb_2().child(
+                            div()
+                                .h(px(28.))
+                                .line_height(px(28.))
+                                .text_size(px(20.))
+                                .font_weight(FontWeight::BOLD)
+                                .text_color(color(TEXT))
+                                .child("Popular"),
+                        ),
                     )
                     .child(track_list(&artist.songs, true, "popular", cx)),
             )

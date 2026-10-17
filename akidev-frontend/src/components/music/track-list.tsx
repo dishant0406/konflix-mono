@@ -7,6 +7,7 @@ import { albumPath, artistPath, type Track } from "@/lib/music";
 import { cn } from "@/lib/utils";
 import { useMusicPlayer } from "@/providers/music-player";
 
+import Bone from "./bone";
 import Cover from "./cover";
 import Equaliser from "./equaliser";
 
@@ -15,12 +16,50 @@ import Equaliser from "./equaliser";
  * `list` is anything mixed (search, an artist's songs): a small cover leads each row.
  * Pressing a row plays it and queues the rest of the list after it.
  */
+const COLUMNS = {
+  table: "grid-cols-[2rem_minmax(0,1fr)_3rem] md:grid-cols-[2rem_minmax(0,1fr)_3rem]",
+  list: "grid-cols-[2.5rem_minmax(0,1fr)_3rem] md:grid-cols-[2.5rem_minmax(0,6fr)_minmax(0,4fr)_3rem]",
+};
+
+/** The rows before their tracks arrive: the same header, row height, padding and columns. */
+export function TrackListSkeleton({ variant, rows }: { variant: "table" | "list"; rows: number }) {
+  const table = variant === "table";
+  return (
+    <div className="flex flex-col" aria-hidden>
+      {table && (
+        <div className={cn("mb-1 grid h-9 items-center gap-4 border-b border-white/[0.08] px-4", COLUMNS.table)}>
+          <Bone className="mx-auto h-3 w-3" />
+          <Bone className="h-3 w-10" />
+          <Bone className="ml-auto h-3 w-4" />
+        </div>
+      )}
+      {Array.from({ length: rows }, (_, i) => (
+        <div key={i} className={cn("grid h-14 items-center gap-4 px-4", COLUMNS[variant])}>
+          {table ? <Bone className="mx-auto h-3 w-3" /> : <Bone className="size-10 rounded" />}
+          <div className="min-w-0">
+            <div className="flex h-5 items-center">
+              <Bone className="h-3.5 w-2/5" />
+            </div>
+            <div className="flex h-[18px] items-center">
+              <Bone className="h-3 w-1/4" />
+            </div>
+          </div>
+          {!table && (
+            <div className="hidden md:block">
+              <Bone className="h-3 w-1/2" />
+            </div>
+          )}
+          <Bone className="ml-auto h-3 w-8" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function TrackList({ tracks, variant }: { tracks: Track[]; variant: "table" | "list" }) {
   const player = useMusicPlayer();
   const table = variant === "table";
-  const columns = table
-    ? "grid-cols-[2rem_minmax(0,1fr)_3rem] md:grid-cols-[2rem_minmax(0,1fr)_3rem]"
-    : "grid-cols-[2.5rem_minmax(0,1fr)_3rem] md:grid-cols-[2.5rem_minmax(0,6fr)_minmax(0,4fr)_3rem]";
+  const columns = COLUMNS[variant];
 
   return (
     <div role="table" className="flex flex-col">
