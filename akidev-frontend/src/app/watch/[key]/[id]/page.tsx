@@ -8,7 +8,7 @@ import Episodes from "@/components/episodes";
 import Player from "@/components/player";
 import { SidePanel } from "@/components/side-panel";
 import Sources from "@/components/sources";
-import { ErrorState, Spinner } from "@/components/states";
+import { Spinner, StateCard } from "@/components/states";
 import { ROUTES, titlePath, watchPath } from "@/constants/routes";
 import { track } from "@/lib/analytics";
 import { episodeCount, neighbour, titleLine } from "@/lib/episodes";
@@ -101,11 +101,11 @@ export default function WatchPage() {
   );
 
   const status = (children: React.ReactNode) => (
-    <div className="fixed inset-0 z-[60] flex flex-col items-center justify-center gap-3 bg-black px-6 text-center">
+    <div className="fixed inset-0 z-[60] flex flex-col items-center justify-center bg-canvas px-6 text-center">
       <button
         type="button"
         onClick={leave}
-        className="absolute left-5 top-4 cursor-pointer text-sm font-semibold text-dim transition-colors hover:text-ink md:left-10"
+        className="absolute left-5 top-4 cursor-pointer text-sm font-medium text-dim transition-colors hover:text-ink md:left-10"
       >
         ← Back
       </button>
@@ -120,55 +120,51 @@ export default function WatchPage() {
 
   if (stream.isLoading || stream.isIdle) {
     return status(
-      <>
+      <StateCard title={pick ? "Finding this source" : "Finding the best source"} detail="This can take up to a minute.">
         <Spinner />
-        <p className="text-[15px] font-semibold text-ink">{pick ? "Finding this source" : "Finding the best source"}</p>
-        <p className="text-[13px] text-dim">This can take up to a minute.</p>
-      </>,
+      </StateCard>,
     );
   }
 
-  const neighbours = (
-    <div className="flex flex-wrap justify-center gap-3 pt-3">
-      <Button look="secondary" onClick={() => setChoosing(id ?? null)}>
-        Choose another source
+  // Retrying the same source rarely helps, so a different one leads; the episodes either side are
+  // plain text links.
+  const ways = (retry: () => void) => (
+    <>
+      <Button onClick={() => setChoosing(id ?? null)}>Choose another source</Button>
+      <Button look="secondary" onClick={retry}>
+        Try again
       </Button>
       {previous && (
-        <Button look="secondary" onClick={() => go(previous)}>
+        <Button look="ghost" onClick={() => go(previous)}>
           Previous episode
         </Button>
       )}
       {next && (
-        <Button look="secondary" onClick={() => go(next)}>
+        <Button look="ghost" onClick={() => go(next)}>
           Next episode
         </Button>
       )}
-    </div>
+    </>
   );
 
   if (stream.isError) {
     return status(
-      <>
-        <ErrorState
-          title="Couldn't load this"
-          detail={playErrorMessage(stream.error)}
-          onRetry={() => stream.refetch()}
-        />
-        {neighbours}
-      </>,
+      <StateCard eyebrow="Can't play this" tone="trouble" title="This one didn't load" detail={playErrorMessage(stream.error)}>
+        {ways(() => stream.refetch())}
+      </StateCard>,
     );
   }
 
   if (!link?.available) {
     return status(
-      <>
-        <ErrorState
-          title="No playable source found"
-          detail={link?.reason || "The API returned no stream for this title."}
-          onRetry={() => stream.refetch()}
-        />
-        {neighbours}
-      </>,
+      <StateCard
+        eyebrow="No signal"
+        tone="trouble"
+        title="Nothing playable yet"
+        detail={link?.reason || "No source answered for this title. Another source may work."}
+      >
+        {ways(() => stream.refetch())}
+      </StateCard>,
     );
   }
 
@@ -214,7 +210,7 @@ export default function WatchPage() {
         }
       />
       {guest && party.item?.kind === "video" && party.item.id !== id && (
-        <div className="fixed left-1/2 top-16 z-[70] flex -translate-x-1/2 items-center gap-3 rounded-xl border border-line bg-surface/95 px-4 py-2.5">
+        <div className="fixed left-1/2 top-16 z-[70] flex -translate-x-1/2 items-center gap-3 material-panel rounded-xl px-4 py-2.5 shadow-[0_0_0_1px_rgb(var(--ink)/0.08),0_24px_60px_rgb(0_0_0/0.55)]">
           <span className="text-sm text-ink">The party is watching something else.</span>
           <Button look="secondary" onClick={() => router.replace(watchPath(parseMediaId(party.item?.id)?.key ?? "", party.item?.id ?? ""))}>
             Join them
@@ -222,7 +218,7 @@ export default function WatchPage() {
         </div>
       )}
       {error && (
-        <p className="fixed inset-x-0 bottom-28 z-[70] mx-auto w-fit max-w-[90vw] rounded-xl border border-line bg-surface/95 px-4 py-2 text-sm text-dim">
+        <p className="fixed inset-x-0 bottom-28 z-[70] mx-auto w-fit max-w-[90vw] material-panel rounded-xl px-4 py-2 text-sm text-dim shadow-[0_0_0_1px_rgb(var(--ink)/0.08),0_24px_60px_rgb(0_0_0/0.55)]">
           {error}
         </p>
       )}

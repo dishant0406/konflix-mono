@@ -27,7 +27,7 @@ export default function Hero({
       <div
         aria-hidden
         className="absolute inset-x-0 top-0 h-[26rem] transition-colors duration-300"
-        style={{ background: `linear-gradient(to bottom, rgb(${tint} / 0.55), rgb(11 11 13))` }}
+        style={{ background: `linear-gradient(to bottom, rgb(${tint} / 0.55), rgb(var(--canvas)))` }}
       />
       <div className="relative flex flex-col items-start gap-5 gutter pb-6 pt-24 sm:flex-row sm:items-end md:gap-6">
         <Cover
@@ -38,8 +38,8 @@ export default function Hero({
           className={cn("size-36 shrink-0 shadow-[0_8px_24px_rgb(0_0_0/0.5)] md:size-[232px]", round && "shadow-[0_8px_24px_rgb(0_0_0/0.5)]")}
         />
         <div className="flex min-w-0 flex-col gap-2">
-          <p className="text-[13px] font-semibold leading-5">{kind}</p>
-          <h1 className="text-[clamp(2rem,6vw,4.5rem)] font-extrabold leading-[1.02] tracking-[-0.03em]">{title}</h1>
+          <p className="caps text-white/70">{kind}</p>
+          <h1 className="font-title text-[clamp(2rem,6vw,4.5rem)] font-semibold leading-[1.1] tracking-[-0.02em]">{title}</h1>
           {children}
         </div>
       </div>
@@ -56,7 +56,7 @@ export function HeroSkeleton({ round }: { round?: boolean }) {
     <div className="relative" aria-hidden>
       <div
         className="absolute inset-x-0 top-0 h-[26rem]"
-        style={{ background: "linear-gradient(to bottom, rgb(70 70 70 / 0.55), rgb(11 11 13))" }}
+        style={{ background: "linear-gradient(to bottom, rgb(70 70 70 / 0.55), rgb(var(--canvas)))" }}
       />
       <div className="relative flex flex-col items-start gap-5 gutter pb-6 pt-24 sm:flex-row sm:items-end md:gap-6">
         <Bone className={cn("size-36 shrink-0 md:size-[232px]", round && "rounded-full")} />
@@ -64,7 +64,7 @@ export function HeroSkeleton({ round }: { round?: boolean }) {
           <div className="flex h-5 items-center">
             <Bone className="h-3 w-12" />
           </div>
-          <Bone className="w-[min(32rem,80vw)]" style={{ height: "calc(clamp(2rem, 6vw, 4.5rem) * 1.02)" }} />
+          <Bone className="w-[min(32rem,80vw)]" style={{ height: "calc(clamp(2rem, 6vw, 4.5rem) * 1.1)" }} />
           <div className="flex h-5 items-center">
             <Bone className="h-3.5 w-64" />
           </div>

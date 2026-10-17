@@ -143,7 +143,7 @@ impl Render for ArtistPage {
                                 .h(px(28.))
                                 .line_height(px(28.))
                                 .text_size(px(20.))
-                                .font_weight(FontWeight::BOLD)
+                                .font_weight(FontWeight::SEMIBOLD)
                                 .text_color(color(TEXT))
                                 .child("Popular"),
                         ),

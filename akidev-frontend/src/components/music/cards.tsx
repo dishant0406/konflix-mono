@@ -10,14 +10,14 @@ import Cover from "./cover";
 export function Shelf({ title, children, className }: { title: string; children: React.ReactNode; className?: string }) {
   return (
     <section className={cn("flex flex-col gap-3", className)}>
-      <h2 className="gutter text-xl font-bold leading-7 tracking-tight">{title}</h2>
+      <h2 className="gutter font-title text-xl font-semibold leading-7 tracking-[-0.01em]">{title}</h2>
       <div className="no-scrollbar flex snap-x gap-1 overflow-x-auto scroll-px-2 px-2 md:scroll-px-7 md:px-7">{children}</div>
     </section>
   );
 }
 
 /** The card, shared with its skeleton so the two cannot drift apart. */
-const CARD = "group flex w-40 shrink-0 snap-start flex-col gap-3 rounded-lg p-3 transition-colors hover:bg-white/[0.07] md:w-44";
+const CARD = "group flex w-40 shrink-0 snap-start flex-col gap-3 rounded-lg p-3 transition-[background-color,transform] duration-200 ease-spring hover:bg-white/[0.07] active:scale-[0.98] md:w-44";
 
 export function AlbumCardLink({ album }: { album: AlbumCard }) {
   return (

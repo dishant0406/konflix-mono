@@ -2,7 +2,7 @@
 //! the bar along the bottom that shows it.
 
 use crate::audio::{AudioPlayer, AudioState};
-use crate::design::tokens::{LINE, TEXT, TEXT_DIM, TEXT_FAINT, color};
+use crate::design::tokens::{LINE, TEXT, TEXT_DIM, TEXT_FAINT, WASH, WASH_3, color, radius};
 use crate::music_ui::{cover, names};
 use crate::party::{Party, PartyEvent, PartyHandle, Role};
 use akidev_core::music::{Credit, Music, Track};
@@ -788,7 +788,7 @@ fn slider_track(shown: f32, bounds: Rc<Cell<Bounds<Pixels>>>) -> Div {
                 .w_full()
                 .h(px(4.))
                 .rounded_full()
-                .bg(color(TEXT).opacity(0.22))
+                .bg(color(TEXT).opacity(WASH_3))
                 .child(
                     div()
                         .absolute()
@@ -1047,9 +1047,9 @@ impl MusicPlayer {
                 .items_center()
                 .gap_3()
                 .p_2()
-                .rounded_md()
+                .rounded(px(radius::BUTTON))
                 .cursor_pointer()
-                .hover(|style| style.bg(color(TEXT).opacity(0.07)))
+                .hover(|style| style.bg(color(TEXT).opacity(WASH)))
                 .on_click(cx.listener(move |p, _, _, cx| p.jump(index, cx)))
                 .child(cover(
                     track.cover.clone(),
@@ -1096,7 +1096,7 @@ impl MusicPlayer {
             .flex()
             .flex_col()
             .p_2()
-            .rounded_lg()
+            .rounded(px(radius::PANEL))
             .bg(color(0x121212))
             .border_1()
             .border_color(color(LINE))

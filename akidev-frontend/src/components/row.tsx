@@ -105,7 +105,7 @@ export default function MediaRow({
           <div
             ref={track}
             onScroll={measure}
-            className="no-scrollbar gutter flex gap-3 overflow-x-auto overscroll-x-contain scroll-smooth"
+            className="no-scrollbar gutter -my-3 flex gap-3 overflow-x-auto overscroll-x-contain scroll-smooth py-3"
           >
             {items.map((card, index) => (
               <Tile key={card.id} card={card} resume={resume?.[index]} drawn={near && index < drawn} />

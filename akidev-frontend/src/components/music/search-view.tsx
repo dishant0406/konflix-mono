@@ -28,12 +28,12 @@ function TopResult({ found, term }: { found: MusicSearch; term: string }) {
   const href = asArtist ? artistPath(artist.id) : song.album?.id ? albumPath(song.album.id) : "#";
   return (
     <section className="flex flex-col gap-3">
-      <h2 className="text-xl font-bold leading-7 tracking-tight">Top result</h2>
+      <h2 className="text-xl font-semibold leading-7 tracking-tight">Top result</h2>
       <div className="group relative flex flex-col gap-4 rounded-lg bg-white/[0.06] p-5 transition-colors hover:bg-white/10">
         <Link href={href} aria-label={asArtist ? artist.name : song.title} className="absolute inset-0 rounded-lg" />
         <Cover src={asArtist ? artist.cover : song.cover} sizes="96px" round={asArtist} className="size-24" />
         <div className="min-w-0">
-          <p className="truncate text-3xl font-extrabold leading-9 tracking-tight">{asArtist ? artist.name : song.title}</p>
+          <p className="truncate font-title text-3xl font-semibold leading-9 tracking-[-0.015em]">{asArtist ? artist.name : song.title}</p>
           <p className="truncate text-sm leading-5 text-white/60">
             {asArtist ? "Artist" : `Song · ${song.artists.map((a) => a.name).join(", ")}`}
           </p>
@@ -67,7 +67,7 @@ export default function SearchView({ term }: { term: string }) {
           onClick={() => setFilter(name)}
           aria-pressed={filter === name}
           className={cn(
-            "h-8 cursor-pointer rounded-full px-4 text-sm font-medium transition-colors",
+            "h-8 cursor-pointer rounded-full px-4 text-sm font-medium transition-[colors,transform] duration-150 ease-spring active:scale-95",
             filter === name ? "bg-white text-black" : "bg-white/10 text-white hover:bg-white/[0.16]",
           )}
         >
@@ -105,7 +105,7 @@ export default function SearchView({ term }: { term: string }) {
           <TopResult found={found} term={term} />
           {found.songs.length > 0 && (
             <section className="flex min-w-0 flex-col gap-3">
-              <h2 className="text-xl font-bold leading-7 tracking-tight">Songs</h2>
+              <h2 className="text-xl font-semibold leading-7 tracking-tight">Songs</h2>
               <div className="-mx-4">
                 <TrackList tracks={found.songs.slice(0, 4)} variant="list" />
               </div>

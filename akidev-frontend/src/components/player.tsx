@@ -714,7 +714,7 @@ export default function Player({
                 <button
                   type="button"
                   onClick={() => togglePanel("episodes")}
-                  className="flex h-9 cursor-pointer items-center gap-1.5 rounded-full px-2.5 text-xs font-semibold text-ink transition-colors hover:bg-ink/[0.14]"
+                  className="flex h-9 cursor-pointer items-center gap-1.5 rounded-full px-2.5 text-xs font-semibold text-ink transition-colors hover:bg-wash-2"
                 >
                   <List className="size-[18px]" />
                   Episodes
@@ -735,7 +735,7 @@ export default function Player({
 
       {offerNext && panel === null && onNext && (
         <div className="gutter absolute bottom-[150px] right-0 flex justify-end">
-          <div className="flex items-center gap-4 rounded-xl border border-line bg-surface/95 px-4 py-3">
+          <div className="flex items-center gap-4 material-panel rounded-xl px-4 py-3 shadow-[0_0_0_1px_rgb(var(--ink)/0.08),0_24px_60px_rgb(0_0_0/0.55)]">
             <span className="text-sm font-semibold text-ink">Next episode</span>
             <Button look="secondary" icon={<SkipForward className="size-4" />} onClick={onNext}>
               Play now
@@ -780,7 +780,7 @@ function Seek({
   const loaded = seekable ? Math.min((buffered / duration) * 100, 100) : 0;
   return (
     <div className="group/seek relative flex h-5 flex-1 items-center">
-      <div className="relative h-0.5 w-full rounded-full bg-ink/[0.14] transition-all group-hover/seek:h-1">
+      <div className="relative h-0.5 w-full rounded-full bg-wash-2 transition-all group-hover/seek:h-1">
         <div className="absolute inset-y-0 left-0 rounded-full bg-ink/30" style={{ width: `${loaded}%` }} />
         <div className="absolute inset-y-0 left-0 rounded-full bg-accent" style={{ width: `${played}%` }} />
         <div

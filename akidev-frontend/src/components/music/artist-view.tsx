@@ -55,7 +55,7 @@ export default function ArtistView({ id }: { id: string }) {
           <Actions tracks={data.songs} />
           {data.songs.length > 0 && (
             <section className="flex flex-col gap-1 px-1 md:px-6">
-              <h2 className="px-2 pb-2 text-xl font-bold leading-7 tracking-tight">Popular</h2>
+              <h2 className="px-2 pb-2 text-xl font-semibold leading-7 tracking-tight">Popular</h2>
               <TrackList tracks={data.songs} variant="list" />
             </section>
           )}

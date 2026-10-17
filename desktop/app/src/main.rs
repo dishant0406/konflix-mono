@@ -89,6 +89,7 @@ fn main() {
                 torrent_cache,
                 sources_dir,
             ));
+            theme::fonts(cx);
             theme::apply(cx);
             start_music(&ytdlp_dir, cx);
             cx.set_http_client(Arc::new(images::ImageClient::new(image_cache)));

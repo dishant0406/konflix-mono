@@ -1,7 +1,7 @@
 //! The Music tab: a search box over either the home shelves or the results.
 
 use crate::design::state::{empty_state, error_state};
-use crate::design::tokens::{GUTTER, TEXT, TEXT_DIM, TOP_BAR, color};
+use crate::design::tokens::{GUTTER, TEXT, TEXT_DIM, TOP_BAR, WASH, WASH_2, WASH_3, color, radius};
 use crate::music_player::{Changed, hub, play};
 use crate::music_ui::{Shelf, ShelfItem, cover, names, shelf_skeleton, track_list, track_skeleton};
 use crate::route::{Route, navigate};
@@ -152,9 +152,9 @@ impl MusicPage {
                     chip.bg(color(TEXT)).text_color(color(0x000000))
                 })
                 .when(!active, |chip| {
-                    chip.bg(color(TEXT).opacity(0.1))
+                    chip.bg(color(TEXT).opacity(WASH_2))
                         .text_color(color(TEXT))
-                        .hover(|style| style.bg(color(TEXT).opacity(0.16)))
+                        .hover(|style| style.bg(color(TEXT).opacity(WASH_3)))
                 })
                 .on_click(cx.listener(move |page, _, _, cx| {
                     page.filter = filter;
@@ -181,7 +181,7 @@ impl MusicPage {
                 .h(px(height))
                 .flex()
                 .items_center()
-                .child(bone().h(px(bar)).w(width).rounded_md())
+                .child(bone().h(px(bar)).w(width).rounded(px(radius::BUTTON)))
         };
         div()
             .flex()
@@ -201,8 +201,8 @@ impl MusicPage {
                             .flex_col()
                             .gap_4()
                             .p_5()
-                            .rounded_lg()
-                            .bg(color(TEXT).opacity(0.06))
+                            .rounded(px(radius::PANEL))
+                            .bg(color(TEXT).opacity(WASH))
                             .child(line(28., 20., px(110.).into()))
                             .child(bone().size(px(96.)).rounded_full())
                             .child(div().child(line(36., 24., relative(0.75))).child(line(
@@ -314,9 +314,9 @@ impl MusicPage {
                 .flex_col()
                 .gap_4()
                 .p_5()
-                .rounded_lg()
-                .bg(color(TEXT).opacity(0.06))
-                .hover(|style| style.bg(color(TEXT).opacity(0.1)))
+                .rounded(px(radius::PANEL))
+                .bg(color(TEXT).opacity(WASH))
+                .hover(|style| style.bg(color(TEXT).opacity(WASH_2)))
                 .cursor_pointer()
                 .on_click(move |_, _, cx| {
                     if let Some(route) = &route {
@@ -334,7 +334,7 @@ impl MusicPage {
                                 .h(px(36.))
                                 .line_height(px(36.))
                                 .text_size(px(28.))
-                                .font_weight(FontWeight::EXTRA_BOLD)
+                                .font_weight(FontWeight::SEMIBOLD)
                                 .text_color(color(TEXT))
                                 .child(title),
                         )
@@ -400,14 +400,14 @@ impl MusicPage {
                 .h(px(112.))
                 .p_4()
                 .overflow_hidden()
-                .rounded_lg()
+                .rounded(px(radius::PANEL))
                 .bg(color(tint))
                 .border_1()
-                .border_color(color(TEXT).opacity(0.06))
+                .border_color(color(TEXT).opacity(WASH))
                 .cursor_pointer()
-                .hover(|style| style.border_color(color(TEXT).opacity(0.16)))
+                .hover(|style| style.border_color(color(TEXT).opacity(WASH_3)))
                 .text_size(px(16.))
-                .font_weight(FontWeight::BOLD)
+                .font_weight(FontWeight::SEMIBOLD)
                 .text_color(color(TEXT))
                 .on_click(move |_, _, cx| {
                     navigate(
@@ -445,7 +445,7 @@ fn heading(text: &'static str) -> Div {
         .h(px(28.))
         .line_height(px(28.))
         .text_size(px(20.))
-        .font_weight(FontWeight::BOLD)
+        .font_weight(FontWeight::SEMIBOLD)
         .text_color(color(TEXT))
         .child(text)
 }

@@ -68,7 +68,7 @@ export default function Episodes({
         {compact ? (
           // Stays at the top while the rows scroll under it. Only worth showing for more than one season.
           seasons.length > 1 && (
-            <div className="no-scrollbar sticky top-0 z-10 flex gap-5 overflow-x-auto border-b border-line bg-surface px-4 pt-1">
+            <div className="no-scrollbar sticky top-0 z-10 flex gap-5 overflow-x-auto bg-surface/80 px-4 pt-1 shadow-[0_1px_0_rgb(var(--ink)/0.07)] backdrop-blur-xl">
               {tabs}
             </div>
           )
@@ -125,7 +125,7 @@ export default function Episodes({
               className={cn(
                 "flex items-center justify-center rounded-md text-sm font-semibold transition-colors",
                 compact ? "h-10" : "h-11 w-14",
-                selected ? "bg-accent text-canvas" : "bg-ink/[0.08] text-dim hover:bg-ink/[0.16] hover:text-ink",
+                selected ? "bg-accent text-canvas" : "bg-wash text-dim hover:bg-wash-3 hover:text-ink",
               )}
             >
               {number}
@@ -158,14 +158,14 @@ function EpisodeRow({
       replace={compact}
       aria-current={current ? "true" : undefined}
       className={cn(
-        "group/episode flex items-center rounded-lg border-b border-ink/[0.06] transition-colors hover:bg-ink/[0.07]",
+        "group/episode flex items-center rounded-lg border-b border-ink/[0.06] transition-colors hover:bg-wash",
         compact ? "gap-3 border-b-0 px-3 py-2.5" : "gap-5 px-4 py-3.5",
-        current && "bg-ink/[0.07]",
+        current && "bg-wash",
       )}
     >
       <span
         className={cn(
-          "shrink-0 font-bold tabular-nums",
+          "shrink-0 font-semibold tabular-nums",
           compact ? "w-8 text-lg" : "w-10 text-[22px]",
           current ? "text-accent" : "text-faint",
         )}

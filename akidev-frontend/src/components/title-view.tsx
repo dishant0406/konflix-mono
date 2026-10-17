@@ -13,7 +13,7 @@ import { watchPath } from "@/constants/routes";
 import { ApiError } from "@/lib/api";
 import { episodeCount, firstPlayable } from "@/lib/episodes";
 import { parseMediaId } from "@/lib/media-id";
-import { statusLabel } from "@/lib/media";
+import { statusLabel, formatLabel } from "@/lib/media";
 import { useRecent } from "@/lib/progress";
 import { useDetail, useMoreLike } from "@/query/use-media";
 import type { Detail } from "@/types/media";
@@ -69,7 +69,7 @@ export default function TitleView({ id: key, initial }: { id: string; initial?: 
 
   const facts = [
     media.year,
-    media.format?.toLowerCase(),
+    formatLabel(media.format),
     media.runtime_minutes ? `${media.runtime_minutes} min` : null,
     statusLabel(media.status),
     !isFilm && count > 0 ? `${count} episodes` : null,
@@ -91,10 +91,10 @@ export default function TitleView({ id: key, initial }: { id: string; initial?: 
             instead of climbing under the bar. */}
         <div className="gutter relative flex max-w-[calc(640px+5rem)] flex-col items-start gap-3 pb-12 pt-28">
           <div className="flex items-center gap-3">
-            <span className="text-xs font-bold text-accent">{KIND_LABEL[parsed.contentType]}</span>
+            <span className="text-xs font-semibold text-accent">{KIND_LABEL[parsed.contentType]}</span>
             {!!score && <span className="text-sm font-semibold text-accent">★ {score}%</span>}
           </div>
-          <h1 className="line-clamp-3 text-4xl font-black leading-[1.05] text-ink sm:text-5xl md:text-[56px]">{title}</h1>
+          <h1 className="line-clamp-3 font-title text-4xl font-semibold leading-[1.18] tracking-[-0.02em] text-ink sm:text-5xl md:text-[56px]">{title}</h1>
           <MetaLine parts={facts} />
           {media.description && (
             <p className="line-clamp-4 text-[15px] leading-6 text-dim">{stripTags(media.description).replace(/\s+/g, " ")}</p>
@@ -114,7 +114,7 @@ export default function TitleView({ id: key, initial }: { id: string; initial?: 
                 href={`https://www.youtube.com/watch?v=${trailer}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md bg-ink/[0.12] px-5 py-2.5 text-[15px] font-semibold text-ink transition-colors hover:bg-ink/20"
+                className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md bg-wash-2 px-5 py-2.5 text-[15px] font-semibold text-ink transition-colors hover:bg-wash-3"
               >
                 <ExternalLink className="size-4" />
                 Trailer

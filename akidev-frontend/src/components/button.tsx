@@ -3,17 +3,19 @@ import type { ComponentProps, ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 
-type Look = "primary" | "secondary";
+type Look = "primary" | "secondary" | "ghost";
 
 const LOOKS: Record<Look, string> = {
-  // The one action on a screen: white, like a cinema's marquee.
-  primary: "bg-ink text-canvas font-bold hover:bg-ink/80 active:bg-ink/70",
-  // Everything else: translucent, so it sits on artwork as well as on the canvas.
-  secondary: "bg-ink/[0.12] text-ink font-semibold hover:bg-ink/20 active:bg-ink/[0.28]",
+  // The one action on a screen: warm white, like a cinema's marquee.
+  primary: "bg-ink text-canvas font-semibold hover:bg-ink/85 active:bg-ink/75",
+  // Everything else: a hairline, no fill until it is reached, so it sits on artwork and on the canvas.
+  secondary: "border border-ink/20 text-ink font-medium hover:bg-wash-2 hover:border-ink/30 active:bg-wash-3",
+  // A quiet action in a line of text: underlined when reached.
+  ghost: "px-1 text-dim font-medium underline-offset-4 hover:text-ink hover:underline",
 };
 
 const BASE =
-  "inline-flex shrink-0 cursor-pointer items-center justify-center gap-2 rounded-md px-5 py-2.5 text-[15px] transition-colors disabled:pointer-events-none disabled:opacity-40";
+  "inline-flex shrink-0 cursor-pointer items-center justify-center gap-2 rounded-md px-5 py-2.5 text-[14px] transition-[colors,transform] duration-150 ease-spring active:scale-[0.97] disabled:pointer-events-none disabled:opacity-40";
 
 type Props = {
   look?: Look;
@@ -26,7 +28,7 @@ type Props = {
 } & Omit<ComponentProps<"button">, "className" | "children">;
 
 export function Button({ look = "primary", icon, href, prefetch, className, children, ...rest }: Props) {
-  const classes = cn(BASE, LOOKS[look], className);
+  const classes = cn(BASE, LOOKS[look], look === "ghost" && "py-1", className);
   const content = (
     <>
       {icon}
@@ -59,7 +61,7 @@ export function IconButton({
       type="button"
       aria-label={label}
       className={cn(
-        "flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full text-ink transition-colors hover:bg-ink/[0.14] active:bg-ink/[0.22] disabled:opacity-35",
+        "flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full text-ink transition-[colors,transform] duration-150 ease-spring active:scale-90 hover:bg-wash-2 active:bg-wash-3 disabled:opacity-35",
         className,
       )}
       {...rest}
@@ -81,7 +83,7 @@ export function Tab({
       type="button"
       className={cn(
         "flex cursor-pointer flex-col items-center gap-1 px-1 py-1 text-sm transition-colors",
-        active ? "font-bold text-ink" : "text-dim hover:text-ink",
+        active ? "font-semibold text-ink" : "text-dim hover:text-ink",
         className,
       )}
       {...rest}
@@ -89,5 +91,19 @@ export function Tab({
       {children}
       <span className={cn("h-0.5 w-full rounded-full", active && "bg-accent")} />
     </button>
+  );
+}
+
+/** A keyboard shortcut drawn as the key it is: "Ctrl K". */
+export function Keycap({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <kbd
+      className={cn(
+        "inline-flex h-5 min-w-5 items-center justify-center rounded-sm border border-ink/15 bg-wash px-1.5 font-sans text-[11px] font-medium leading-none text-dim shadow-[inset_0_-1px_0_rgb(var(--ink)/0.08)]",
+        className,
+      )}
+    >
+      {children}
+    </kbd>
   );
 }

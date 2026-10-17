@@ -7,7 +7,8 @@
 
 use crate::design::button::icon_button;
 use crate::design::tokens::{
-    ACCENT, CANVAS, DANGER, LINE, SURFACE, TEXT, TEXT_DIM, TEXT_FAINT, TOP_BAR, color,
+    ACCENT, CANVAS, DANGER, LINE, SURFACE, TEXT, TEXT_DIM, TEXT_FAINT, TOP_BAR, WASH, WASH_2,
+    WASH_3, color, radius,
 };
 use crate::route::{self, Route};
 use crate::runtime;
@@ -498,8 +499,8 @@ impl Party {
                     .gap_3()
                     .px_3()
                     .py_2p5()
-                    .rounded_xl()
-                    .bg(color(TEXT).opacity(0.04))
+                    .rounded(px(radius::PANEL))
+                    .bg(color(TEXT).opacity(WASH))
                     .child(avatar(&name, false))
                     .child(
                         div()
@@ -696,7 +697,7 @@ impl Party {
                     .items_center()
                     .justify_center()
                     .h(px(36.))
-                    .rounded_lg()
+                    .rounded(px(radius::PANEL))
                     .border_1()
                     .border_color(color(LINE))
                     .text_size(px(13.))
@@ -740,12 +741,12 @@ fn avatar(name: &str, host: bool) -> Div {
         .justify_center()
         .size(px(32.))
         .rounded_full()
-        .bg(color(TEXT).opacity(0.08))
+        .bg(color(TEXT).opacity(WASH))
         .when(host, |circle| {
             circle.border_1().border_color(color(ACCENT).opacity(0.7))
         })
         .text_size(px(13.))
-        .font_weight(FontWeight::BOLD)
+        .font_weight(FontWeight::SEMIBOLD)
         .text_color(color(TEXT))
         .child(initial)
 }
@@ -776,7 +777,7 @@ fn person(member: &Member) -> Div {
         Readiness::Ready => div()
             .size(px(6.))
             .rounded_full()
-            .bg(color(TEXT).opacity(0.3)),
+            .bg(color(TEXT).opacity(WASH_3)),
     };
     div()
         .flex()
@@ -819,8 +820,8 @@ fn code_cells(code: &str, caret: Option<usize>, over: Option<&str>) -> Div {
                 .items_center()
                 .justify_center()
                 .h(px(48.))
-                .rounded_lg()
-                .bg(color(TEXT).opacity(0.05))
+                .rounded(px(radius::PANEL))
+                .bg(color(TEXT).opacity(WASH))
                 .border_1()
                 .border_color(if caret == Some(index) {
                     color(ACCENT)
@@ -829,7 +830,7 @@ fn code_cells(code: &str, caret: Option<usize>, over: Option<&str>) -> Div {
                 })
                 .font_family(mono)
                 .text_size(px(20.))
-                .font_weight(FontWeight::BOLD)
+                .font_weight(FontWeight::SEMIBOLD)
                 .text_color(color(TEXT))
                 .child(chars.get(index).map(char::to_string).unwrap_or_default())
         }))
@@ -842,7 +843,7 @@ fn code_cells(code: &str, caret: Option<usize>, over: Option<&str>) -> Div {
                 .flex()
                 .items_center()
                 .justify_center()
-                .rounded_lg()
+                .rounded(px(radius::PANEL))
                 .bg(color(SURFACE).opacity(0.92))
                 .text_size(px(13.))
                 .font_weight(FontWeight::SEMIBOLD)
@@ -859,7 +860,7 @@ fn action(id: &'static str, label: &str, primary: bool, disabled: bool) -> State
         .items_center()
         .justify_center()
         .h(px(44.))
-        .rounded_xl()
+        .rounded(px(radius::PANEL))
         .text_size(px(15.))
         .font_weight(FontWeight::SEMIBOLD)
         .when(primary, |button| {
@@ -870,9 +871,9 @@ fn action(id: &'static str, label: &str, primary: bool, disabled: bool) -> State
         })
         .when(!primary, |button| {
             button
-                .bg(color(TEXT).opacity(0.12))
+                .bg(color(TEXT).opacity(WASH_2))
                 .text_color(color(TEXT))
-                .hover(|style| style.bg(color(TEXT).opacity(0.2)))
+                .hover(|style| style.bg(color(TEXT).opacity(WASH_3)))
         })
         .when(disabled, |button| button.opacity(0.4))
         .when(!disabled, |button| button.cursor_pointer())
@@ -888,12 +889,12 @@ fn tab_button(id: &'static str, label: &str, active: bool) -> Stateful<Div> {
         .items_center()
         .justify_center()
         .h(px(32.))
-        .rounded_lg()
+        .rounded(px(radius::PANEL))
         .text_size(px(13.))
         .font_weight(FontWeight::SEMIBOLD)
         .cursor_pointer()
         .when(active, |tab| {
-            tab.bg(color(TEXT).opacity(0.12)).text_color(color(TEXT))
+            tab.bg(color(TEXT).opacity(WASH_2)).text_color(color(TEXT))
         })
         .when(!active, |tab| {
             tab.text_color(color(TEXT_DIM))
@@ -921,7 +922,7 @@ impl Render for Party {
                 .gap(px(2.))
                 .p(px(2.))
                 .rounded(px(10.))
-                .bg(color(TEXT).opacity(0.06))
+                .bg(color(TEXT).opacity(WASH))
                 .child(
                     tab_button("party-tab-start", "Start", self.tab == Tab::Start).on_click(
                         cx.listener(|party, _, _, cx| {
@@ -978,7 +979,7 @@ impl Render for Party {
                     .flex_col()
                     .gap_4()
                     .p_4()
-                    .rounded_2xl()
+                    .rounded(px(radius::POPUP))
                     .bg(color(SURFACE))
                     .border_1()
                     .border_color(color(LINE))

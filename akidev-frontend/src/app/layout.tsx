@@ -7,7 +7,7 @@ import PlayerBar from "@/components/music/player-bar";
 import TopBar from "@/components/topbar";
 import { Toaster } from "@/components/ui/sonner";
 import { SITE_DOMAIN } from "@/constants/site";
-import { appFont } from "@/lib/fonts";
+import { appFont, titleFont } from "@/lib/fonts";
 import MusicPlayerProvider from "@/providers/music-player";
 import PartyProvider from "@/providers/party";
 import QueryProvider from "@/providers/query-provider";
@@ -37,7 +37,7 @@ export const viewport: Viewport = { themeColor: "#0b0b0d", colorScheme: "dark" }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={appFont.variable}>
+    <html lang="en" className={`${appFont.variable} ${titleFont.variable}`}>
       <body className="min-h-screen max-w-[100vw] overflow-x-hidden bg-canvas font-sans text-ink antialiased">
         <QueryProvider>
           <PartyProvider>

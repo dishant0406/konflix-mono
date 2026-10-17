@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 import { useBrowse, useSearch } from "@/query/use-media";
 
 import { Button, Tab } from "./button";
-import { EmptyState, ErrorState, Skeleton } from "./states";
+import { EmptyState, ErrorState, LoadMore, Skeleton } from "./states";
 import Tile from "./tile";
 
 const SKELETONS = 12;
@@ -38,7 +38,7 @@ function Loading() {
 function Page({ heading, filters, children }: { heading: string; filters: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="gutter flex flex-col gap-6 pb-16 pt-[84px]">
-      <h1 className="text-4xl font-black text-ink">{heading}</h1>
+      <h1 className="font-title text-4xl font-semibold tracking-[-0.02em] text-ink">{heading}</h1>
       {filters}
       {children}
     </div>
@@ -110,13 +110,7 @@ export function CatalogueView({ kind, initial }: { kind: ContentType | null; ini
       ) : (
         <>
           <Grid cards={browse.results} />
-          {browse.hasMore && (
-            <div className="flex justify-center pt-4">
-              <Button look="secondary" onClick={browse.loadMore} disabled={browse.loadingMore}>
-                {browse.loadingMore ? "Loading..." : "Load more"}
-              </Button>
-            </div>
-          )}
+          {browse.hasMore && <LoadMore shown={browse.results.length} loading={browse.loadingMore} onMore={browse.loadMore} />}
         </>
       )}
     </Page>

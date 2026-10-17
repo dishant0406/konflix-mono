@@ -6,7 +6,7 @@ use crate::design::state::{
     error_state, kind_label, meta_line, score_label, section_title, skeleton,
 };
 use crate::design::tokens::{
-    ACCENT, CANVAS, GUTTER, TEXT, TEXT_DIM, TEXT_FAINT, TOP_BAR, color, size,
+    ACCENT, CANVAS, GUTTER, TEXT, TEXT_DIM, TEXT_FAINT, TOP_BAR, WASH_2, color, font, size,
 };
 use crate::episodes::EpisodeList;
 use crate::route::{Route, navigate};
@@ -117,12 +117,15 @@ impl Render for TitlePage {
         let art = media.banner.clone().or_else(|| media.poster.clone());
         let facts = [
             media.year.map(|y| y.to_string()),
-            media.format.clone().map(|f| f.to_lowercase()),
+            media
+                .format
+                .as_deref()
+                .and_then(crate::design::state::format_label),
             media.runtime_minutes.map(|m| format!("{m} min")),
             media
                 .status
                 .as_ref()
-                .map(|s| s.replace('_', " ").to_lowercase()),
+                .map(|s| crate::design::state::sentence(&s.replace('_', " "))),
             media
                 .episodes
                 .filter(|_| media.kind != Kind::Movie)
@@ -194,7 +197,7 @@ impl Render for TitlePage {
                             .child(
                                 div()
                                     .text_size(px(12.))
-                                    .font_weight(FontWeight::BOLD)
+                                    .font_weight(FontWeight::SEMIBOLD)
                                     .text_color(color(ACCENT))
                                     .child(kind_label(media.kind)),
                             )
@@ -203,8 +206,9 @@ impl Render for TitlePage {
                     .child(
                         div()
                             .text_size(px(size::BILLBOARD))
-                            .line_height(relative(1.05))
-                            .font_weight(FontWeight::BLACK)
+                            .line_height(relative(1.15))
+                            .font_family(font::TITLE)
+                            .font_weight(FontWeight::SEMIBOLD)
                             .text_color(color(TEXT))
                             .line_clamp(3)
                             .child(media.title.clone()),
@@ -299,7 +303,7 @@ fn cast(people: &[Person]) -> Option<Div> {
                         .size(px(52.))
                         .rounded_full()
                         .overflow_hidden()
-                        .bg(color(TEXT).opacity(0.1));
+                        .bg(color(TEXT).opacity(WASH_2));
                     let avatar = match &person.image {
                         Some(url) => avatar.child(
                             img(url.clone())

@@ -61,12 +61,22 @@ export default function TopBar() {
   return (
     <>
       <header
-        className={cn(
-          "fixed inset-x-0 top-0 z-40 h-14 border-b bg-origin-border transition-colors duration-200",
-          scrolled ? "border-line bg-canvas" : "border-transparent bg-gradient-to-b from-canvas/85 to-transparent",
-        )}
+        className="fixed inset-x-0 top-0 z-40 h-14"
       >
-        <div className="gutter flex h-full items-center gap-3 md:gap-6">
+        {/* Two layers cross-fade: a soft shade over the artwork at the top, and once the page has
+            moved, a blurred material with a hairline that only shows where content passes under. */}
+        <div
+          aria-hidden
+          className={cn("absolute inset-0 bg-gradient-to-b from-canvas/85 to-transparent transition-opacity duration-300 ease-spring", scrolled && "opacity-0")}
+        />
+        <div
+          aria-hidden
+          className={cn(
+            "material absolute inset-0 shadow-[0_1px_0_rgb(var(--ink)/0.07)] transition-opacity duration-300 ease-spring",
+            !scrolled && "opacity-0",
+          )}
+        />
+        <div className="gutter relative flex h-full items-center gap-3 md:gap-6">
           <IconButton
             label="Back"
             onClick={() => (canGoBack ? router.back() : router.push(ROUTES.HOME))}
@@ -75,7 +85,7 @@ export default function TopBar() {
             <ChevronLeft className="size-5" />
           </IconButton>
 
-          <Link href={ROUTES.HOME} className="flex items-center gap-2 text-xl font-black text-ink">
+          <Link href={ROUTES.HOME} className="flex items-center gap-2 text-xl font-semibold text-ink">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/icon.svg" alt="" width={28} height={28} className="size-7 shrink-0" />
             <span className="hidden sm:inline">AKIDEV</span>
@@ -91,7 +101,7 @@ export default function TopBar() {
                 aria-current={active(tab.href) ? "page" : undefined}
                 className={cn(
                   "flex flex-col items-center gap-1 px-1 py-1 text-sm transition-colors",
-                  active(tab.href) ? "font-bold text-ink" : "text-dim hover:text-ink",
+                  active(tab.href) ? "font-semibold text-ink" : "text-dim hover:text-ink",
                 )}
               >
                 {tab.label}
@@ -101,7 +111,7 @@ export default function TopBar() {
           </nav>
 
           <PartyButton />
-          <IconButton label="Search" onClick={() => setSearching(true)} className={cn(searching && "bg-ink/[0.14]")}>
+          <IconButton label="Search" onClick={() => setSearching(true)} className={cn(searching && "bg-wash-2")}>
             <Search className="size-[18px]" />
           </IconButton>
         </div>

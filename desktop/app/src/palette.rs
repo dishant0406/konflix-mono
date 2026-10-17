@@ -1,7 +1,9 @@
 //! The search palette (Cmd-K): results appear as you type, and Enter opens the best one.
 
 use crate::design::state::{kind_label, meta_line};
-use crate::design::tokens::{CANVAS, LINE, RAISED, SURFACE, TEXT, TEXT_DIM, TEXT_FAINT, color};
+use crate::design::tokens::{
+    CANVAS, LINE, RAISED, SURFACE, TEXT, TEXT_DIM, TEXT_FAINT, color, radius,
+};
 use crate::music_player::{hub, play};
 use crate::music_ui::{cover, names};
 use crate::route::{Route, navigate};
@@ -348,7 +350,7 @@ impl Palette {
             .gap_3()
             .px_3()
             .py_2()
-            .rounded_lg()
+            .rounded(px(radius::PANEL))
             .cursor_pointer()
             .when(index == self.selected, |row| row.bg(color(RAISED)))
             .hover(|style| style.bg(color(RAISED)))
@@ -381,7 +383,7 @@ impl Palette {
                             .child(
                                 div()
                                     .text_size(px(10.))
-                                    .font_weight(FontWeight::BOLD)
+                                    .font_weight(FontWeight::SEMIBOLD)
                                     .text_color(color(TEXT_FAINT))
                                     .child(row.label),
                             )
@@ -403,7 +405,7 @@ impl Palette {
             .gap_3()
             .px_3()
             .py_2()
-            .rounded_lg()
+            .rounded(px(radius::PANEL))
             .cursor_pointer()
             .when(index == self.selected, |row| row.bg(color(RAISED)))
             .hover(|style| style.bg(color(RAISED)))
@@ -416,7 +418,7 @@ impl Palette {
                     .flex_none()
                     .w(px(36.))
                     .h(px(54.))
-                    .rounded_md()
+                    .rounded(px(radius::BUTTON))
                     .overflow_hidden()
                     .bg(color(LINE))
                     .children(media.poster.clone().map(|url| {
@@ -448,7 +450,7 @@ impl Palette {
                             .child(
                                 div()
                                     .text_size(px(10.))
-                                    .font_weight(FontWeight::BOLD)
+                                    .font_weight(FontWeight::SEMIBOLD)
                                     .text_color(color(TEXT_FAINT))
                                     .child(kind_label(media.kind)),
                             )
@@ -524,7 +526,7 @@ impl Render for Palette {
                     .w(px(640.))
                     .flex()
                     .flex_col()
-                    .rounded_2xl()
+                    .rounded(px(radius::POPUP))
                     .overflow_hidden()
                     .bg(color(SURFACE))
                     .border_1()

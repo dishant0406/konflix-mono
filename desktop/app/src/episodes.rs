@@ -2,7 +2,9 @@
 
 use crate::design::button::tab;
 use crate::design::state::section_title;
-use crate::design::tokens::{ACCENT, CANVAS, GUTTER, LINE, TEXT, TEXT_DIM, TEXT_FAINT, color};
+use crate::design::tokens::{
+    ACCENT, CANVAS, GUTTER, LINE, TEXT, TEXT_DIM, TEXT_FAINT, WASH, WASH_3, color, radius,
+};
 use crate::route::{Route, navigate, replace};
 use akidev_core::media_id::{self, anime_episode_id};
 use akidev_core::model::{Detail, Episode, Kind};
@@ -166,7 +168,7 @@ impl EpisodeList {
             .justify_center()
             .w(px(width))
             .h(px(height))
-            .rounded_md()
+            .rounded(px(radius::BUTTON))
             .text_size(px(14.))
             .font_weight(FontWeight::SEMIBOLD)
             .cursor_pointer()
@@ -174,9 +176,13 @@ impl EpisodeList {
                 tile.bg(color(TEXT)).text_color(color(CANVAS))
             })
             .when(!selected, |tile| {
-                tile.bg(color(TEXT).opacity(0.08))
+                tile.bg(color(TEXT).opacity(WASH))
                     .text_color(color(TEXT_DIM))
-                    .hover(|style| style.bg(color(TEXT).opacity(0.16)).text_color(color(TEXT)))
+                    .hover(|style| {
+                        style
+                            .bg(color(TEXT).opacity(WASH_3))
+                            .text_color(color(TEXT))
+                    })
             })
             .on_click(move |_, _, cx| open(&id, compact, cx))
             .child(number.to_string())
@@ -298,20 +304,20 @@ fn episode_row(episode: &Episode, current: bool, compact: bool) -> Stateful<Div>
         .gap(px(if compact { 12. } else { 20. }))
         .px(px(if compact { 8. } else { 16. }))
         .py(px(if compact { 10. } else { 14. }))
-        .rounded_lg()
+        .rounded(px(radius::PANEL))
         .cursor_pointer()
         .when(!compact, |row| {
-            row.border_b_1().border_color(color(TEXT).opacity(0.06))
+            row.border_b_1().border_color(color(TEXT).opacity(WASH))
         })
-        .when(current, |row| row.bg(color(TEXT).opacity(0.07)))
-        .hover(|style| style.bg(color(TEXT).opacity(0.07)))
+        .when(current, |row| row.bg(color(TEXT).opacity(WASH)))
+        .hover(|style| style.bg(color(TEXT).opacity(WASH)))
         .on_click(move |_, _, cx| open(&id, compact, cx))
         .child(
             div()
                 .w(px(number_width))
                 .flex_none()
                 .text_size(px(number_size))
-                .font_weight(FontWeight::BOLD)
+                .font_weight(FontWeight::SEMIBOLD)
                 .text_color(if current {
                     color(ACCENT)
                 } else {

@@ -44,7 +44,7 @@ export default function PartyButton({ className }: { className?: string }) {
       <IconButton
         label={live ? `Party, ${party.members.length} here` : "Watch party"}
         onClick={() => setOpen((was) => !was)}
-        className={cn((open || live) && "bg-ink/[0.14]", className)}
+        className={cn((open || live) && "bg-wash-2", className)}
       >
         <span className="relative">
           <Users className="size-[18px]" />
@@ -55,7 +55,7 @@ export default function PartyButton({ className }: { className?: string }) {
         <div
           role="dialog"
           aria-label="Watch party"
-          className="absolute right-0 top-full z-[70] mt-2 w-[320px] max-w-[calc(100vw-2rem)] origin-top-right animate-pop rounded-2xl border border-line bg-surface/95 p-4 shadow-[0_24px_60px_-12px_rgba(0,0,0,0.65)] backdrop-blur-xl"
+          className="absolute right-0 top-full z-[70] mt-2 w-[320px] max-w-[calc(100vw-2rem)] origin-top-right animate-pop material-panel rounded-xl p-4 shadow-[0_0_0_1px_rgb(var(--ink)/0.08),0_24px_60px_rgb(0_0_0/0.55)]"
         >
           <Panel />
         </div>
@@ -100,7 +100,7 @@ function Idle() {
   const [tab, setTab] = useState<"start" | "join">(party.invite ? "join" : "start");
   return (
     <>
-      <div role="tablist" aria-label="Start or join" className="grid grid-cols-2 gap-0.5 rounded-[10px] bg-ink/[0.06] p-0.5">
+      <div role="tablist" aria-label="Start or join" className="grid grid-cols-2 gap-0.5 rounded-[10px] bg-wash p-0.5">
         {(["start", "join"] as const).map((which) => (
           <button
             key={which}
@@ -110,7 +110,7 @@ function Idle() {
             onClick={() => setTab(which)}
             className={cn(
               "h-8 cursor-pointer rounded-lg text-[13px] font-semibold transition-colors",
-              tab === which ? "bg-ink/[0.12] text-ink" : "text-dim hover:text-ink",
+              tab === which ? "bg-wash-2 text-ink" : "text-dim hover:text-ink",
             )}
           >
             {which === "start" ? "Start" : "Join"}
@@ -126,7 +126,7 @@ function Start() {
   const party = useParty();
   return (
     <>
-      <label className="flex items-center gap-3 rounded-xl bg-ink/[0.04] px-3 py-2.5 transition-colors focus-within:bg-ink/[0.07]">
+      <label className="flex items-center gap-3 rounded-xl bg-wash px-3 py-2.5 transition-colors focus-within:bg-wash">
         <Avatar name={party.name} />
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="text-[11px] font-medium text-faint">You appear as</span>
@@ -182,7 +182,7 @@ function Join() {
               <span
                 key={index}
                 className={cn(
-                  "flex h-12 items-center justify-center rounded-lg bg-ink/[0.05] font-mono text-xl font-bold text-ink ring-1 ring-inset transition-shadow",
+                  "flex h-12 items-center justify-center rounded-lg bg-wash font-mono text-xl font-semibold text-ink ring-1 ring-inset transition-shadow",
                   focused && index === Math.min(typed.length, CODE_LENGTH - 1) ? "ring-accent" : "ring-line",
                 )}
               >
@@ -252,7 +252,7 @@ function Live() {
           {Array.from({ length: CODE_LENGTH }, (_, index) => (
             <span
               key={index}
-              className="flex h-12 items-center justify-center rounded-lg bg-ink/[0.05] font-mono text-xl font-bold text-ink ring-1 ring-inset ring-line transition-colors group-hover:bg-ink/[0.09]"
+              className="flex h-12 items-center justify-center rounded-lg bg-wash font-mono text-xl font-semibold text-ink ring-1 ring-inset ring-line transition-colors group-hover:bg-wash"
             >
               {code[index]}
             </span>
@@ -284,7 +284,7 @@ function Live() {
       <button
         type="button"
         onClick={party.leave}
-        className="h-9 cursor-pointer rounded-lg border border-line text-[13px] font-semibold text-dim transition-colors hover:border-danger/40 hover:bg-danger/10 hover:text-danger"
+        className="h-9 cursor-pointer rounded-md border border-ink/15 text-[13px] font-medium text-dim transition-[colors,transform] duration-150 ease-spring active:scale-[0.97] hover:border-danger/40 hover:bg-danger/10 hover:text-danger"
       >
         {host ? "End party" : "Leave party"}
       </button>
@@ -321,7 +321,7 @@ function Avatar({ name, host }: { name: string; host?: boolean }) {
   return (
     <span
       className={cn(
-        "flex size-8 shrink-0 items-center justify-center rounded-full bg-ink/[0.08] text-[13px] font-bold uppercase text-ink",
+        "flex size-8 shrink-0 items-center justify-center rounded-full bg-wash text-[13px] font-semibold uppercase text-ink",
         host && "ring-1 ring-accent/70",
       )}
       aria-hidden
@@ -339,7 +339,7 @@ function Action({ onClick, disabled, quiet, children }: { onClick: () => void; d
       disabled={disabled}
       className={cn(
         "h-11 cursor-pointer rounded-xl text-[15px] font-semibold transition-colors disabled:pointer-events-none disabled:opacity-40",
-        quiet ? "bg-ink/[0.12] text-ink hover:bg-ink/20" : "bg-ink text-canvas hover:bg-ink/85 active:bg-ink/75",
+        quiet ? "bg-wash-2 text-ink hover:bg-wash-3" : "bg-ink text-canvas hover:bg-ink/85 active:bg-ink/75",
       )}
     >
       {children}

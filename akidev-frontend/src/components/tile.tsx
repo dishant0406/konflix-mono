@@ -77,7 +77,7 @@ export default function Tile({
       // A touch has no hover, so the press is the first sign of intent.
       onTouchStart={() => setHot(true)}
     >
-      <div className="relative aspect-[2/3] w-full overflow-hidden rounded-lg border border-transparent bg-raised transition-colors group-hover/tile:border-ink/40">
+      <div className="relative aspect-[2/3] w-full overflow-hidden rounded-lg bg-raised ring-1 ring-inset ring-ink/10 transition-[transform,box-shadow] duration-300 ease-spring group-hover/tile:scale-[1.03] group-hover/tile:shadow-[0_14px_36px_rgb(0_0_0/0.55)] group-active/tile:scale-[0.98] group-active/tile:duration-100">
         {card.poster && drawn ? (
           <Image
             src={card.poster}
@@ -97,16 +97,16 @@ export default function Tile({
         {/* The whole tile is the link; the two round buttons sit above it. */}
         <Link href={click} prefetch={hot} aria-label={card.title} className="absolute inset-0" />
 
-        <div className="pointer-events-none absolute inset-0 flex flex-col justify-end gap-1.5 bg-gradient-to-t from-canvas/95 via-canvas/0 via-80% to-transparent p-3 opacity-0 transition-opacity group-hover/tile:opacity-100 group-focus-within/tile:opacity-100">
-          <span className="text-[10px] font-bold text-accent">{KIND_LABEL[card.kind]}</span>
-          <span className="line-clamp-2 text-sm font-bold leading-tight text-ink">{card.title}</span>
+        <div className="pointer-events-none absolute inset-0 flex flex-col justify-end gap-1.5 bg-gradient-to-t from-canvas/95 via-canvas/0 via-80% to-transparent p-3 opacity-0 transition-opacity duration-200 group-hover/tile:opacity-100 group-focus-within/tile:opacity-100">
+          <span className="caps text-[10px] text-accent">{KIND_LABEL[card.kind]}</span>
+          <span className="line-clamp-2 text-sm font-semibold leading-tight text-ink">{card.title}</span>
           <MetaLine parts={facts(card)} className="text-[11px]" />
           <div className="pointer-events-auto flex gap-2 pt-1">
             <button
               type="button"
               aria-label={`Play ${card.title}`}
               onClick={() => router.push(play)}
-              className="flex size-8 cursor-pointer items-center justify-center rounded-full bg-ink text-canvas transition-colors hover:bg-ink/85"
+              className="flex size-8 cursor-pointer items-center justify-center rounded-full bg-ink text-canvas transition-[colors,transform] duration-150 ease-spring hover:bg-ink/85 active:scale-90"
             >
               <Play className="size-3.5 fill-current" />
             </button>
@@ -114,7 +114,7 @@ export default function Tile({
               type="button"
               aria-label={`About ${card.title}`}
               onClick={() => router.push(open)}
-              className="flex size-8 cursor-pointer items-center justify-center rounded-full bg-ink/[0.16] text-ink transition-colors hover:bg-ink/[0.28]"
+              className="flex size-8 cursor-pointer items-center justify-center rounded-full bg-wash-3 text-ink backdrop-blur-md transition-[colors,transform] duration-150 ease-spring hover:bg-ink/25 active:scale-90"
             >
               <Info className="size-3.5" />
             </button>

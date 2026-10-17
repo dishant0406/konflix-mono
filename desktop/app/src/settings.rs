@@ -5,7 +5,7 @@ use crate::backend::Backend;
 use crate::design::button::ghost_button;
 use crate::design::toggle::toggle;
 use crate::design::tokens::{
-    ACCENT, DANGER, GUTTER, TEXT, TEXT_DIM, TEXT_FAINT, TOP_BAR, color, size,
+    ACCENT, DANGER, GUTTER, TEXT, TEXT_DIM, TEXT_FAINT, TOP_BAR, WASH_2, color, font, size,
 };
 use crate::updates::{Shared, Status};
 use akidev_core::config::Config;
@@ -194,7 +194,7 @@ impl SettingsPage {
                     .w_full()
                     .h(px(2.))
                     .rounded_full()
-                    .bg(color(TEXT).opacity(0.14)),
+                    .bg(color(TEXT).opacity(WASH_2)),
             )
             .child(
                 div()
@@ -266,7 +266,7 @@ impl SettingsPage {
                         div()
                             .text_size(px(64.))
                             .line_height(px(68.))
-                            .font_weight(FontWeight::BOLD)
+                            .font_weight(FontWeight::SEMIBOLD)
                             .text_color(color(TEXT))
                             .child(stops[current].to_string()),
                     )
@@ -358,7 +358,8 @@ impl Render for SettingsPage {
                     .child(
                         div()
                             .text_size(px(size::DISPLAY))
-                            .font_weight(FontWeight::BLACK)
+                            .font_family(font::TITLE)
+                            .font_weight(FontWeight::SEMIBOLD)
                             .text_color(color(TEXT))
                             .child("Settings"),
                     )

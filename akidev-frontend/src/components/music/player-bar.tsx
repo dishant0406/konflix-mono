@@ -21,7 +21,7 @@ function Round({ label, on, onClick, disabled, children, className }: { label: s
       aria-pressed={on}
       disabled={disabled}
       onClick={onClick}
-      className={cn("flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-white/60 transition-colors hover:text-white disabled:opacity-30", on && "text-white", className)}
+      className={cn("flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-white/60 transition-[colors,transform] duration-150 ease-spring hover:text-white active:scale-90 disabled:opacity-30", on && "text-white", className)}
     >
       {children}
     </button>
@@ -35,7 +35,7 @@ function PlayButton({ big }: { big?: boolean }) {
       type="button"
       aria-label={p.playing ? "Pause" : "Play"}
       onClick={p.toggle}
-      className={cn("flex shrink-0 cursor-pointer items-center justify-center rounded-full bg-white text-black transition-transform hover:scale-105", big ? "size-16" : "size-9")}
+      className={cn("flex shrink-0 cursor-pointer items-center justify-center rounded-full bg-white text-black transition-transform duration-200 ease-spring hover:scale-105 active:scale-95", big ? "size-16" : "size-9")}
     >
       {p.loading ? (
         <Spinner className="border-black/20 border-t-black" />
@@ -85,9 +85,9 @@ function Queue({ onClose }: { onClose: () => void }) {
   const p = useMusicPlayer();
   const upcoming = p.queue.slice(p.index + 1);
   return (
-    <div className="fixed bottom-[80px] right-2 top-16 z-[55] flex w-[min(24rem,calc(100vw-1rem))] flex-col rounded-lg border border-white/[0.08] bg-mpanel md:bottom-[88px]">
-      <div className="flex h-14 shrink-0 items-center justify-between border-b border-white/[0.08] px-4">
-        <h2 className="text-base font-bold">Queue</h2>
+    <div className="fixed bottom-[80px] right-2 top-16 z-[55] flex w-[min(24rem,calc(100vw-1rem))] flex-col material-panel animate-slide rounded-xl shadow-[0_0_0_1px_rgb(255_255_255/0.08),0_24px_60px_rgb(0_0_0/0.5)] md:bottom-[88px]">
+      <div className="flex h-14 shrink-0 items-center justify-between px-4 shadow-[0_1px_0_rgb(255_255_255/0.07)]">
+        <h2 className="font-title text-lg font-semibold tracking-[-0.01em]">Queue</h2>
         <Round label="Close queue" onClick={onClose}>
           <X className="size-5" />
         </Round>
@@ -95,11 +95,11 @@ function Queue({ onClose }: { onClose: () => void }) {
       <div className="flex-1 overflow-y-auto p-2">
         {p.current && (
           <>
-            <p className="px-2 pb-1 pt-2 text-xs font-semibold text-white/50">Now playing</p>
+            <p className="px-2 pb-1 pt-2 caps text-white/50">Now playing</p>
             <QueueRow index={p.index} />
           </>
         )}
-        {upcoming.length > 0 && <p className="px-2 pb-1 pt-4 text-xs font-semibold text-white/50">Next up</p>}
+        {upcoming.length > 0 && <p className="px-2 pb-1 pt-4 caps text-white/50">Next up</p>}
         {upcoming.map((_, n) => (
           <QueueRow key={p.index + 1 + n} index={p.index + 1 + n} />
         ))}
@@ -138,14 +138,14 @@ function NowPlaying({ onClose }: { onClose: () => void }) {
         <Round label="Close" onClick={onClose}>
           <ChevronDown className="size-6" />
         </Round>
-        <span className="text-xs font-semibold text-white/60">Now playing</span>
+        <span className="caps text-white/60">Now playing</span>
         <span className="size-8" />
       </div>
       <div className="flex flex-1 items-center justify-center py-4">
         <Cover src={track.cover} sizes="400px" priority className="w-full max-w-sm" />
       </div>
       <div className="mb-4 min-w-0">
-        <p className="truncate text-2xl font-bold tracking-tight">{track.title}</p>
+        <p className="truncate font-title text-2xl font-semibold tracking-[-0.015em]">{track.title}</p>
         <p className="truncate text-base text-white/60">{names(track.artists)}</p>
       </div>
       <Seek className="mb-4" />
@@ -171,7 +171,7 @@ export default function PlayerBar() {
       <div aria-hidden className="h-[72px]" />
       {queue && <Queue onClose={() => setQueue(false)} />}
       {open && <NowPlaying onClose={() => setOpen(false)} />}
-      <div className={"fixed inset-x-0 bottom-0 z-50 border-t border-white/[0.08] bg-black text-white"}>
+      <div className={"fixed inset-x-0 bottom-0 z-50 bg-black/75 text-white shadow-[0_-1px_0_rgb(255_255_255/0.08)] backdrop-blur-2xl backdrop-saturate-150"}>
         {/* On a phone the bar is a mini-player: tap it for the full one, with the progress as a line on top. */}
         <div className="absolute inset-x-0 top-0 h-0.5 bg-white/20 md:hidden">
           <div className="h-full bg-white" style={{ width: total ? `${(p.time / total) * 100}%` : 0 }} />

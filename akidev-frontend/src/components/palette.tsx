@@ -154,12 +154,12 @@ export default function Palette({ onClose, music = false }: { onClose: () => voi
       role="dialog"
       aria-modal="true"
       aria-label="Search"
-      className="fixed inset-0 z-50 flex items-start justify-center bg-canvas/70 px-4 pt-[110px] backdrop-blur-sm animate-fade"
+      className="fixed inset-0 z-50 flex items-start justify-center bg-canvas/60 px-4 pt-[110px] backdrop-blur-md animate-fade"
       onClick={onClose}
       onKeyDown={onKeyDown}
     >
       <div
-        className="flex w-full max-w-[640px] flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-2xl"
+        className="flex w-full max-w-[640px] flex-col overflow-hidden rounded-xl material-panel shadow-[0_0_0_1px_rgb(var(--ink)/0.08),0_32px_80px_rgb(0_0_0/0.6)] animate-pop"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-center gap-3 px-4 py-3">
@@ -177,7 +177,7 @@ export default function Palette({ onClose, music = false }: { onClose: () => voi
         </div>
 
         {(hint || results.length > 0) && (
-          <div className={cn("flex max-h-[60vh] flex-col overflow-y-auto border-t border-line p-2", stale && "opacity-50")}>
+          <div className={cn("flex max-h-[60vh] flex-col overflow-y-auto p-2 shadow-[inset_0_1px_0_rgb(var(--ink)/0.07)]", stale && "opacity-50")}>
             {results.map((item, index) => (
               <button
                 key={item.key}
@@ -186,7 +186,7 @@ export default function Palette({ onClose, music = false }: { onClose: () => voi
                 onMouseMove={() => setSelected(index)}
                 className={cn(
                   "flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-left",
-                  index === selected && "bg-raised",
+                  index === selected && "bg-wash-2",
                 )}
               >
                 <div
@@ -202,7 +202,7 @@ export default function Palette({ onClose, music = false }: { onClose: () => voi
                 <div className="flex min-w-0 flex-col gap-0.5">
                   <span className="truncate text-[15px] font-semibold text-ink">{item.title}</span>
                   <span className="flex items-center gap-2">
-                    <span className="text-[10px] font-bold text-faint">{item.label}</span>
+                    <span className="text-[10px] font-semibold text-faint">{item.label}</span>
                     <MetaLine parts={item.facts} className="text-xs" />
                   </span>
                 </div>

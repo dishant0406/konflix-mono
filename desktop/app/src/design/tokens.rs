@@ -8,17 +8,22 @@
 use gpui_kit::{Hsla, rgb};
 
 /// The window background.
-pub const CANVAS: u32 = 0x0b0b0d;
+pub const CANVAS: u32 = 0x0c0b0a;
 /// Panels and cards resting on the canvas.
-pub const SURFACE: u32 = 0x141416;
+pub const SURFACE: u32 = 0x151413;
 /// Anything raised above a surface: hover fills, menus.
-pub const RAISED: u32 = 0x1c1c1f;
-pub const LINE: u32 = 0x27272a;
-pub const TEXT: u32 = 0xf4f4f5;
-pub const TEXT_DIM: u32 = 0xa1a1aa;
-pub const TEXT_FAINT: u32 = 0x71717a;
+pub const RAISED: u32 = 0x1e1c1a;
+pub const LINE: u32 = 0x2a2825;
+pub const TEXT: u32 = 0xf1ede6;
+pub const TEXT_DIM: u32 = 0xa39d92;
+pub const TEXT_FAINT: u32 = 0x756f66;
 pub const ACCENT: u32 = 0xe6b450;
-pub const DANGER: u32 = 0xf87171;
+pub const DANGER: u32 = 0xe8786e;
+
+/// The three fills for anything lifted off the canvas: the text colour at these opacities.
+pub const WASH: f32 = 0.06;
+pub const WASH_2: f32 = 0.1;
+pub const WASH_3: f32 = 0.16;
 
 pub fn color(hex: u32) -> Hsla {
     rgb(hex).into()
@@ -40,3 +45,17 @@ pub mod size {
 /// Poster tile, 2:3.
 pub const TILE_WIDTH: f32 = 176.;
 pub const TILE_HEIGHT: f32 = 264.;
+
+/// Font families. The interface face is the theme's own (`font.family` in `assets/theme.json`);
+/// titles use the mincho, in regular or semibold.
+pub mod font {
+    pub const TITLE: &str = "Shippori Mincho";
+}
+
+/// One corner radius scale, in pixels: badges, buttons, tiles and panels, popups.
+pub mod radius {
+    pub const BADGE: f32 = 4.;
+    pub const BUTTON: f32 = 8.;
+    pub const PANEL: f32 = 12.;
+    pub const POPUP: f32 = 16.;
+}

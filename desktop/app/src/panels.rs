@@ -3,9 +3,10 @@
 
 use crate::captions::{self, Group};
 use crate::choices;
-use crate::design::button::secondary_button;
 use crate::design::state::{empty_state, error_state, skeleton};
-use crate::design::tokens::{ACCENT, LINE, SURFACE, TEXT, TEXT_DIM, TEXT_FAINT, TOP_BAR, color};
+use crate::design::tokens::{
+    ACCENT, LINE, SURFACE, TEXT, TEXT_DIM, TEXT_FAINT, TOP_BAR, WASH, WASH_2, color, radius,
+};
 use crate::player::SubtitleTrack;
 use akidev_core::stream::Choice;
 use gpui_kit::assets::IconName;
@@ -59,9 +60,9 @@ pub fn shell(
                         .items_center()
                         .justify_center()
                         .size(px(28.))
-                        .rounded_md()
+                        .rounded(px(radius::BUTTON))
                         .cursor_pointer()
-                        .hover(|style| style.bg(color(TEXT).opacity(0.1)))
+                        .hover(|style| style.bg(color(TEXT).opacity(WASH_2)))
                         .on_click(on_close)
                         .child(Icon::new(IconName::X).small().text_color(color(TEXT_DIM))),
                 ),
@@ -85,9 +86,9 @@ fn section_label(text: &str) -> Div {
         .pt_3()
         .pb_1()
         .text_size(px(11.))
-        .font_weight(FontWeight::SEMIBOLD)
+        .font_weight(FontWeight::MEDIUM)
         .text_color(color(TEXT_FAINT))
-        .child(text.to_uppercase())
+        .child(crate::design::state::spaced(text))
 }
 
 /// A clickable row: highlighted when it is the one in use.
@@ -99,10 +100,10 @@ fn row(id: impl Into<ElementId>, selected: bool) -> Stateful<Div> {
         .gap_3()
         .px_2()
         .py_2p5()
-        .rounded_lg()
+        .rounded(px(radius::PANEL))
         .cursor_pointer()
-        .when(selected, |row| row.bg(color(TEXT).opacity(0.07)))
-        .hover(|style| style.bg(color(TEXT).opacity(0.07)))
+        .when(selected, |row| row.bg(color(TEXT).opacity(WASH)))
+        .hover(|style| style.bg(color(TEXT).opacity(WASH)))
 }
 
 /// A fixed-width slot that holds the check mark, so rows line up whether marked or not.
@@ -117,7 +118,7 @@ fn badge(text: &str, accent: bool) -> Div {
     div()
         .px_1p5()
         .py_0p5()
-        .rounded_md()
+        .rounded(px(radius::BADGE))
         .text_size(px(11.))
         .font_weight(FontWeight::SEMIBOLD)
         .when(accent, |badge| {
@@ -127,7 +128,7 @@ fn badge(text: &str, accent: bool) -> Div {
         })
         .when(!accent, |badge| {
             badge
-                .bg(color(TEXT).opacity(0.07))
+                .bg(color(TEXT).opacity(WASH))
                 .text_color(color(TEXT_DIM))
         })
         .child(text.to_string())
@@ -178,8 +179,8 @@ pub fn sources_body(view: SourcesView, playing: Option<&str>, act: Act<SourceAct
             move |_, _, cx| act(SourceAction::Retry, cx),
         )),
         SourcesView::Ready([]) => list.child(empty_state(
-            "No sources found",
-            "No release of this was listed. Try again in a moment.",
+            "No sources yet",
+            "Nothing is listed for this one. Check back later; new releases appear as they are shared.",
         )),
         SourcesView::Ready(all) => {
             let (usual, other) = choices::split(all);
@@ -219,9 +220,10 @@ pub fn sources_body(view: SourcesView, playing: Option<&str>, act: Act<SourceAct
                                 .text_color(color(TEXT_DIM))
                                 .children(is_playing.then(|| {
                                     div()
-                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .text_size(px(11.))
+                                        .font_weight(FontWeight::MEDIUM)
                                         .text_color(color(ACCENT))
-                                        .child("Playing")
+                                        .child(crate::design::state::spaced("Playing"))
                                 }))
                                 .child(choices::badges(choice).join(" · ")),
                         ),
@@ -396,16 +398,4 @@ fn dim(text: &str) -> Div {
         .text_size(px(12.))
         .text_color(color(TEXT_DIM))
         .child(text.to_string())
-}
-
-/// The button under a failed source, back to the picker.
-pub fn back_to_sources(
-    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-) -> Stateful<Div> {
-    secondary_button(
-        "choose-source",
-        "Choose a source",
-        Some(IconName::Layers),
-        on_click,
-    )
 }

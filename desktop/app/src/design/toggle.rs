@@ -1,6 +1,6 @@
 //! An on/off switch: a small amber track with a round knob.
 
-use super::tokens::{ACCENT, CANVAS, TEXT, color};
+use super::tokens::{ACCENT, CANVAS, TEXT, WASH_3, color};
 use gpui_kit::*;
 
 pub fn toggle(
@@ -19,7 +19,7 @@ pub fn toggle(
         .bg(if on {
             color(ACCENT)
         } else {
-            color(TEXT).opacity(0.18)
+            color(TEXT).opacity(WASH_3)
         })
         .on_click(on_click)
         .child(

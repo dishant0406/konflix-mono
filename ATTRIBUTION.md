@@ -50,3 +50,10 @@ What was **not** taken, and is deliberately absent:
 
 Anime metadata comes from **AniList** (https://anilist.co) by default, and from
 **Kitsu** (https://kitsu.io) when `METADATA_PROVIDER=kitsu` is set.
+
+## Fonts
+
+Both apps set their text in two open fonts, each under the SIL Open Font License 1.1: **Hanken Grotesk**
+(Hanken Design Co.) for the interface and **Shippori Mincho** (FONTWORKS Inc.) for titles. The
+copies in the repository are subsets (Latin letters, punctuation and 秋 for Shippori Mincho) made
+with fonttools, in `akidev-frontend/src/assets/fonts/` and `desktop/app/assets/fonts/`.

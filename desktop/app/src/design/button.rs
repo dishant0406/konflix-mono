@@ -1,7 +1,7 @@
 //! Buttons and chips. Plain clickable elements: one primary look, one secondary, and the
 //! small round icon button the player and the bars use.
 
-use super::tokens::{ACCENT, CANVAS, TEXT, TEXT_DIM, color};
+use super::tokens::{ACCENT, CANVAS, TEXT, TEXT_DIM, WASH_2, WASH_3, color, radius};
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{Icon, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -17,7 +17,7 @@ fn label_with_icon(label: Option<&str>, icon: Option<IconName>, text: Hsla) -> D
         .children(label.map(|label| div().child(label.to_string())))
 }
 
-/// The one action on a screen: white, like a cinema's marquee.
+/// The one action on a screen: warm white, like a cinema's marquee.
 pub fn primary_button(
     id: impl Into<ElementId>,
     label: &str,
@@ -29,19 +29,20 @@ pub fn primary_button(
         .flex_none()
         .px_5()
         .py_2p5()
-        .rounded_md()
+        .rounded(px(radius::BUTTON))
         .bg(color(TEXT))
         .text_color(color(CANVAS))
-        .text_size(px(15.))
-        .font_weight(FontWeight::BOLD)
+        .text_size(px(14.))
+        .font_weight(FontWeight::SEMIBOLD)
         .cursor_pointer()
-        .hover(|style| style.bg(color(TEXT).opacity(0.82)))
-        .active(|style| style.bg(color(TEXT).opacity(0.7)))
+        .hover(|style| style.bg(color(TEXT).opacity(0.85)))
+        .active(|style| style.bg(color(TEXT).opacity(0.75)))
         .on_click(on_click)
         .child(label_with_icon(Some(label), icon, color(CANVAS)))
 }
 
-/// Everything else: translucent, so it sits on artwork as well as on the canvas.
+/// Everything else: a hairline and no fill until it is reached, so it sits on artwork as well as
+/// on the canvas.
 pub fn secondary_button(
     id: impl Into<ElementId>,
     label: &str,
@@ -53,14 +54,19 @@ pub fn secondary_button(
         .flex_none()
         .px_5()
         .py_2p5()
-        .rounded_md()
-        .bg(color(TEXT).opacity(0.12))
+        .rounded(px(radius::BUTTON))
+        .border_1()
+        .border_color(color(TEXT).opacity(0.2))
         .text_color(color(TEXT))
-        .text_size(px(15.))
-        .font_weight(FontWeight::SEMIBOLD)
+        .text_size(px(14.))
+        .font_weight(FontWeight::MEDIUM)
         .cursor_pointer()
-        .hover(|style| style.bg(color(TEXT).opacity(0.2)))
-        .active(|style| style.bg(color(TEXT).opacity(0.28)))
+        .hover(|style| {
+            style
+                .bg(color(TEXT).opacity(WASH_2))
+                .border_color(color(TEXT).opacity(0.3))
+        })
+        .active(|style| style.bg(color(TEXT).opacity(WASH_3)))
         .on_click(on_click)
         .child(label_with_icon(Some(label), icon, color(TEXT)))
 }
@@ -88,8 +94,8 @@ pub fn icon_button(
         .rounded_full()
         .text_color(color(TEXT))
         .cursor_pointer()
-        .hover(|style| style.bg(color(TEXT).opacity(0.14)))
-        .active(|style| style.bg(color(TEXT).opacity(0.22)))
+        .hover(|style| style.bg(color(TEXT).opacity(WASH_2)))
+        .active(|style| style.bg(color(TEXT).opacity(WASH_3)))
         .on_mouse_down(MouseButton::Left, keep_from_title_bar)
         .on_click(on_click)
         .child(Icon::new(icon).text_color(color(TEXT)))
@@ -106,13 +112,13 @@ pub fn ghost_button(
         .flex_none()
         .px_2()
         .py_1()
-        .rounded_md()
+        .rounded(px(radius::BUTTON))
         .text_size(px(13.))
         .font_weight(FontWeight::MEDIUM)
         .text_color(color(TEXT))
         .cursor_pointer()
-        .hover(|style| style.bg(color(TEXT).opacity(0.1)))
-        .active(|style| style.bg(color(TEXT).opacity(0.16)))
+        .hover(|style| style.bg(color(TEXT).opacity(WASH_2)))
+        .active(|style| style.bg(color(TEXT).opacity(WASH_3)))
         .on_click(on_click)
         .child(label.to_string())
 }
@@ -137,7 +143,8 @@ pub fn tab(
         .on_mouse_down(MouseButton::Left, keep_from_title_bar)
         .on_click(on_click)
         .when(active, |tab| {
-            tab.text_color(color(TEXT)).font_weight(FontWeight::BOLD)
+            tab.text_color(color(TEXT))
+                .font_weight(FontWeight::SEMIBOLD)
         })
         .when(!active, |tab| {
             tab.text_color(color(TEXT_DIM))
@@ -174,8 +181,8 @@ pub fn control_button(
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(color(TEXT))
         .cursor_pointer()
-        .hover(|style| style.bg(color(TEXT).opacity(0.14)))
-        .active(|style| style.bg(color(TEXT).opacity(0.22)))
+        .hover(|style| style.bg(color(TEXT).opacity(WASH_2)))
+        .active(|style| style.bg(color(TEXT).opacity(WASH_3)))
         .on_click(on_click)
         .child(Icon::new(icon).text_color(color(TEXT)))
         .children(label)

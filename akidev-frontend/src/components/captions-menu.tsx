@@ -61,7 +61,7 @@ export default function CaptionsMenu({
                         {option.hearing_impaired && (
                           <span
                             title="For the deaf and hard of hearing"
-                            className="rounded-md bg-ink/[0.07] px-1.5 py-0.5 text-[11px] font-semibold text-dim"
+                            className="rounded-md bg-wash px-1.5 py-0.5 text-[11px] font-semibold text-dim"
                           >
                             SDH
                           </span>
@@ -98,8 +98,8 @@ function Row({
       aria-checked={selected}
       onClick={onClick}
       className={cn(
-        "flex w-full cursor-pointer items-center gap-3 rounded-lg px-2 py-2.5 text-left transition-colors hover:bg-ink/[0.07]",
-        selected && "bg-ink/[0.07]",
+        "flex w-full cursor-pointer items-center gap-3 rounded-lg px-2 py-2.5 text-left transition-colors hover:bg-wash",
+        selected && "bg-wash",
       )}
     >
       <span className="flex w-4 shrink-0">{marked && <Check className="size-3.5 text-accent" />}</span>

@@ -98,11 +98,11 @@ function Platform({
   return (
     <section className="flex flex-col gap-5 border-b border-line py-8 sm:flex-row sm:items-center sm:justify-between sm:gap-10">
       <div className="max-w-md">
-        <h2 className="text-xl font-bold text-ink">{name}</h2>
+        <h2 className="font-title text-xl font-semibold tracking-[-0.01em] text-ink">{name}</h2>
         <p className="mt-1.5 text-sm leading-6 text-dim">{detail}</p>
         {command && (
           <p className="mt-3 text-xs text-faint">
-            Or with Homebrew: <code className="select-all rounded bg-ink/[0.07] px-1.5 py-0.5 text-dim">{command}</code>
+            Or with Homebrew: <code className="select-all rounded bg-wash px-1.5 py-0.5 text-dim">{command}</code>
           </p>
         )}
       </div>

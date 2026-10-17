@@ -1,9 +1,10 @@
 //! Browsing one catalogue, or all of them, and the full results of a search.
 
 use crate::design::button::{secondary_button, tab};
-use crate::design::state::{empty_state, error_state, skeleton};
+use crate::design::state::{empty_state, error_state, skeleton, spaced};
 use crate::design::tokens::{
-    ACCENT, GUTTER, TEXT, TEXT_DIM, TILE_HEIGHT, TILE_WIDTH, TOP_BAR, color, size,
+    ACCENT, GUTTER, LINE, TEXT, TEXT_DIM, TEXT_FAINT, TILE_HEIGHT, TILE_WIDTH, TOP_BAR, color,
+    font, radius, size,
 };
 use crate::task::load;
 use crate::tile::poster_tile;
@@ -352,56 +353,88 @@ impl Render for BrowsePage {
                 .when(self.genres_open, |filters| filters.child(list))
         };
 
-        let body = match self.state {
-            State::Loading => div()
-                .flex()
-                .flex_wrap()
-                .gap_5()
-                .children((0..12).map(|_| skeleton(px(TILE_WIDTH), px(TILE_HEIGHT)).rounded_lg()))
-                .into_any_element(),
-            State::Failed => error_state(
-                "Couldn't reach the catalogue",
-                "Check your connection and try again.",
-                cx.listener(|page, _, _, cx| page.fetch(1, cx)),
-            )
-            .into_any_element(),
-            State::Loaded if shown.is_empty() => {
-                let detail = if self.searching() {
-                    "Nothing matched. Try another spelling or fewer words."
-                } else {
-                    "Nothing matches these filters."
-                };
-                empty_state("No results", detail).into_any_element()
-            }
-            State::Loaded => div()
-                .flex()
-                .flex_wrap()
-                .gap_x_5()
-                .gap_y_6()
-                .children(
-                    shown
-                        .iter()
-                        .enumerate()
-                        .map(|(index, media)| poster_tile(&format!("browse-{index}"), media, None)),
+        let body =
+            match self.state {
+                State::Loading => div()
+                    .flex()
+                    .flex_wrap()
+                    .gap_5()
+                    .children((0..12).map(|_| {
+                        skeleton(px(TILE_WIDTH), px(TILE_HEIGHT)).rounded(px(radius::PANEL))
+                    }))
+                    .into_any_element(),
+                State::Failed => error_state(
+                    "Couldn't reach the catalogue",
+                    "Check your connection and try again.",
+                    cx.listener(|page, _, _, cx| page.fetch(1, cx)),
                 )
                 .into_any_element(),
-        };
+                State::Loaded if shown.is_empty() => {
+                    let detail = if self.searching() {
+                        "Nothing matched. Try another spelling or fewer words."
+                    } else {
+                        "Nothing matches these filters."
+                    };
+                    empty_state("No results", detail).into_any_element()
+                }
+                State::Loaded => {
+                    div()
+                        .flex()
+                        .flex_wrap()
+                        .gap_x_5()
+                        .gap_y_6()
+                        .children(shown.iter().enumerate().map(|(index, media)| {
+                            poster_tile(&format!("browse-{index}"), media, None)
+                        }))
+                        .into_any_element()
+                }
+            };
 
         let more = (matches!(self.state, State::Loaded) && self.has_more).then(|| {
-            div().flex().justify_center().pt_4().child(secondary_button(
-                "more",
-                if self.loading_more {
-                    "Loading..."
-                } else {
-                    "Load more"
-                },
-                None,
-                cx.listener(|page, _, _, cx| {
-                    if !page.loading_more {
-                        page.fetch(page.page + 1, cx);
-                    }
-                }),
-            ))
+            let line = || div().h(px(1.)).flex_1().bg(color(LINE));
+            div()
+                .flex()
+                .flex_col()
+                .items_center()
+                .gap_4()
+                .pt_10()
+                .pb_6()
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_4()
+                        .w(px(420.))
+                        .child(line())
+                        .child(
+                            div()
+                                .text_size(px(11.))
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(color(TEXT_FAINT))
+                                .child(spaced(&format!("{} shown", shown.len()))),
+                        )
+                        .child(line()),
+                )
+                .child(
+                    div()
+                        .w(px(144.))
+                        .flex()
+                        .justify_center()
+                        .child(secondary_button(
+                            "more",
+                            if self.loading_more {
+                                "Loading…"
+                            } else {
+                                "Show more"
+                            },
+                            None,
+                            cx.listener(|page, _, _, cx| {
+                                if !page.loading_more {
+                                    page.fetch(page.page + 1, cx);
+                                }
+                            }),
+                        )),
+                )
         });
 
         div()
@@ -414,7 +447,8 @@ impl Render for BrowsePage {
             .child(
                 div()
                     .text_size(px(size::DISPLAY))
-                    .font_weight(FontWeight::BLACK)
+                    .font_family(font::TITLE)
+                    .font_weight(FontWeight::SEMIBOLD)
                     .text_color(color(TEXT))
                     .child(self.heading()),
             )

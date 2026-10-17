@@ -4,15 +4,16 @@
 
 /* The desktop app's palette (desktop/app/src/design/tokens.rs), as RGB channels. */
 :root {
-  --canvas: 11 11 13; /* #0b0b0d: the window background */
-  --surface: 20 20 22; /* #141416: panels resting on the canvas */
-  --raised: 28 28 31; /* #1c1c1f: hover fills, menus */
-  --line: 39 39 42; /* #27272a */
-  --ink: 244 244 245; /* #f4f4f5 */
-  --dim: 161 161 170; /* #a1a1aa */
-  --faint: 113 113 122; /* #71717a */
-  --accent: 230 180 80; /* #e6b450: progress, the active tab, focus */
-  --danger: 248 113 113; /* #f87171 */
+  /* Warm ink, not blue-grey: the film frame the title cards sit on. */
+  --canvas: 12 11 10; /* #0c0b0a: the window background */
+  --surface: 21 20 19; /* #151413: panels resting on the canvas */
+  --raised: 30 28 26; /* #1e1c1a: hover fills, menus */
+  --line: 42 40 37; /* #2a2825 */
+  --ink: 241 237 230; /* #f1ede6: warm white */
+  --dim: 163 157 146; /* #a39d92 */
+  --faint: 117 111 102; /* #756f66 */
+  --accent: 230 180 80; /* #e6b450: the ember. State only: playing, active, progress, focus */
+  --danger: 232 120 110; /* #e8786e */
   /* Music: near-black with white at set opacities, and the cover supplies the colour. */
   --mbg: 10 10 10;
   --mpanel: 18 18 18;
@@ -40,6 +41,22 @@
 }
 
 @layer utilities {
+  /* Translucent chrome: content scrolls under it and shows through, softened. The weight of the
+     material (blur and tint) grows with the size of the surface. */
+  .material {
+    background: rgb(var(--canvas) / 0.7);
+    -webkit-backdrop-filter: blur(24px) saturate(1.6);
+    backdrop-filter: blur(24px) saturate(1.6);
+  }
+  .material-panel {
+    background: rgb(var(--surface) / 0.8);
+    -webkit-backdrop-filter: blur(40px) saturate(1.6);
+    backdrop-filter: blur(40px) saturate(1.6);
+  }
+  /* Small tracked capitals for facts: "FILM · 1994 · 142 MIN". */
+  .caps {
+    @apply text-[11px] font-medium uppercase tracking-[0.14em];
+  }
   /* Rows scroll sideways without a bar, as they do in the app. */
   .no-scrollbar {
     scrollbar-width: none;
@@ -167,3 +184,20 @@ video::-webkit-media-text-track-container {
 .eq > i:nth-child(2) { animation-delay: -0.3s; }
 .eq > i:nth-child(3) { animation-delay: -0.6s; }
 .eq[data-paused="true"] > i { animation-play-state: paused; transform: scaleY(0.3); }
+
+/* A viewer who asks for less transparency gets solid surfaces; more contrast gets firmer edges. */
+@media (prefers-reduced-transparency: reduce) {
+  .material,
+  .material-panel {
+    background: rgb(var(--surface));
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+@media (prefers-contrast: more) {
+  :root {
+    --line: 110 105 97;
+    --dim: 205 200 191;
+    --faint: 170 164 154;
+  }
+}

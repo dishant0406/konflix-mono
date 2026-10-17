@@ -3,7 +3,7 @@
 use crate::backend::Backend;
 use crate::design::button::{primary_button, secondary_button};
 use crate::design::state::{kind_label, meta_line, skeleton};
-use crate::design::tokens::{ACCENT, CANVAS, GUTTER, TEXT, TEXT_DIM, color, size};
+use crate::design::tokens::{ACCENT, CANVAS, GUTTER, TEXT, TEXT_DIM, WASH_3, color, font, size};
 use crate::route::{Route, navigate};
 use akidev_core::model::{Kind, Media};
 use gpui_kit::assets::IconName;
@@ -104,7 +104,10 @@ impl Render for Hero {
         };
         let facts = [
             media.year.map(|y| y.to_string()),
-            media.format.clone().map(|f| f.to_lowercase()),
+            media
+                .format
+                .as_deref()
+                .and_then(crate::design::state::format_label),
             media.score.filter(|&s| s > 0).map(|s| format!("★ {s}%")),
         ];
 
@@ -151,7 +154,7 @@ impl Render for Hero {
                             .child(
                                 div()
                                     .text_size(px(12.))
-                                    .font_weight(FontWeight::BOLD)
+                                    .font_weight(FontWeight::SEMIBOLD)
                                     .text_color(color(ACCENT))
                                     .child(kind_label(media.kind)),
                             )
@@ -160,8 +163,9 @@ impl Render for Hero {
                     .child(
                         div()
                             .text_size(px(size::BILLBOARD))
-                            .line_height(relative(1.05))
-                            .font_weight(FontWeight::BLACK)
+                            .line_height(relative(1.15))
+                            .font_family(font::TITLE)
+                            .font_weight(FontWeight::SEMIBOLD)
                             .text_color(color(TEXT))
                             .line_clamp(2)
                             .child(media.title.clone()),
@@ -230,7 +234,7 @@ impl Render for Hero {
                     .bg(if active {
                         color(TEXT)
                     } else {
-                        color(TEXT).opacity(0.3)
+                        color(TEXT).opacity(WASH_3)
                     })
                     .hover(|style| style.bg(color(TEXT).opacity(0.7)))
                     .on_click(cx.listener(move |hero, _, _, cx| {

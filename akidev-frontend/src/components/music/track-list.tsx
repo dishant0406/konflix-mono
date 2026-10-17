@@ -111,7 +111,7 @@ export default function TrackList({ tracks, variant }: { tracks: Track[]; varian
             <div className="min-w-0">
               <p className={cn("truncate text-sm font-medium", isCurrent ? "text-white" : "text-white/90")}>
                 {track.title}
-                {track.explicit && <span className="ml-2 rounded-sm bg-white/20 px-1 py-px text-[10px] font-bold text-white/70">E</span>}
+                {track.explicit && <span className="ml-2 rounded-sm bg-white/20 px-1 py-px text-[10px] font-semibold text-white/70">E</span>}
               </p>
               <p className="truncate text-[13px] text-white/60">
                 {track.artists.map((artist, n) => (

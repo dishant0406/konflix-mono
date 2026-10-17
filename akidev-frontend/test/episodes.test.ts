@@ -83,15 +83,17 @@ test("the player's title line names the season, episode and episode name", () =>
 });
 
 test("a provider's status becomes display text", () => {
-  assert.equal(statusLabel("RELEASING"), "airing");
-  assert.equal(statusLabel("NOT_YET_RELEASED"), "upcoming");
-  assert.equal(statusLabel("FINISHED"), "finished");
-  assert.equal(statusLabel("Ended"), "ended");
-  assert.equal(statusLabel("To Be Determined"), "to be determined");
+  assert.equal(statusLabel("RELEASING"), "Airing");
+  assert.equal(statusLabel("NOT_YET_RELEASED"), "Upcoming");
+  assert.equal(statusLabel("FINISHED"), "Finished");
+  assert.equal(statusLabel("Ended"), "Ended");
+  assert.equal(statusLabel("To Be Determined"), "To be determined");
   assert.equal(statusLabel(null), null);
 });
 
 test("the quiet facts under a title", () => {
-  assert.deepEqual(facts(media({ year: 2013, format: "TV", score: 85 })), ["2013", "tv", "★ 85%"]);
+  assert.deepEqual(facts(media({ year: 2013, format: "TV", score: 85 })), ["2013", "TV", "★ 85%"]);
+  assert.deepEqual(facts(media({ year: 1994, format: "MOVIE" })), ["1994"]);
+  assert.deepEqual(facts(media({ format: "SPECIAL" })), ["Special"]);
   assert.deepEqual(facts(media({})), []);
 });

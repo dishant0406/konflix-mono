@@ -16,14 +16,22 @@ const STATUS: Record<string, string> = {
 /** A provider's status word as display text: AniList's "RELEASING" is "airing", TVMaze's "Ended" is "ended". */
 export function statusLabel(status: string | null | undefined): string | null {
   if (!status) return null;
-  return STATUS[status] ?? status.replace(/_/g, " ").toLowerCase();
+  const word = STATUS[status] ?? status.replace(/_/g, " ").toLowerCase();
+  return word[0].toUpperCase() + word.slice(1);
 }
 
-/** "2026 · tv · ★ 75%": the quiet facts under a title. */
+/** "tv" becomes "TV", "special" becomes "Special", and "movie" is left out: the kind already says film. */
+export function formatLabel(format: string | null | undefined): string | null {
+  const word = format?.trim().toLowerCase();
+  if (!word || word === "movie") return null;
+  return word.length <= 3 ? word.toUpperCase() : word[0].toUpperCase() + word.slice(1);
+}
+
+/** "2026 · TV · ★ 75%": the quiet facts under a title. */
 export function facts(card: Card): string[] {
   return [
     card.year ? String(card.year) : null,
-    card.format?.toLowerCase(),
+    formatLabel(card.format),
     card.score ? `★ ${card.score}%` : null,
   ].filter((part): part is string => Boolean(part));
 }

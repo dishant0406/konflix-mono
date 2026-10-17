@@ -2,7 +2,7 @@
 
 use crate::design::state::{kind_label, meta_line};
 use crate::design::tokens::{
-    ACCENT, CANVAS, RAISED, TEXT, TEXT_DIM, TILE_HEIGHT, TILE_WIDTH, color,
+    ACCENT, CANVAS, RAISED, TEXT, TEXT_DIM, TILE_HEIGHT, TILE_WIDTH, WASH_3, color, radius,
 };
 use crate::route::{Route, navigate};
 use akidev_core::model::{Kind, Media};
@@ -51,7 +51,10 @@ pub fn poster_tile(key: &str, media: &Media, resume: Option<(f32, Route)>) -> St
 
     let facts = [
         media.year.map(|y| y.to_string()),
-        media.format.clone().map(|f| f.to_lowercase()),
+        media
+            .format
+            .as_deref()
+            .and_then(crate::design::state::format_label),
         media.score.filter(|&s| s > 0).map(|s| format!("★ {s}%")),
     ];
     let open = title_route.clone();
@@ -76,14 +79,14 @@ pub fn poster_tile(key: &str, media: &Media, resume: Option<(f32, Route)>) -> St
         .child(
             div()
                 .text_size(px(10.))
-                .font_weight(FontWeight::BOLD)
+                .font_weight(FontWeight::SEMIBOLD)
                 .text_color(color(ACCENT))
                 .child(kind_label(media.kind)),
         )
         .child(
             div()
                 .text_size(px(14.))
-                .font_weight(FontWeight::BOLD)
+                .font_weight(FontWeight::SEMIBOLD)
                 .text_color(color(TEXT))
                 .line_clamp(2)
                 .child(name.clone()),
@@ -112,13 +115,13 @@ pub fn poster_tile(key: &str, media: &Media, resume: Option<(f32, Route)>) -> St
         .relative()
         .w(px(TILE_WIDTH))
         .h(px(TILE_HEIGHT))
-        .rounded_lg()
+        .rounded(px(radius::PANEL))
         .overflow_hidden()
         .bg(color(RAISED))
         .border_1()
-        .border_color(color(TEXT).opacity(0.0))
+        .border_color(color(TEXT).opacity(0.1))
         .group_hover(group.clone(), |style| {
-            style.border_color(color(TEXT).opacity(0.4))
+            style.border_color(color(TEXT).opacity(0.24))
         })
         .child(poster)
         .child(overlay)
@@ -129,7 +132,7 @@ pub fn poster_tile(key: &str, media: &Media, resume: Option<(f32, Route)>) -> St
                 .left_0()
                 .w_full()
                 .h(px(3.))
-                .bg(color(TEXT).opacity(0.25))
+                .bg(color(TEXT).opacity(WASH_3))
                 .child(
                     div()
                         .h_full()
@@ -181,7 +184,7 @@ fn round_button(id: String, icon: IconName, filled: bool, route: Route) -> State
     let (background, foreground) = if filled {
         (color(TEXT), color(CANVAS))
     } else {
-        (color(TEXT).opacity(0.16), color(TEXT))
+        (color(TEXT).opacity(WASH_3), color(TEXT))
     };
     div()
         .id(SharedString::from(id))
@@ -196,7 +199,7 @@ fn round_button(id: String, icon: IconName, filled: bool, route: Route) -> State
             button.hover(|style| style.bg(color(TEXT).opacity(0.85)))
         })
         .when(!filled, |button| {
-            button.hover(|style| style.bg(color(TEXT).opacity(0.28)))
+            button.hover(|style| style.bg(color(TEXT).opacity(WASH_3)))
         })
         .on_click(move |_, _, cx| {
             // The tile behind this button opens the title too, and that must not also run.

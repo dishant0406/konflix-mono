@@ -2,7 +2,7 @@
 
 use crate::design::button::icon_button;
 use crate::design::state::{error_state, section_title, skeleton};
-use crate::design::tokens::{CANVAS, GUTTER, TILE_HEIGHT, TILE_WIDTH, color};
+use crate::design::tokens::{CANVAS, GUTTER, TILE_HEIGHT, TILE_WIDTH, color, radius};
 use crate::progress::Entry;
 use crate::route::Route;
 use crate::tile::poster_tile;
@@ -221,13 +221,17 @@ impl Render for MediaRow {
                     cx.listener(|row, _, _, cx| row.fetch(cx)),
                 ))
                 .into_any_element(),
-            Items::Loading => div()
-                .flex()
-                .gap(px(TILE_GAP))
-                .px(px(GUTTER))
-                .children((0..9).map(|_| skeleton(px(TILE_WIDTH), px(TILE_HEIGHT)).rounded_lg()))
-                .overflow_hidden()
-                .into_any_element(),
+            Items::Loading => {
+                div()
+                    .flex()
+                    .gap(px(TILE_GAP))
+                    .px(px(GUTTER))
+                    .children((0..9).map(|_| {
+                        skeleton(px(TILE_WIDTH), px(TILE_HEIGHT)).rounded(px(radius::PANEL))
+                    }))
+                    .overflow_hidden()
+                    .into_any_element()
+            }
             Items::Loaded(items) => {
                 let group = SharedString::from(format!("row-{}", self.title));
                 let offset = self.scroll.offset().x;

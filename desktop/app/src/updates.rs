@@ -6,7 +6,7 @@
 
 use crate::backend::Backend;
 use crate::design::button::icon_button;
-use crate::design::tokens::{ACCENT, CANVAS, DANGER, LINE, RAISED, TEXT, color};
+use crate::design::tokens::{ACCENT, CANVAS, DANGER, LINE, RAISED, TEXT, WASH_2, color, radius};
 use crate::runtime;
 use crate::updater::{self, Installed};
 use akidev_core::update::Update;
@@ -305,7 +305,7 @@ impl Render for Tip {
             .ml(px(6.))
             .px_2()
             .py_1()
-            .rounded_md()
+            .rounded(px(radius::BUTTON))
             .bg(color(RAISED))
             .border_1()
             .border_color(color(LINE))
@@ -368,7 +368,7 @@ fn ring(start: f32, sweep: f32) -> Canvas<()> {
             };
             let track: Vec<_> = (0..72).map(|step| point(step as f32 * 5.)).collect();
             if let Some(path) = stroke(&track, true) {
-                window.paint_path(path, color(TEXT).opacity(0.14));
+                window.paint_path(path, color(TEXT).opacity(WASH_2));
             }
             if sweep >= 359. {
                 if let Some(path) = stroke(&track, true) {

@@ -2,15 +2,15 @@
 
 use crate::backend::Backend;
 use crate::captions::{self, Group, Start};
-use crate::design::button::{control_button, icon_button, secondary_button};
-use crate::design::state::{error_state, skeleton};
+use crate::design::button::{
+    control_button, ghost_button, icon_button, primary_button, secondary_button,
+};
+use crate::design::state::{skeleton, state_card};
 use crate::design::tokens::{
-    ACCENT, CANVAS, GUTTER, LINE, SURFACE, TEXT, TEXT_DIM, TOP_BAR, color,
+    ACCENT, CANVAS, GUTTER, LINE, SURFACE, TEXT, TEXT_DIM, TOP_BAR, WASH_3, color, radius,
 };
 use crate::episodes::EpisodeList;
-use crate::panels::{
-    self, SourceAction, SourcesView, SubtitleAction, SubtitleMenu, back_to_sources,
-};
+use crate::panels::{self, SourceAction, SourcesView, SubtitleAction, SubtitleMenu};
 use crate::party::{Party, PartyEvent, Role, party};
 use crate::player::{MAX_WIDTH, Player, PlayerState, SubtitleTrack};
 use crate::progress::Entry;
@@ -1306,7 +1306,7 @@ impl WatchPage {
                     .w_full()
                     .h(px(4.))
                     .rounded_full()
-                    .bg(color(TEXT).opacity(0.25))
+                    .bg(color(TEXT).opacity(WASH_3))
                     .child(
                         div()
                             .absolute()
@@ -1467,7 +1467,7 @@ impl WatchPage {
                 .gap_4()
                 .px_4()
                 .py_3()
-                .rounded_xl()
+                .rounded(px(radius::PANEL))
                 .bg(color(SURFACE).opacity(0.95))
                 .border_1()
                 .border_color(color(LINE))
@@ -1552,56 +1552,73 @@ impl WatchPage {
             .top_0()
             .left_0()
             .size_full()
-            .bg(rgb(0x000000));
+            // The picture needs true black around it; the status screens are title cards on the canvas.
+            .bg(if matches!(self.phase, Phase::Playing) {
+                rgb(0x000000).into()
+            } else {
+                color(CANVAS)
+            });
         match &self.phase {
             Phase::Resolving => frame
                 .flex()
-                .flex_col()
                 .items_center()
                 .justify_center()
-                .gap_3()
-                .child(Spinner::new())
-                .child(
-                    div()
-                        .text_size(px(15.))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(color(TEXT))
-                        .child("Finding the best source"),
-                )
-                .child(
-                    div()
-                        .text_size(px(13.))
-                        .text_color(color(TEXT_DIM))
-                        .child("This can take up to a minute."),
-                ),
-            Phase::Unavailable(reason) => frame.flex().items_center().justify_center().child(
-                error_state(
-                    "No playable source found",
-                    reason.clone(),
-                    cx.listener(|page, _, _, cx| page.start(true, cx)),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .gap_3()
-                        .child(back_to_sources(cx.listener(|page, _, _, cx| {
-                            page.toggle_panel(Panel::Sources, cx)
-                        })))
-                        .children(self.neighbour(-1).map(|id| {
-                            secondary_button(
-                                "try-previous",
-                                "Previous episode",
-                                None,
-                                move |_, _, cx| replace(Route::Watch { id: id.clone() }, cx),
-                            )
-                        }))
-                        .children(self.neighbour(1).map(|id| {
-                            secondary_button("try-next", "Next episode", None, move |_, _, cx| {
-                                replace(Route::Watch { id: id.clone() }, cx)
-                            })
-                        })),
-                ),
-            ),
+                .child(state_card(
+                    None,
+                    "Finding the best source",
+                    "This can take up to a minute.",
+                    false,
+                    vec![Spinner::new().into_any_element()],
+                )),
+            Phase::Unavailable(reason) => {
+                let previous = self.neighbour(-1);
+                let next = self.neighbour(1);
+                // Trying the same source again rarely helps, so a different one leads; the episodes
+                // either side are plain text.
+                let mut actions = vec![
+                    primary_button(
+                        "choose-source",
+                        "Choose another source",
+                        None,
+                        cx.listener(|page, _, _, cx| page.toggle_panel(Panel::Sources, cx)),
+                    )
+                    .into_any_element(),
+                    secondary_button(
+                        "retry",
+                        "Try again",
+                        None,
+                        cx.listener(|page, _, _, cx| page.start(true, cx)),
+                    )
+                    .into_any_element(),
+                ];
+                if let Some(id) = previous {
+                    actions.push(
+                        ghost_button("try-previous", "Previous episode", move |_, _, cx| {
+                            replace(Route::Watch { id: id.clone() }, cx)
+                        })
+                        .into_any_element(),
+                    );
+                }
+                if let Some(id) = next {
+                    actions.push(
+                        ghost_button("try-next", "Next episode", move |_, _, cx| {
+                            replace(Route::Watch { id: id.clone() }, cx)
+                        })
+                        .into_any_element(),
+                    );
+                }
+                frame
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(state_card(
+                        Some("No signal"),
+                        "Nothing playable yet",
+                        reason.clone(),
+                        true,
+                        actions,
+                    ))
+            }
             Phase::Playing => {
                 let waiting = self.state.buffering || !self.state.video_ready;
                 frame

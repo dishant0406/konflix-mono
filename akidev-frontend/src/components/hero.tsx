@@ -54,10 +54,10 @@ export default function Hero({ items, loading }: { items: Card[]; loading: boole
 
         <div className="gutter absolute inset-x-0 bottom-[72px] flex max-w-[calc(580px+5rem)] flex-col items-start gap-3">
           <div className="flex items-center gap-3">
-            <span className="text-xs font-bold text-accent">{KIND_LABEL[media.kind]}</span>
+            <span className="text-xs font-semibold text-accent">{KIND_LABEL[media.kind]}</span>
             <MetaLine parts={facts(media)} />
           </div>
-          <h1 className="line-clamp-2 text-4xl font-black leading-[1.05] text-ink sm:text-5xl md:text-[56px]">
+          <h1 className="line-clamp-2 font-title text-4xl font-semibold leading-[1.18] tracking-[-0.02em] text-ink sm:text-5xl md:text-[56px]">
             {media.title}
           </h1>
           {media.description ? (

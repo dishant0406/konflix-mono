@@ -2,7 +2,7 @@
 
 use crate::browse::BrowsePage;
 use crate::design::button::{icon_button, keep_from_title_bar, tab};
-use crate::design::tokens::{CANVAS, LINE, RAISED, TEXT, TOP_BAR, color};
+use crate::design::tokens::{CANVAS, LINE, RAISED, TEXT, TOP_BAR, color, radius};
 use crate::history::History;
 use crate::home::HomePage;
 use crate::music_album::AlbumPage;
@@ -275,7 +275,7 @@ impl AkidevApp {
                                     .cursor_pointer()
                                     .on_mouse_down(MouseButton::Left, keep_from_title_bar)
                                     .text_size(px(20.))
-                                    .font_weight(FontWeight::BLACK)
+                                    .font_weight(FontWeight::SEMIBOLD)
                                     .text_color(color(TEXT))
                                     .child(img(self.mark.clone()).size(px(28.)).flex_none())
                                     .child("AKIDEV")
@@ -430,7 +430,7 @@ impl Render for AkidevApp {
                             .max_w(px(560.))
                             .px_4()
                             .py_2p5()
-                            .rounded_2xl()
+                            .rounded(px(radius::POPUP))
                             .bg(color(RAISED))
                             .border_1()
                             .border_color(color(LINE))

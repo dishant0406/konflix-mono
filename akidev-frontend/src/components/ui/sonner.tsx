@@ -12,7 +12,7 @@ export function Toaster() {
         unstyled: true,
         classNames: {
           toast:
-            "flex max-w-[560px] items-center gap-2 rounded-2xl border border-line bg-raised px-4 py-2.5 text-sm text-ink shadow-lg",
+            "flex max-w-[560px] items-center gap-2 material-panel rounded-xl px-4 py-2.5 text-sm text-ink shadow-[0_0_0_1px_rgb(var(--ink)/0.08),0_24px_60px_rgb(0_0_0/0.55)]",
         },
       }}
     />

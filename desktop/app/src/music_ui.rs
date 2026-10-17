@@ -1,7 +1,7 @@
 //! The pieces the music screens share: covers, track rows, album and artist cards, the shelves
 //! that hold them, and the wash of colour behind an album or artist page.
 
-use crate::design::tokens::{CANVAS, GUTTER, TEXT, TEXT_DIM, TOP_BAR, color};
+use crate::design::tokens::{CANVAS, GUTTER, TEXT, TEXT_DIM, TOP_BAR, WASH, WASH_2, color, radius};
 use crate::music_player::{hub, play, toggle};
 use crate::route::{Route, navigate};
 use akidev_core::music::{AlbumCard, ArtistCard, Credit, Track};
@@ -25,9 +25,9 @@ pub fn cover(url: Option<String>, size: Pixels, round: bool, key: &str) -> Div {
         .flex_none()
         .size(size)
         .overflow_hidden()
-        .bg(color(TEXT).opacity(0.1))
+        .bg(color(TEXT).opacity(WASH_2))
         .when(round, |frame| frame.rounded(size / 2.))
-        .when(!round, |frame| frame.rounded_md());
+        .when(!round, |frame| frame.rounded(px(radius::BUTTON)));
     match url {
         Some(url) => frame.child(
             img(url)
@@ -69,7 +69,7 @@ pub fn track_list(tracks: &[Track], table: bool, key: &str, cx: &mut App) -> Div
                 .px_4()
                 .mb_1()
                 .border_b_1()
-                .border_color(color(TEXT).opacity(0.08))
+                .border_color(color(TEXT).opacity(WASH))
                 .text_size(px(12.))
                 .text_color(color(TEXT_DIM))
                 .child(div().w(px(32.)).text_center().child("#"))
@@ -145,7 +145,7 @@ pub fn track_list(tracks: &[Track], table: bool, key: &str, cx: &mut App) -> Div
                         .flex()
                         .items_center()
                         .justify_center()
-                        .rounded_md()
+                        .rounded(px(radius::BUTTON))
                         .bg(color(0x000000).opacity(0.55))
                         .when(!is_current, |overlay| {
                             overlay
@@ -178,10 +178,10 @@ pub fn track_list(tracks: &[Track], table: bool, key: &str, cx: &mut App) -> Div
                 .gap_4()
                 .h(px(56.))
                 .px_4()
-                .rounded_md()
+                .rounded(px(radius::BUTTON))
                 .cursor_pointer()
-                .when(is_current, |row| row.bg(color(TEXT).opacity(0.04)))
-                .hover(|style| style.bg(color(TEXT).opacity(0.07)))
+                .when(is_current, |row| row.bg(color(TEXT).opacity(WASH)))
+                .hover(|style| style.bg(color(TEXT).opacity(WASH)))
                 .on_click(move |_, _, cx| {
                     if is_current {
                         toggle(cx);
@@ -258,9 +258,9 @@ fn card(
         .flex_col()
         .gap_3()
         .p_3()
-        .rounded_lg()
+        .rounded(px(radius::PANEL))
         .cursor_pointer()
-        .hover(|style| style.bg(color(TEXT).opacity(0.07)))
+        .hover(|style| style.bg(color(TEXT).opacity(WASH)))
         .on_click(move |_, _, cx| navigate(route.clone(), cx))
         .child(art)
         .child(
@@ -417,7 +417,7 @@ impl Render for Shelf {
                     .h(px(28.))
                     .line_height(px(28.))
                     .text_size(px(20.))
-                    .font_weight(FontWeight::BOLD)
+                    .font_weight(FontWeight::SEMIBOLD)
                     .text_color(color(TEXT))
                     .child(self.title.clone()),
             )
@@ -500,7 +500,7 @@ pub fn hero(tint: u32, art: Div, kind: &str, title: &str, details: impl IntoElem
                 div()
                     .text_size(px(size))
                     .line_height(px(size * 1.05))
-                    .font_weight(FontWeight::EXTRA_BOLD)
+                    .font_weight(FontWeight::SEMIBOLD)
                     .text_color(color(TEXT))
                     .line_clamp(2)
                     .child(title.to_string()),
@@ -542,7 +542,7 @@ pub fn actions(tracks: &[Track]) -> Div {
                 .size(px(40.))
                 .rounded_full()
                 .cursor_pointer()
-                .hover(|style| style.bg(color(TEXT).opacity(0.1)))
+                .hover(|style| style.bg(color(TEXT).opacity(WASH_2)))
                 .on_click(move |_, _, cx| {
                     crate::music_player::play_shuffled((*shuffle).clone(), cx)
                 })
@@ -562,7 +562,7 @@ fn line(height: f32, bar: f32, width: DefiniteLength) -> Div {
         .h(px(height))
         .flex()
         .items_center()
-        .child(bone().h(px(bar)).w(width).rounded_md())
+        .child(bone().h(px(bar)).w(width).rounded(px(radius::BUTTON)))
 }
 
 /// What a shelf looks like before its cards arrive: the same heading, row and cards, in grey.
@@ -580,7 +580,7 @@ pub fn shelf_skeleton(round: bool) -> Div {
                 bone()
                     .size(cover)
                     .when(round, |cover| cover.rounded_full())
-                    .when(!round, |cover| cover.rounded_md()),
+                    .when(!round, |cover| cover.rounded(px(radius::BUTTON))),
             )
             .child(
                 div()
@@ -619,25 +619,25 @@ pub fn track_skeleton(table: bool, rows: usize) -> Div {
                 .px_4()
                 .mb_1()
                 .border_b_1()
-                .border_color(color(TEXT).opacity(0.08))
+                .border_color(color(TEXT).opacity(WASH))
                 .child(
                     div()
                         .w(px(32.))
                         .flex()
                         .justify_center()
-                        .child(bone().w(px(10.)).h(px(10.)).rounded_md()),
+                        .child(bone().w(px(10.)).h(px(10.)).rounded(px(radius::BUTTON))),
                 )
                 .child(
                     div()
                         .flex_1()
-                        .child(bone().w(px(36.)).h(px(10.)).rounded_md()),
+                        .child(bone().w(px(36.)).h(px(10.)).rounded(px(radius::BUTTON))),
                 )
                 .child(
                     div()
                         .w(px(48.))
                         .flex()
                         .justify_end()
-                        .child(bone().w(px(14.)).h(px(10.)).rounded_md()),
+                        .child(bone().w(px(14.)).h(px(10.)).rounded(px(radius::BUTTON))),
                 ),
         );
     }
@@ -654,12 +654,12 @@ pub fn track_skeleton(table: bool, rows: usize) -> Div {
                     .w(px(32.))
                     .flex()
                     .justify_center()
-                    .child(bone().w(px(10.)).h(px(12.)).rounded_md())
+                    .child(bone().w(px(10.)).h(px(12.)).rounded(px(radius::BUTTON)))
             } else {
                 div()
                     .flex_none()
                     .size(px(40.))
-                    .child(bone().size(px(40.)).rounded_md())
+                    .child(bone().size(px(40.)).rounded(px(radius::BUTTON)))
             })
             .child(
                 div()
@@ -678,7 +678,7 @@ pub fn track_skeleton(table: bool, rows: usize) -> Div {
                     .w(px(48.))
                     .flex()
                     .justify_end()
-                    .child(bone().w(px(30.)).h(px(12.)).rounded_md()),
+                    .child(bone().w(px(30.)).h(px(12.)).rounded(px(radius::BUTTON))),
             )
     }))
 }
@@ -691,16 +691,17 @@ fn hero_skeleton(round: bool) -> Div {
             bone()
                 .size(px(232.))
                 .when(round, |cover| cover.rounded_full())
-                .when(!round, |cover| cover.rounded_md()),
+                .when(!round, |cover| cover.rounded(px(radius::BUTTON))),
         ),
         div()
             .child(line(20., 12., px(48.).into()))
             .child(
-                div()
-                    .h(px(TITLE_SIZE * 1.05))
-                    .flex()
-                    .items_center()
-                    .child(bone().h(px(TITLE_SIZE * 0.8)).w(px(480.)).rounded_md()),
+                div().h(px(TITLE_SIZE * 1.05)).flex().items_center().child(
+                    bone()
+                        .h(px(TITLE_SIZE * 0.8))
+                        .w(px(480.))
+                        .rounded(px(radius::BUTTON)),
+                ),
             )
             .child(line(20., 14., px(260.).into())),
     )
