@@ -915,7 +915,7 @@ async fn party_ice(
     if !state.parties.exists(&code) {
         return no_such_party();
     }
-    Json(json!({ "ice_servers": party::ice_servers(&state.settings, &code) })).into_response()
+    Json(json!({ "ice_servers": party::ice_servers(&state.settings).await })).into_response()
 }
 
 async fn party_join(

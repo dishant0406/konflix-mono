@@ -143,12 +143,13 @@ guests, and never sees what is played. The messages and the rules that keep a gu
 `akidev-frontend/src/lib/party`.
 
 Most connections go direct. Some networks (strict NATs, some mobile and corporate ones) cannot, and
-those guests need a TURN relay, or they cannot join. The server hands out the relay's login when
-`TURN_URLS` and `TURN_SECRET` are set, and the login works for one party for six hours. Run
-[coturn](https://github.com/coturn/coturn) with `use-auth-secret`, `static-auth-secret=<TURN_SECRET>`
-and `realm=akidev.live`, open UDP and TCP 3478 and its relay port range, and set `TURN_URLS` to
-`turn:<host>:3478`. The relay carries only the party's few messages, so a small box is plenty.
-`STUN_URLS` (public servers by default) is the list devices use to learn their own address.
+those guests need a TURN relay, or they cannot join. The relay is Cloudflare's Realtime TURN: make a
+key with `cf realtime turn keys create --name akidev-party`, and set its `uid` as `CF_TURN_KEY_ID` and
+its `secret` as `CF_TURN_TOKEN` (GitHub secrets; the deploy passes them on). The server asks Cloudflare
+for a login that works for six hours, reuses it for half an hour, and hands it to each device with the
+STUN servers. A party sends a few kilobytes a second, so the relay's cost (free for the first 1,000 GB
+a month, then $0.05 a GB) is nothing at this size. Without the key, or if Cloudflare does not answer,
+devices get the public STUN servers only (`STUN_URLS`) and the ones behind strict networks cannot join.
 
 ## Why it is fast
 
@@ -404,8 +405,7 @@ work but requires the Workers Paid plan, and its request-scoped model fits a
    | Secret | `DEPLOY_SSH_KEY` | contents of `~/.ssh/konflix_deploy` |
    | Secret | `DEPLOY_PORT` | `22` (optional) |
    | Secret | `TORBOX_API_KEY` | from torbox.app (optional) |
-   | Secret | `TURN_SECRET` | the relay's `static-auth-secret`, for watch parties (optional) |
-   | Variable | `TURN_URLS` | the relay, like `turn:turn.example:3478` (optional) |
+   | Secret | `CF_TURN_KEY_ID`, `CF_TURN_TOKEN` | a Cloudflare Realtime TURN key, the relay for watch parties (optional) |
    | Variable | `PUBLIC_URL` | `https://api.akidev.live` |
    | Variable | `NEXT_PUBLIC_API_URL` | `https://api.akidev.live` |
    | Variable | `FRONTEND_URL` | `https://akidev.live` |

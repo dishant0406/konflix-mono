@@ -225,8 +225,8 @@ jobs:
           MAX_CACHE_BYTES: ${{ vars.MAX_CACHE_BYTES }}
           MAX_STREAM_BYTES_PER_DAY: ${{ vars.MAX_STREAM_BYTES_PER_DAY }}
           STUN_URLS: ${{ vars.STUN_URLS }}
-          TURN_URLS: ${{ vars.TURN_URLS }}
-          TURN_SECRET: ${{ secrets.TURN_SECRET }}
+          CF_TURN_KEY_ID: ${{ secrets.CF_TURN_KEY_ID }}
+          CF_TURN_TOKEN: ${{ secrets.CF_TURN_TOKEN }}
         run: |
           # Defaults, so a missing repository variable does not silently deploy an
           # empty value.
@@ -248,8 +248,8 @@ jobs:
           MAX_STREAM_BYTES_PER_DAY=${MAX_STREAM_BYTES_PER_DAY:-0}
           TORBOX_API_KEY=$TORBOX_API_KEY
           STUN_URLS=$STUN_URLS
-          TURN_URLS=$TURN_URLS
-          TURN_SECRET=$TURN_SECRET
+          CF_TURN_KEY_ID=$CF_TURN_KEY_ID
+          CF_TURN_TOKEN=$CF_TURN_TOKEN
           EOF
 
           # Only the shape is reported; the file holds the

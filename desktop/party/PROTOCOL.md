@@ -84,5 +84,5 @@ says `ready`. The host's list of members shows who is.
 - A connection that fails or closes removes the guest, and the host frees its place on the server.
 - When the host leaves or its connection ends, the party ends: guests get `bye` or see the
   connection close. The host role is not handed on.
-- Devices on networks that block direct connections need the TURN relay (`TURN_URLS`,
-  `TURN_SECRET` on the server). Without it they cannot join.
+- Devices on networks that block direct connections need the TURN relay (Cloudflare's, set up
+  with `CF_TURN_KEY_ID` and `CF_TURN_TOKEN` on the server). Without it they cannot join.

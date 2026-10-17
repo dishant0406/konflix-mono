@@ -80,11 +80,12 @@ services:
       STREAM_SOURCES: ${STREAM_SOURCES:-debrid,torrent,archive-org}
       TORBOX_API_KEY: ${TORBOX_API_KEY:-}
       # Watch parties: devices connect to each other, and this only helps them find the way. Empty
-      # STUN_URLS means the public servers; without TURN_URLS and TURN_SECRET there is no relay, and
-      # devices on networks that block direct connections cannot join.
+      # STUN_URLS means the public servers. CF_TURN_KEY_ID and CF_TURN_TOKEN are a Cloudflare Realtime
+      # TURN key, the relay for devices on networks that block direct connections; without them
+      # those devices cannot join.
       STUN_URLS: ${STUN_URLS:-}
-      TURN_URLS: ${TURN_URLS:-}
-      TURN_SECRET: ${TURN_SECRET:-}
+      CF_TURN_KEY_ID: ${CF_TURN_KEY_ID:-}
+      CF_TURN_TOKEN: ${CF_TURN_TOKEN:-}
       # Disk ceiling for the torrent downloads and the converted video together. The box has a
       # fixed disk, and the volume below is the only thing that grows, so this leaves headroom
       # for the OS and the images.

@@ -54,10 +54,11 @@ pub struct Settings {
     pub max_stream_bytes_per_day: u64,
     /// The STUN servers watch-party devices use to find each other.
     pub stun_urls: Vec<String>,
-    /// A TURN relay for the devices that cannot reach each other directly, and the secret its
-    /// logins are made from (coturn's `static-auth-secret`). Without both there is no relay.
-    pub turn_urls: Vec<String>,
-    pub turn_secret: String,
+    /// Cloudflare's TURN service, a relay for the devices that cannot reach each other directly:
+    /// the key's id and its token, and where to ask. Without the first two there is no relay.
+    pub turn_key_id: String,
+    pub turn_token: String,
+    pub turn_api: String,
 }
 
 fn text(name: &str, default: &str) -> String {
@@ -131,8 +132,11 @@ impl Settings {
                 "STUN_URLS",
                 "stun:stun.cloudflare.com:3478,stun:stun.l.google.com:19302",
             ),
-            turn_urls: list("TURN_URLS", ""),
-            turn_secret: text("TURN_SECRET", ""),
+            turn_key_id: text("CF_TURN_KEY_ID", ""),
+            turn_token: text("CF_TURN_TOKEN", ""),
+            turn_api: text("CF_TURN_API", "https://rtc.live.cloudflare.com")
+                .trim_end_matches('/')
+                .to_string(),
         }
     }
 

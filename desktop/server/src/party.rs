@@ -10,13 +10,10 @@
 //! there is one), and posts an answer to each; the guest takes its answer the same way.
 
 use crate::config::Settings;
-use base64::Engine as _;
-use hmac::{Hmac, Mac};
-use serde::Serialize;
-use sha1::Sha1;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant};
 use tokio::sync::Notify;
 
 /// Letters and digits that are not easily mistaken for each other.
@@ -35,8 +32,11 @@ const LONGEST: Duration = Duration::from_secs(12 * 60 * 60);
 pub const WAIT: Duration = Duration::from_secs(25);
 /// A guest's place is held for the host this long before the host has been given the offer.
 const UNTAKEN_FOR: Duration = Duration::from_secs(60);
-/// How long the relay's credentials last.
-const RELAY_CREDENTIALS_FOR: Duration = Duration::from_secs(6 * 60 * 60);
+/// How long a relay login is good for when it is asked for, and how long one is handed out again
+/// before a new one is asked for. The first is much longer than the second, so a login given out
+/// at the end of its time still has hours left.
+const RELAY_LOGIN_FOR_SECONDS: u64 = 6 * 60 * 60;
+const RELAY_LOGIN_REUSED_FOR: Duration = Duration::from_secs(30 * 60);
 
 pub struct Offer {
     pub guest: String,
@@ -287,48 +287,93 @@ impl Parties {
     }
 }
 
-#[derive(Serialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct IceServer {
     pub urls: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub username: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub credential: Option<String>,
 }
 
-/// The servers a device uses to find a path to the other one: the public STUN servers, and the
-/// relay when one is set up. The relay's login is made for one party and stops working after a
-/// few hours (the scheme coturn's `use-auth-secret` expects).
-pub fn ice_servers(settings: &Settings, code: &str) -> Vec<IceServer> {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |since| since.as_secs());
-    ice_servers_at(settings, code, now)
+/// What Cloudflare's TURN service answers when asked for a login.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RelayLogin {
+    ice_servers: Vec<IceServer>,
 }
 
-fn ice_servers_at(settings: &Settings, code: &str, now: u64) -> Vec<IceServer> {
-    let mut servers = Vec::new();
-    if !settings.stun_urls.is_empty() {
-        servers.push(IceServer {
-            urls: settings.stun_urls.clone(),
-            username: None,
-            credential: None,
-        });
+/// The servers a device uses to find a path to the other one. With Cloudflare's TURN service set up
+/// (`CF_TURN_KEY_ID` and `CF_TURN_TOKEN`) that is its STUN and TURN servers with a login that works
+/// for a few hours, so a device that cannot reach the other directly is relayed. Without it, or when
+/// Cloudflare does not answer, it is the public STUN servers and no relay.
+pub async fn ice_servers(settings: &Settings) -> Vec<IceServer> {
+    if settings.turn_key_id.is_empty() || settings.turn_token.is_empty() {
+        return stun_only(settings);
     }
-    if !settings.turn_urls.is_empty() && !settings.turn_secret.is_empty() {
-        let username = format!("{}:{code}", now + RELAY_CREDENTIALS_FOR.as_secs());
-        let mut mac = Hmac::<Sha1>::new_from_slice(settings.turn_secret.as_bytes())
-            .expect("HMAC takes a key of any length");
-        mac.update(username.as_bytes());
-        servers.push(IceServer {
-            urls: settings.turn_urls.clone(),
-            username: Some(username),
-            credential: Some(
-                base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes()),
-            ),
-        });
+    let whose = format!("{}/{}", settings.turn_api, settings.turn_key_id);
+    if let Some(servers) = reused_login(&whose) {
+        return servers;
     }
-    servers
+    match fetch_login(settings).await {
+        Ok(servers) => {
+            *login_cache().lock().unwrap() = Some((Instant::now(), whose, servers.clone()));
+            servers
+        }
+        Err(error) => {
+            tracing::warn!("party: no relay login from Cloudflare, using STUN only: {error:#}");
+            stun_only(settings)
+        }
+    }
+}
+
+fn stun_only(settings: &Settings) -> Vec<IceServer> {
+    if settings.stun_urls.is_empty() {
+        return Vec::new();
+    }
+    vec![IceServer {
+        urls: settings.stun_urls.clone(),
+        username: None,
+        credential: None,
+    }]
+}
+
+/// The last login, with when it was made and whose it is (the key it was asked for with).
+type LoginCache = Mutex<Option<(Instant, String, Vec<IceServer>)>>;
+
+fn login_cache() -> &'static LoginCache {
+    static CACHE: OnceLock<LoginCache> = OnceLock::new();
+    CACHE.get_or_init(Default::default)
+}
+
+fn reused_login(whose: &str) -> Option<Vec<IceServer>> {
+    let cache = login_cache().lock().unwrap();
+    let (made, from, servers) = cache.as_ref()?;
+    (from == whose && made.elapsed() < RELAY_LOGIN_REUSED_FOR).then(|| servers.clone())
+}
+
+async fn fetch_login(settings: &Settings) -> anyhow::Result<Vec<IceServer>> {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    let client = CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .timeout(Duration::from_secs(5))
+            .build()
+            .expect("an HTTP client")
+    });
+    let login: RelayLogin = client
+        .post(format!(
+            "{}/v1/turn/keys/{}/credentials/generate-ice-servers",
+            settings.turn_api, settings.turn_key_id
+        ))
+        .bearer_auth(&settings.turn_token)
+        .json(&serde_json::json!({ "ttl": RELAY_LOGIN_FOR_SECONDS }))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    anyhow::ensure!(!login.ice_servers.is_empty(), "Cloudflare sent no servers");
+    Ok(login.ice_servers)
 }
 
 #[cfg(test)]
@@ -473,21 +518,77 @@ mod tests {
         assert!(!parties.exists(&party.code));
     }
 
-    #[test]
-    fn the_relay_login_is_made_from_the_secret_and_the_party() {
+    /// A stand-in for Cloudflare: answers a login for the key `good` with the token `secret`, and
+    /// counts how often it was asked.
+    async fn cloudflare() -> (String, Arc<std::sync::atomic::AtomicUsize>) {
+        use axum::extract::{Path, State};
+        use axum::http::{HeaderMap, StatusCode};
+        use axum::routing::post;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let asked = Arc::new(AtomicUsize::new(0));
+        let app = axum::Router::new()
+            .route(
+                "/v1/turn/keys/{key}/credentials/generate-ice-servers",
+                post(
+                    |State(asked): State<Arc<AtomicUsize>>,
+                     Path(key): Path<String>,
+                     headers: HeaderMap,
+                     body: String| async move {
+                        asked.fetch_add(1, Ordering::SeqCst);
+                        let ok = key == "good"
+                            && headers.get("authorization").and_then(|v| v.to_str().ok())
+                                == Some("Bearer secret");
+                        if !ok || !body.contains("21600") {
+                            return (StatusCode::UNAUTHORIZED, String::new());
+                        }
+                        (
+                            StatusCode::CREATED,
+                            r#"{"iceServers":[{"urls":["stun:stun.example:3478"]},{"urls":["turn:turn.example:3478?transport=udp","turns:turn.example:5349?transport=tcp"],"username":"user","credential":"pass"}]}"#.to_string(),
+                        )
+                    },
+                ),
+            )
+            .with_state(asked.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move { axum::serve(listener, app).await });
+        (address, asked)
+    }
+
+    fn with_relay(api: &str, key: &str, token: &str) -> Settings {
         let mut settings = Settings::from_env();
-        settings.turn_urls = vec!["turn:relay.example:3478".into()];
-        settings.turn_secret = "secret".into();
-        let servers = ice_servers_at(&settings, "ABC234", 1_000);
+        settings.stun_urls = vec!["stun:fallback.example:3478".into()];
+        (settings.turn_api, settings.turn_key_id, settings.turn_token) =
+            (api.into(), key.into(), token.into());
+        settings
+    }
+
+    #[tokio::test]
+    async fn with_the_relay_set_up_a_device_is_given_its_servers_and_a_login_that_is_reused() {
+        let (api, asked) = cloudflare().await;
+        let settings = with_relay(&api, "good", "secret");
+        let servers = ice_servers(&settings).await;
         assert_eq!(servers.len(), 2);
-        let relay = &servers[1];
-        assert_eq!(relay.username.as_deref(), Some("22600:ABC234"));
-        // openssl: echo -n "22600:ABC234" | openssl dgst -sha1 -hmac secret -binary | base64
-        assert_eq!(
-            relay.credential.as_deref(),
-            Some("9UfkpEMe/UUHzAeQzzdreNj2vQY=")
-        );
-        settings.turn_secret.clear();
-        assert_eq!(ice_servers_at(&settings, "ABC234", 1_000).len(), 1);
+        assert_eq!(servers[1].username.as_deref(), Some("user"));
+        assert_eq!(servers[1].credential.as_deref(), Some("pass"));
+        assert!(servers[1].urls[0].starts_with("turn:"));
+        // The next device is given the same login, without asking Cloudflare again.
+        assert_eq!(ice_servers(&settings).await, servers);
+        assert_eq!(asked.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn when_cloudflare_refuses_or_is_not_set_up_it_is_stun_only() {
+        let (api, _) = cloudflare().await;
+        let refused = ice_servers(&with_relay(&api, "good", "wrong-token")).await;
+        assert_eq!(refused.len(), 1);
+        assert_eq!(refused[0].urls, vec!["stun:fallback.example:3478"]);
+        assert!(refused[0].username.is_none());
+        // Nowhere to ask.
+        let nowhere = ice_servers(&with_relay("http://127.0.0.1:1", "other", "secret")).await;
+        assert_eq!(nowhere.len(), 1);
+        // Not set up at all.
+        let unset = ice_servers(&with_relay(&api, "", "")).await;
+        assert_eq!(unset.len(), 1);
     }
 }

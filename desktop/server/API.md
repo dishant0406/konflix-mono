@@ -182,10 +182,11 @@ The host's secret is sent as `Authorization: Bearer <host_token>`.
 Offers and answers are complete (the device waited, up to ten seconds, to have found its addresses),
 at most 32 KB (`400` when empty or larger). `429` when a client asks about codes faster than a
 person would (60 `ice` or answer requests in ten minutes, 60 joins, 20 parties an hour). `ice_servers` is the
-WebRTC `iceServers` list: the STUN servers (`STUN_URLS`) and, when `TURN_URLS` and `TURN_SECRET`
-are set, a TURN relay with a login that works for that party for six hours (coturn's
-`use-auth-secret`). Without the relay, devices on networks that block direct connections cannot
-join; everything else works.
+WebRTC `iceServers` list. With `CF_TURN_KEY_ID` and `CF_TURN_TOKEN` set it is what Cloudflare's
+Realtime TURN service gives for that key (its STUN servers and a TURN relay, with a login that
+works for six hours, asked for at most every half hour). Without them, or when Cloudflare does
+not answer, it is the STUN servers (`STUN_URLS`) alone, and devices on networks that block direct
+connections cannot join; everything else works.
 
 ## Media
 

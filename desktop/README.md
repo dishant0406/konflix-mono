@@ -43,7 +43,7 @@ title you finish drops out of "Continue watching".
 The host is a device (this app, or a browser tab), not a server. Guests connect straight to it
 with WebRTC, and only what to play and where travels: every device finds its own stream. The API
 at `api.akidev.live` is just the meeting point where the first message each way is passed, and a
-relay (`TURN_URLS`, see the root README) carries the connection for the networks that block direct
+relay (Cloudflare's, see the root README) carries the connection for the networks that block direct
 ones. The messages, and the rules that keep a guest in step, are in
 [`party/PROTOCOL.md`](party/PROTOCOL.md); the meeting point's routes are in
 [`server/API.md`](server/API.md).
