@@ -19,6 +19,8 @@ const config: Config = {
 				faint: token("faint"),
 				accent: token("accent"),
 				danger: token("danger"),
+				mbg: token("mbg"),
+				mpanel: token("mpanel"),
 			},
 			fontFamily: {
 				sans: ["var(--font-app)", "system-ui", "sans-serif"],

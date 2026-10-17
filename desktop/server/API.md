@@ -143,6 +143,20 @@ What `url` points at: the video with `Range` support (`file`), or the playlist a
 (`hls`, `index.m3u8`, `init.mp4`, `seg00000.m4s`), and subtitle files (`sub/0.vtt`). A player
 only needs the URL it was given.
 
+## Music: `GET /v1/music/search?q=<term>`, `/v1/music/albums/{id}`, `/v1/music/artists/{id}`, `/v1/music/stream/{videoId}`
+
+Music comes from YouTube Music (the vendored `vendor/ytmapi-rs`, see its PATCH.md); the audio is found
+with yt-dlp (`YT_DLP` names the binary; the image's copy updates itself daily).
+
+- `search` answers `{ songs: Track[], albums: AlbumCard[], artists: ArtistCard[] }`. A track's `id` is
+  the YouTube video id.
+- `albums/{id}` answers the album with its `tracks`. `artists/{id}` answers `songs`, `albums`,
+  `singles` and `related`.
+- `stream/{videoId}` is the audio, passed through with `Range` support (206), so the browser can seek.
+  The address yt-dlp finds is cached for 30 minutes; the server fetches the bytes itself because the
+  address only works from the machine that asked. Not compressed.
+- Covers are YouTube hosts, which `IMAGE_HOSTS` allows, and go through `/v1/img` like every picture.
+
 ## Media
 
 ```json

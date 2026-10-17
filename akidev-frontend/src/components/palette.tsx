@@ -8,21 +8,76 @@ import { useEffect, useRef, useState } from "react";
 import { KIND_LABEL } from "@/constants/site";
 import { searchPath, titlePath } from "@/constants/routes";
 import { facts } from "@/lib/media";
+import { albumPath, artistPath, musicSearchPath, names, type MusicSearch } from "@/lib/music";
+import { useMusicPlayer } from "@/providers/music-player";
 import { cn } from "@/lib/utils";
 import { useSearch } from "@/query/use-media";
+import { useMusicSearch } from "@/query/use-music";
 
 import { MetaLine } from "./states";
 
 const SHOWN = 8;
 
-/** Search over the page: type, move with the arrows, Enter opens a title or all the results. */
-export default function Palette({ onClose }: { onClose: () => void }) {
+/** One row of the panel, whichever catalogue it came from. */
+interface Item {
+  key: string;
+  title: string;
+  /** The small caps word before the facts: "SERIES", "SONG". */
+  label: string;
+  facts: string[];
+  picture: string | null;
+  shape: "poster" | "square" | "round";
+  open: () => void;
+}
+
+/** The first few of each kind of result, songs first. */
+function musicItems(found: MusicSearch | undefined, play: (index: number) => void, go: (path: string) => void): Item[] {
+  if (!found) return [];
+  return [
+    ...found.songs.slice(0, 5).map((song, index) => ({
+      key: `song-${song.id}`,
+      title: song.title,
+      label: "SONG",
+      facts: [names(song.artists), ...(song.duration ? [song.duration] : [])],
+      picture: song.cover,
+      shape: "square" as const,
+      open: () => play(index),
+    })),
+    ...found.artists.slice(0, 2).map((artist) => ({
+      key: `artist-${artist.id}`,
+      title: artist.name,
+      label: "ARTIST",
+      facts: artist.subscribers ? [artist.subscribers] : [],
+      picture: artist.cover,
+      shape: "round" as const,
+      open: () => go(artistPath(artist.id)),
+    })),
+    ...found.albums.slice(0, 3).map((album) => ({
+      key: `album-${album.id}`,
+      title: album.title,
+      label: "ALBUM",
+      facts: [album.artist, ...(album.year ? [album.year] : [])],
+      picture: album.cover,
+      shape: "square" as const,
+      open: () => go(albumPath(album.id)),
+    })),
+  ];
+}
+
+/**
+ * Search over the page: type, move with the arrows, Enter opens a result or all the results. On the
+ * music pages it searches music (a song plays, an album or artist opens); elsewhere, titles.
+ */
+export default function Palette({ onClose, music = false }: { onClose: () => void; music?: boolean }) {
   const router = useRouter();
   const input = useRef<HTMLInputElement>(null);
   const [typed, setTyped] = useState("");
   const [term, setTerm] = useState("");
   const [selected, setSelected] = useState(0);
-  const { results, stale, searching, failed } = useSearch(term, SHOWN);
+  const player = useMusicPlayer();
+  // Both are always called; the one not in use is asked for nothing.
+  const videos = useSearch(music ? "" : term, SHOWN);
+  const songs = useMusicSearch(music ? term : "");
 
   useEffect(() => input.current?.focus(), []);
 
@@ -31,8 +86,6 @@ export default function Palette({ onClose }: { onClose: () => void }) {
     const timer = setTimeout(() => setTerm(typed.trim()), 200);
     return () => clearTimeout(timer);
   }, [typed]);
-
-  useEffect(() => setSelected(0), [results]);
 
   // The page behind stays put while the panel is open.
   useEffect(() => {
@@ -43,10 +96,30 @@ export default function Palette({ onClose }: { onClose: () => void }) {
     };
   }, []);
 
-  const open = (id: string) => {
+  const go = (path: string) => {
     onClose();
-    router.push(titlePath(id));
+    router.push(path);
   };
+  const results: Item[] = music
+    ? musicItems(songs.data, (index) => {
+        onClose();
+        if (songs.data) player.play(songs.data.songs, index);
+      }, go)
+    : videos.results.map((card) => ({
+        key: card.id,
+        title: card.title,
+        label: KIND_LABEL[card.kind],
+        facts: facts(card),
+        picture: card.poster ?? null,
+        shape: "poster" as const,
+        open: () => go(titlePath(card.id)),
+      }));
+  // Back to the first row when the list changes (and only then: `results` is rebuilt every render).
+  const listed = results.map((item) => item.key).join();
+  useEffect(() => setSelected(0), [listed]);
+  const stale = music ? songs.isFetching && !!songs.data && songs.isPreviousData : videos.stale;
+  const searching = music ? songs.isFetching : videos.searching;
+  const failed = music ? songs.isError : videos.failed;
 
   const onKeyDown = (event: React.KeyboardEvent) => {
     if (event.key === "Escape") onClose();
@@ -58,17 +131,16 @@ export default function Palette({ onClose }: { onClose: () => void }) {
       setSelected((index) => (index + results.length - 1) % results.length);
     } else if (event.key === "Enter") {
       event.preventDefault();
-      if (results[selected] && !stale && term === typed.trim()) open(results[selected].id);
-      else if (typed.trim()) {
-        onClose();
-        router.push(searchPath(typed.trim()));
-      }
+      if (results[selected] && !stale && term === typed.trim()) results[selected].open();
+      else if (typed.trim()) go(music ? musicSearchPath(typed.trim()) : searchPath(typed.trim()));
     }
   };
 
   const empty = typed.trim().length === 0;
   const hint = empty
-    ? "Type to search anime, series and films."
+    ? music
+      ? "Type to search songs, albums and artists."
+      : "Type to search anime, series and films."
     : searching && results.length === 0
       ? "Searching..."
       : failed
@@ -97,7 +169,7 @@ export default function Palette({ onClose }: { onClose: () => void }) {
             value={typed}
             onChange={(event) => setTyped(event.target.value)}
             placeholder="Search"
-            aria-label="Search anime, series and films"
+            aria-label={music ? "Search songs, albums and artists" : "Search anime, series and films"}
             autoComplete="off"
             spellCheck={false}
             className="w-full bg-transparent text-base text-ink outline-none placeholder:text-faint"
@@ -106,25 +178,32 @@ export default function Palette({ onClose }: { onClose: () => void }) {
 
         {(hint || results.length > 0) && (
           <div className={cn("flex max-h-[60vh] flex-col overflow-y-auto border-t border-line p-2", stale && "opacity-50")}>
-            {results.map((card, index) => (
+            {results.map((item, index) => (
               <button
-                key={card.id}
+                key={item.key}
                 type="button"
-                onClick={() => open(card.id)}
+                onClick={item.open}
                 onMouseMove={() => setSelected(index)}
                 className={cn(
                   "flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-left",
                   index === selected && "bg-raised",
                 )}
               >
-                <div className="relative h-[54px] w-9 shrink-0 overflow-hidden rounded-md bg-line">
-                  {card.poster && <Image src={card.poster} alt="" fill sizes="36px" className="object-cover" />}
+                <div
+                  className={cn(
+                    "relative shrink-0 overflow-hidden bg-line",
+                    item.shape === "poster" && "h-[54px] w-9 rounded-md",
+                    item.shape === "square" && "size-11 rounded-md",
+                    item.shape === "round" && "size-11 rounded-full",
+                  )}
+                >
+                  {item.picture && <Image src={item.picture} alt="" fill sizes="44px" className="object-cover" />}
                 </div>
                 <div className="flex min-w-0 flex-col gap-0.5">
-                  <span className="truncate text-[15px] font-semibold text-ink">{card.title}</span>
+                  <span className="truncate text-[15px] font-semibold text-ink">{item.title}</span>
                   <span className="flex items-center gap-2">
-                    <span className="text-[10px] font-bold text-faint">{KIND_LABEL[card.kind]}</span>
-                    <MetaLine parts={facts(card)} className="text-xs" />
+                    <span className="text-[10px] font-bold text-faint">{item.label}</span>
+                    <MetaLine parts={item.facts} className="text-xs" />
                   </span>
                 </div>
               </button>

@@ -21,17 +21,37 @@ pub enum Route {
     Watch {
         id: String,
     },
+    /// The music tab: the home shelves, or the results of a search when `term` is not empty.
+    Music {
+        term: String,
+    },
+    MusicAlbum {
+        id: String,
+    },
+    MusicArtist {
+        id: String,
+    },
     Settings,
 }
 
 impl Route {
     /// The screen to open at launch: `akidev`, `akidev settings`, `akidev anime` (or
-    /// `series`, `movie`), `akidev search <words>` or `akidev <media id>`.
+    /// `series`, `movie`), `akidev search <words>`, `akidev music [words]`, `akidev music-album <id>`,
+    /// `akidev music-artist <id>` or `akidev <media id>`.
     pub fn from_args(args: impl Iterator<Item = String>) -> Route {
         let args: Vec<String> = args.collect();
         match args.first().map(String::as_str) {
             None | Some("home") => Route::Home,
             Some("settings") => Route::Settings,
+            Some("music-album") if args.len() > 1 => Route::MusicAlbum {
+                id: args[1].clone(),
+            },
+            Some("music-artist") if args.len() > 1 => Route::MusicArtist {
+                id: args[1].clone(),
+            },
+            Some("music") => Route::Music {
+                term: args[1..].join(" "),
+            },
             Some("search") => Route::Browse {
                 kind: None,
                 term: args[1..].join(" "),
@@ -46,7 +66,9 @@ impl Route {
 
     /// A place to start from rather than a step on the way: Home and the catalogue tabs.
     pub fn is_start(&self) -> bool {
-        matches!(self, Route::Home) || matches!(self, Route::Browse { term, .. } if term.is_empty())
+        matches!(self, Route::Home)
+            || matches!(self, Route::Browse { term, .. } if term.is_empty())
+            || matches!(self, Route::Music { term } if term.is_empty())
     }
 
     pub fn is_search(&self) -> bool {

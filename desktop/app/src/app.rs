@@ -5,6 +5,10 @@ use crate::design::button::{icon_button, keep_from_title_bar, tab};
 use crate::design::tokens::{CANVAS, LINE, RAISED, TEXT, TOP_BAR, color};
 use crate::history::History;
 use crate::home::HomePage;
+use crate::music_album::AlbumPage;
+use crate::music_artist::ArtistPage;
+use crate::music_home::MusicPage;
+use crate::music_player::{BAR_HEIGHT, Changed, hub};
 use crate::palette::Palette;
 use crate::route::{Navigator, Route, navigate};
 use crate::settings::SettingsPage;
@@ -55,6 +59,8 @@ pub struct AkidevApp {
     mark: Arc<Image>,
     _palette_changes: Subscription,
     _update_changes: Subscription,
+    /// Redraws the page when music starts or stops, so it leaves room for the bar.
+    _music_changes: Subscription,
 }
 
 impl AkidevApp {
@@ -66,6 +72,8 @@ impl AkidevApp {
         let updates = cx.new(Updates::new);
         cx.set_global(Shared(updates.clone()));
         let update_changes = cx.observe(&updates, |_, _, cx| cx.notify());
+        let music_changes =
+            cx.subscribe(&hub(cx).player.clone(), |_, _, _: &Changed, cx| cx.notify());
         // Built last: a screen may read the update state (Settings does) or navigate.
         let screen = Screen {
             view: Some(Self::build(&first, cx)),
@@ -86,6 +94,7 @@ impl AkidevApp {
             )),
             _palette_changes: palette_changes,
             _update_changes: update_changes,
+            _music_changes: music_changes,
         }
     }
 
@@ -104,13 +113,29 @@ impl AkidevApp {
                 let id = id.clone();
                 cx.new(|cx| TitlePage::new(id, cx)).into()
             }
+            Route::Music { term } => {
+                let term = term.clone();
+                cx.new(|cx| MusicPage::new(term, cx)).into()
+            }
+            Route::MusicAlbum { id } => {
+                let id = id.clone();
+                cx.new(|cx| AlbumPage::new(id, cx)).into()
+            }
+            Route::MusicArtist { id } => {
+                let id = id.clone();
+                cx.new(|cx| ArtistPage::new(id, cx)).into()
+            }
             Route::Settings => cx.new(SettingsPage::new).into(),
         }
     }
 
     fn open_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let music = matches!(
+            self.route(),
+            Route::Music { .. } | Route::MusicAlbum { .. } | Route::MusicArtist { .. }
+        );
         self.palette
-            .update(cx, |palette, cx| palette.show(window, cx));
+            .update(cx, |palette, cx| palette.show(window, music, cx));
     }
 
     pub fn toast(&mut self, text: String, cx: &mut Context<Self>) {
@@ -269,17 +294,49 @@ impl AkidevApp {
                                     )
                                 },
                             )))
+                            .child(div().flex().items_center().child(tab(
+                                "tab-Music",
+                                "Music",
+                                matches!(
+                                    route,
+                                    Route::Music { .. }
+                                        | Route::MusicAlbum { .. }
+                                        | Route::MusicArtist { .. }
+                                ),
+                                |_, _, cx| {
+                                    navigate(
+                                        Route::Music {
+                                            term: String::new(),
+                                        },
+                                        cx,
+                                    )
+                                },
+                            )))
                             .child(div().flex_1())
                             .children(self.updates.update(cx, |updates, cx| updates.button(cx)))
-                            .child(icon_button("search", IconName::Search, |_, _, cx| {
-                                navigate(
-                                    Route::Browse {
-                                        kind: None,
-                                        term: String::new(),
-                                    },
-                                    cx,
-                                )
-                            }))
+                            .child(icon_button(
+                                "search",
+                                IconName::Search,
+                                cx.listener(|app, _, window, cx| {
+                                    // On the music screens the magnifier opens the same panel as Cmd-K.
+                                    if matches!(
+                                        app.route(),
+                                        Route::Music { .. }
+                                            | Route::MusicAlbum { .. }
+                                            | Route::MusicArtist { .. }
+                                    ) {
+                                        app.open_search(window, cx);
+                                    } else {
+                                        navigate(
+                                            Route::Browse {
+                                                kind: None,
+                                                term: String::new(),
+                                            },
+                                            cx,
+                                        );
+                                    }
+                                }),
+                            ))
                             .child(icon_button("settings", IconName::Settings, |_, _, cx| {
                                 navigate(Route::Settings, cx)
                             })),
@@ -303,6 +360,7 @@ impl Render for AkidevApp {
         self.palette_was_open = palette_open;
         // The watch page draws its own bar over the picture.
         let immersive = matches!(self.route(), Route::Watch { .. });
+        let has_music = hub(cx).player.read(cx).current().is_some();
 
         div()
             .size_full()
@@ -321,9 +379,24 @@ impl Render for AkidevApp {
                     // down belongs to the page: each takes its own axis, locked per gesture.
                     .restrict_scroll_to_axis()
                     .track_scroll(&self.history.current().scroll)
-                    .children(self.history.current().view.clone()),
+                    .children(self.history.current().view.clone())
+                    // Room at the foot of every page, so the music bar never covers its last line.
+                    .when(has_music && !immersive, |page| {
+                        page.child(div().h(px(BAR_HEIGHT)).w_full())
+                    }),
             )
             .when(!immersive, |shell| shell.child(self.top_bar(cx)))
+            .when(!immersive, |shell| {
+                // The player draws its bar in normal flow; this puts it along the bottom.
+                shell.child(
+                    div()
+                        .absolute()
+                        .bottom_0()
+                        .left_0()
+                        .w_full()
+                        .child(hub(cx).player.clone()),
+                )
+            })
             .when(palette_open, |shell| shell.child(self.palette.clone()))
             .child(
                 div()

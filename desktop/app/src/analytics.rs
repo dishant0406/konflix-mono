@@ -254,6 +254,9 @@ pub fn screen_of(route: &crate::route::Route) {
         ),
         Route::Title { id } => screen("title", json!({ "title_id": id })),
         Route::Watch { id } => screen("watch", json!({ "title_id": id })),
+        Route::Music { term } => screen("music", json!({ "term_length": term.chars().count() })),
+        Route::MusicAlbum { .. } => screen("music_album", Value::Null),
+        Route::MusicArtist { .. } => screen("music_artist", Value::Null),
         Route::Settings => screen("settings", Value::Null),
     }
 }

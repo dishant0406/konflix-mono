@@ -8,6 +8,7 @@ pub mod indexers;
 pub mod magnet;
 pub mod media_id;
 pub mod model;
+pub mod music;
 pub mod providers;
 pub mod releases;
 pub mod search;

@@ -3,16 +3,23 @@
 
 mod analytics;
 mod app;
+mod audio;
 mod backend;
 mod browse;
 mod captions;
 mod choices;
 mod design;
 mod episodes;
+mod genre_assets;
 mod hero;
 mod history;
 mod home;
 mod images;
+mod music_album;
+mod music_artist;
+mod music_home;
+mod music_player;
+mod music_ui;
 mod palette;
 mod panels;
 mod player;
@@ -57,6 +64,7 @@ fn main() {
     let subtitles_dir = dirs.cache_dir().join("subtitles");
     let torrent_cache = dirs.cache_dir().join("torrents");
     let sources_dir = dirs.cache_dir().join("sources");
+    let ytdlp_dir = dirs.cache_dir().join("yt-dlp");
     akidev_core::providers::keep_answers_in(dirs.cache_dir().join("catalog"));
     let first = Route::from_args(std::env::args().skip(1));
     // The definitions saved by an earlier run are used at once. What the home screen needs is
@@ -66,41 +74,60 @@ fn main() {
         home::prefetch();
     }
 
-    application().with_assets(assets::AllAssets).run(move |cx| {
-        init(cx);
-        cx.set_global(backend::Backend::start(
-            config_path,
-            progress_path,
-            subtitle_language_path,
-            subtitles_dir,
-            torrent_cache,
-            sources_dir,
-        ));
-        theme::apply(cx);
-        cx.set_http_client(Arc::new(images::ImageClient::new(image_cache)));
-        cx.bind_keys([KeyBinding::new("secondary-k", app::OpenSearch, None)]);
-        quit_with_the_window(cx);
-        let options = WindowOptions {
-            titlebar: Some(TitlebarOptions {
-                title: Some("Akidev".into()),
-                appears_transparent: true,
-                traffic_light_position: Some(point(px(18.), px(20.))),
-            }),
-            window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
-                None,
-                size(px(1360.), px(860.)),
-                cx,
-            ))),
-            window_min_size: Some(size(px(960.), px(620.))),
-            // The bar draws itself and moves the window itself, so AppKit must not also treat
-            // it as a drag region.
-            app_owns_titlebar_drag: true,
-            ..Default::default()
-        };
-        open_window(options, cx, |window, cx| {
-            cx.new(|cx| AkidevApp::new(first, window, cx))
-        })
-        .expect("window opens");
+    application()
+        .with_assets(genre_assets::AppAssets)
+        .run(move |cx| {
+            init(cx);
+            cx.set_global(backend::Backend::start(
+                config_path,
+                progress_path,
+                subtitle_language_path,
+                subtitles_dir,
+                torrent_cache,
+                sources_dir,
+            ));
+            theme::apply(cx);
+            start_music(&ytdlp_dir, cx);
+            cx.set_http_client(Arc::new(images::ImageClient::new(image_cache)));
+            cx.bind_keys([KeyBinding::new("secondary-k", app::OpenSearch, None)]);
+            quit_with_the_window(cx);
+            let options = WindowOptions {
+                titlebar: Some(TitlebarOptions {
+                    title: Some("Akidev".into()),
+                    appears_transparent: true,
+                    traffic_light_position: Some(point(px(18.), px(20.))),
+                }),
+                window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
+                    None,
+                    size(px(1360.), px(860.)),
+                    cx,
+                ))),
+                window_min_size: Some(size(px(960.), px(620.))),
+                // The bar draws itself and moves the window itself, so AppKit must not also treat
+                // it as a drag region.
+                app_owns_titlebar_drag: true,
+                ..Default::default()
+            };
+            open_window(options, cx, |window, cx| {
+                cx.new(|cx| AkidevApp::new(first, window, cx))
+            })
+            .expect("window opens");
+        });
+}
+
+/// The music catalogue and its player. yt-dlp, which finds the audio, is fetched the first time a
+/// track is played and kept up to date from then on.
+fn start_music(ytdlp_dir: &std::path::Path, cx: &mut App) {
+    let program = akidev_core::music::ytdlp_program(ytdlp_dir);
+    let music = Arc::new(
+        akidev_core::music::Music::new(program.to_string_lossy().into_owned()).with_system_certs(),
+    );
+    runtime::block_on(async { music.keep_updated() });
+    let player = cx.new(music_player::MusicPlayer::new);
+    cx.set_global(music_player::MusicHub {
+        music,
+        ytdlp_dir: ytdlp_dir.to_path_buf(),
+        player,
     });
 }
 

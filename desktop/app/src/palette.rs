@@ -2,8 +2,11 @@
 
 use crate::design::state::{kind_label, meta_line};
 use crate::design::tokens::{CANVAS, LINE, RAISED, SURFACE, TEXT, TEXT_DIM, TEXT_FAINT, color};
+use crate::music_player::{hub, play};
+use crate::music_ui::{cover, names};
 use crate::route::{Route, navigate};
 use akidev_core::model::{Kind, Media};
+use akidev_core::music::{SearchOut, Track};
 use akidev_core::search::{combine, search_kind};
 use gpui_kit::assets::IconName;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
@@ -18,9 +21,76 @@ use std::time::Duration;
 const PAUSE: Duration = Duration::from_millis(250);
 const MAX_RESULTS: usize = 8;
 
+/// What pressing a music row does.
+#[derive(Clone)]
+enum MusicAction {
+    /// Plays the song at this place in the songs found, and queues the rest.
+    Play(usize),
+    Open(Route),
+}
+
+/// One row of a music search: a song, an artist or an album.
+struct MusicRow {
+    title: String,
+    label: &'static str,
+    facts: Vec<String>,
+    cover: Option<String>,
+    round: bool,
+    action: MusicAction,
+}
+
+/// The first few of each kind of result, songs first.
+fn music_rows(found: &SearchOut) -> Vec<MusicRow> {
+    let songs = found
+        .songs
+        .iter()
+        .take(5)
+        .enumerate()
+        .map(|(index, song)| MusicRow {
+            title: song.title.clone(),
+            label: "SONG",
+            facts: [Some(names(&song.artists)), song.duration.clone()]
+                .into_iter()
+                .flatten()
+                .collect(),
+            cover: song.cover.clone(),
+            round: false,
+            action: MusicAction::Play(index),
+        });
+    let artists = found.artists.iter().take(2).map(|artist| MusicRow {
+        title: artist.name.clone(),
+        label: "ARTIST",
+        facts: artist.subscribers.clone().into_iter().collect(),
+        cover: artist.cover.clone(),
+        round: true,
+        action: MusicAction::Open(Route::MusicArtist {
+            id: artist.id.clone(),
+        }),
+    });
+    let albums = found.albums.iter().take(3).map(|album| MusicRow {
+        title: album.title.clone(),
+        label: "ALBUM",
+        facts: [Some(album.artist.clone()), album.year.clone()]
+            .into_iter()
+            .flatten()
+            .collect(),
+        cover: album.cover.clone(),
+        round: false,
+        action: MusicAction::Open(Route::MusicAlbum {
+            id: album.id.clone(),
+        }),
+    });
+    songs.chain(artists).chain(albums).collect()
+}
+
 pub struct Palette {
     input: Entity<InputState>,
     open: bool,
+    /// Searching music (on the music screens) rather than titles.
+    music: bool,
+    music_rows: Vec<MusicRow>,
+    /// Every song the search found, which a pressed song queues.
+    music_songs: Vec<Track>,
     results: Vec<Media>,
     /// What each catalogue has said about the term being searched, `None` for one that failed.
     answers: Vec<(Kind, Option<Vec<Media>>)>,
@@ -39,8 +109,7 @@ pub struct Palette {
 
 impl Palette {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Palette {
-        let input =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Search anime, series and films"));
+        let input = cx.new(|cx| InputState::new(window, cx).placeholder("Search"));
         let events = cx.subscribe(&input, |palette, _, event: &InputEvent, cx| match event {
             InputEvent::Change => palette.typed(cx),
             InputEvent::PressEnter { .. } => palette.confirm(cx),
@@ -49,6 +118,9 @@ impl Palette {
         Palette {
             input,
             open: false,
+            music: false,
+            music_rows: Vec::new(),
+            music_songs: Vec::new(),
             results: Vec::new(),
             answers: Vec::new(),
             pending: 0,
@@ -65,8 +137,11 @@ impl Palette {
         self.open
     }
 
-    pub fn show(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn show(&mut self, window: &mut Window, music: bool, cx: &mut Context<Self>) {
         self.open = true;
+        self.music = music;
+        self.music_rows.clear();
+        self.music_songs.clear();
         self.input.update(cx, |input, cx| {
             input.set_value("", window, cx);
             input.focus(window, cx);
@@ -85,6 +160,15 @@ impl Palette {
         cx.notify();
     }
 
+    /// How many rows are showing.
+    fn len(&self) -> usize {
+        if self.music {
+            self.music_rows.len()
+        } else {
+            self.results.len()
+        }
+    }
+
     fn term(&self, cx: &App) -> String {
         self.input.read(cx).value().trim().to_string()
     }
@@ -96,10 +180,16 @@ impl Palette {
         self.answers.clear();
         if term.is_empty() {
             self.results.clear();
+            self.music_rows.clear();
+            self.music_songs.clear();
             self.pending = 0;
             self.searching = false;
             self.stale = false;
             cx.notify();
+            return;
+        }
+        if self.music {
+            self.typed_music(term, request, cx);
             return;
         }
         // The last results stay up, marked as old, until the first of the new ones arrives.
@@ -138,6 +228,59 @@ impl Palette {
         }
     }
 
+    /// A music search: one request, shown when it arrives.
+    fn typed_music(&mut self, term: String, request: u32, cx: &mut Context<Self>) {
+        self.stale = !self.music_rows.is_empty();
+        self.searching = true;
+        self.failed = false;
+        cx.notify();
+        let music = hub(cx).music.clone();
+        let latest = self.latest.clone();
+        crate::task::load(
+            cx,
+            async move {
+                tokio::time::sleep(PAUSE).await;
+                if latest.load(Ordering::SeqCst) != request {
+                    return None;
+                }
+                Some(music.search(&term).await.ok())
+            },
+            move |palette, answer, cx| {
+                let Some(answer) =
+                    answer.filter(|_| palette.latest.load(Ordering::SeqCst) == request)
+                else {
+                    return;
+                };
+                palette.searching = false;
+                palette.stale = false;
+                palette.selected = 0;
+                match answer {
+                    Some(found) => {
+                        palette.music_rows = music_rows(&found);
+                        palette.music_songs = found.songs;
+                    }
+                    None => {
+                        palette.music_rows.clear();
+                        palette.failed = true;
+                    }
+                }
+                cx.notify();
+            },
+        );
+    }
+
+    /// Does what a music row does: plays the song, or opens the album or artist.
+    fn activate_music(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(action) = self.music_rows.get(index).map(|row| row.action.clone()) else {
+            return;
+        };
+        match action {
+            MusicAction::Play(song) => play(self.music_songs.clone(), song, cx),
+            MusicAction::Open(route) => navigate(route, cx),
+        }
+        self.close(cx);
+    }
+
     /// One catalogue's answer to the current term: the list is rebuilt from everything that has
     /// come back so far.
     fn received(
@@ -170,6 +313,15 @@ impl Palette {
     /// Enter: the highlighted result, or the full results page when nothing is highlighted.
     fn confirm(&mut self, cx: &mut Context<Self>) {
         let term = self.term(cx);
+        if self.music {
+            if !self.stale && self.selected < self.music_rows.len() {
+                self.activate_music(self.selected, cx);
+            } else if !term.is_empty() {
+                navigate(Route::Music { term }, cx);
+                self.close(cx);
+            }
+            return;
+        }
         let settled = (!self.stale)
             .then(|| self.results.get(self.selected))
             .flatten();
@@ -186,6 +338,56 @@ impl Palette {
             return;
         }
         self.close(cx);
+    }
+
+    fn music_row(&self, index: usize, row: &MusicRow, cx: &mut Context<Self>) -> Stateful<Div> {
+        div()
+            .id(SharedString::from(format!("palette-{index}")))
+            .flex()
+            .items_center()
+            .gap_3()
+            .px_3()
+            .py_2()
+            .rounded_lg()
+            .cursor_pointer()
+            .when(index == self.selected, |row| row.bg(color(RAISED)))
+            .hover(|style| style.bg(color(RAISED)))
+            .on_click(cx.listener(move |palette, _, _, cx| palette.activate_music(index, cx)))
+            .child(cover(
+                row.cover.clone(),
+                px(44.),
+                row.round,
+                &format!("palette-{index}"),
+            ))
+            .child(
+                div()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .gap_0p5()
+                    .child(
+                        div()
+                            .text_size(px(15.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(color(TEXT))
+                            .truncate()
+                            .child(row.title.clone()),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .text_size(px(10.))
+                                    .font_weight(FontWeight::BOLD)
+                                    .text_color(color(TEXT_FAINT))
+                                    .child(row.label),
+                            )
+                            .child(meta_line(row.facts.clone()).text_size(px(12.))),
+                    ),
+            )
     }
 
     fn row(&self, index: usize, media: &Media, cx: &mut Context<Self>) -> Stateful<Div> {
@@ -260,14 +462,25 @@ impl Render for Palette {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let term_empty = self.input.read(cx).value().trim().is_empty();
         let stale = self.stale;
-        let results: Vec<Stateful<Div>> = self
-            .results
-            .iter()
-            .enumerate()
-            .map(|(i, media)| self.row(i, media, cx))
-            .collect();
+        let results: Vec<Stateful<Div>> = if self.music {
+            self.music_rows
+                .iter()
+                .enumerate()
+                .map(|(i, row)| self.music_row(i, row, cx))
+                .collect()
+        } else {
+            self.results
+                .iter()
+                .enumerate()
+                .map(|(i, media)| self.row(i, media, cx))
+                .collect()
+        };
         let hint = if term_empty {
-            Some("Type to search anime, series and films.")
+            Some(if self.music {
+                "Type to search songs, albums and artists."
+            } else {
+                "Type to search anime, series and films."
+            })
         } else if self.searching && results.is_empty() {
             Some("Searching...")
         } else if self.failed {
@@ -294,13 +507,12 @@ impl Render for Palette {
             .on_key_down(cx.listener(|palette, event: &KeyDownEvent, _, cx| {
                 match event.keystroke.key.as_str() {
                     "escape" => palette.close(cx),
-                    "down" if !palette.results.is_empty() => {
-                        palette.selected = (palette.selected + 1) % palette.results.len();
+                    "down" if palette.len() > 0 => {
+                        palette.selected = (palette.selected + 1) % palette.len();
                         cx.notify();
                     }
-                    "up" if !palette.results.is_empty() => {
-                        palette.selected =
-                            (palette.selected + palette.results.len() - 1) % palette.results.len();
+                    "up" if palette.len() > 0 => {
+                        palette.selected = (palette.selected + palette.len() - 1) % palette.len();
                         cx.notify();
                     }
                     _ => {}
