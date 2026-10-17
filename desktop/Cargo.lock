@@ -133,7 +133,7 @@ dependencies = [
 
 [[package]]
 name = "akidev"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "akidev-core",
  "anyhow",
@@ -154,7 +154,7 @@ dependencies = [
 
 [[package]]
 name = "akidev-core"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "anyhow",
  "axum",
@@ -177,7 +177,7 @@ dependencies = [
 
 [[package]]
 name = "akidev-server"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "akidev-core",
  "anyhow",
