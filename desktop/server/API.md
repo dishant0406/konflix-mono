@@ -143,19 +143,49 @@ What `url` points at: the video with `Range` support (`file`), or the playlist a
 (`hls`, `index.m3u8`, `init.mp4`, `seg00000.m4s`), and subtitle files (`sub/0.vtt`). A player
 only needs the URL it was given.
 
-## Music: `GET /v1/music/search?q=<term>`, `/v1/music/albums/{id}`, `/v1/music/artists/{id}`, `/v1/music/stream/{videoId}`
+## Music: `GET /v1/music/search?q=<term>`, `/v1/music/albums/{id}`, `/v1/music/artists/{id}`, `/v1/music/radio/{videoId}`, `/v1/music/stream/{videoId}`
 
 Music comes from YouTube Music (the vendored `vendor/ytmapi-rs`, see its PATCH.md); the audio is found
 with yt-dlp (`YT_DLP` names the binary; the image's copy updates itself daily).
 
 - `search` answers `{ songs: Track[], albums: AlbumCard[], artists: ArtistCard[] }`. A track's `id` is
   the YouTube video id.
+- `radio/{videoId}` answers `{ songs: Track[] }`: what YouTube Music plays after that track (without
+  the track itself). A player that has run out of queue appends these, which is the autoplay.
 - `albums/{id}` answers the album with its `tracks`. `artists/{id}` answers `songs`, `albums`,
   `singles` and `related`.
 - `stream/{videoId}` is the audio, passed through with `Range` support (206), so the browser can seek.
   The address yt-dlp finds is cached for 30 minutes; the server fetches the bytes itself because the
   address only works from the machine that asked. Not compressed.
 - Covers are YouTube hosts, which `IMAGE_HOSTS` allows, and go through `/v1/img` like every picture.
+
+## Watch party: `/v1/party`
+
+A party's host is a device, and guests connect to it directly with WebRTC (see
+`party/PROTOCOL.md`). These routes are only the meeting point: they pass the first message each
+way, an offer and an answer, and never see what is playing. A party is forgotten when its host
+stops asking for guests for two minutes, or after twelve hours.
+
+The host's secret is sent as `Authorization: Bearer <host_token>`.
+
+| route | does |
+| --- | --- |
+| `POST /v1/party` | Opens a party: `{ "code": "K7QF92", "host_token": "..." }`. 20 an hour per client. `503` when the server holds too many. |
+| `GET /v1/party/{code}/ice` | `{ "ice_servers": [...] }`, asked for by the host before each guest and by a guest before it makes its offer. `404` when the party is gone. |
+| `POST /v1/party/{code}/join` | Body `{ "offer": "<sdp>" }`; answers `{ "guest": "<id>" }`. `404` gone, `409` full (20 guests). 60 per ten minutes per client. |
+| `GET /v1/party/{code}/offers` | Host only. Waits up to 25 seconds, then answers `{ "offers": [{ "guest": "<id>", "offer": "<sdp>" }] }`, possibly empty. Each call counts as the host being there. |
+| `POST /v1/party/{code}/answer/{guest}` | Host only. Body `{ "answer": "<sdp>" }`; `204`. `404` when no guest has that id. |
+| `GET /v1/party/{code}/answer/{guest}` | The guest waits up to 25 seconds for `{ "answer": "<sdp>" }`; `204` when it has not come yet, ask again. `404` when the party is gone or no guest has that id. |
+| `DELETE /v1/party/{code}/guests/{guest}` | Host only. A guest left: frees its place. `204`. A place the host has not been given the offer for in a minute is freed on its own. |
+| `DELETE /v1/party/{code}` | Host only. Ends the party. `204`. |
+
+Offers and answers are complete (the device waited, up to ten seconds, to have found its addresses),
+at most 32 KB (`400` when empty or larger). `429` when a client asks about codes faster than a
+person would (60 `ice` or answer requests in ten minutes, 60 joins, 20 parties an hour). `ice_servers` is the
+WebRTC `iceServers` list: the STUN servers (`STUN_URLS`) and, when `TURN_URLS` and `TURN_SECRET`
+are set, a TURN relay with a login that works for that party for six hours (coturn's
+`use-auth-secret`). Without the relay, devices on networks that block direct connections cannot
+join; everything else works.
 
 ## Media
 

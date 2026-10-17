@@ -3,7 +3,12 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { get } from "@/lib/api";
 import { names, streamUrl, type Track } from "@/lib/music";
+import { sameItem, type Item } from "@/lib/party/protocol";
+import { fix, positionNow } from "@/lib/party/sync";
+
+import { useParty } from "./party";
 
 export type Repeat = "off" | "all" | "one";
 
@@ -24,6 +29,8 @@ interface Player {
   /** Plays `tracks` in a random order. */
   playShuffled: (tracks: Track[]) => void;
   toggle: () => void;
+  /** Stops what is playing, where it is, so a video can have the sound to itself. */
+  pause: () => void;
   next: () => void;
   previous: () => void;
   seek: (seconds: number) => void;
@@ -44,6 +51,17 @@ export function useMusicPlayer(): Player {
   return player;
 }
 
+/** `readyState` at which there is enough sound ahead to be moving. */
+const HAVE_FUTURE_DATA = 3;
+
+/** How often a host says where the music is while it plays. */
+const PARTY_BEAT = 2000;
+
+/** How often a guest checks it is in step with the host. */
+const PARTY_CHECK = 1000;
+
+const GUEST_MESSAGE = "Only the host chooses what plays.";
+
 /** Pressing Previous this far into a track starts it again instead of going back. */
 const RESTART_AFTER = 3;
 
@@ -56,9 +74,24 @@ function shuffled<T>(list: T[]): T[] {
   return out;
 }
 
+function itemOf(track: Track): Item {
+  return { kind: "music", id: track.id, title: track.title, artist: names(track.artists), cover: track.cover };
+}
+
+/** What a guest knows of the host's track: enough to show and to ask for the audio. */
+function trackOf(item: Extract<Item, { kind: "music" }>): Track {
+  return { id: item.id, title: item.title, artists: [{ id: null, name: item.artist }], album: null, duration: null, explicit: false, cover: item.cover ?? null };
+}
+
 /** One audio element for the whole site, so the music carries on as pages change. */
 export default function MusicPlayerProvider({ children }: { children: React.ReactNode }) {
   const audio = useRef<HTMLAudioElement>(null);
+  const party = useParty();
+  // The party as the timers and handlers below see it, so they need not be rebuilt each time it changes.
+  const partyNow = useRef(party);
+  useEffect(() => {
+    partyNow.current = party;
+  });
   const [queue, setQueue] = useState<Track[]>([]);
   const [index, setIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -70,6 +103,8 @@ export default function MusicPlayerProvider({ children }: { children: React.Reac
   const [repeat, setRepeat] = useState<Repeat>("off");
   // The queue as it was before shuffling, so turning shuffle off puts it back.
   const ordered = useRef<Track[] | null>(null);
+  // The track whose "what plays next" has been asked for, so each is asked for once.
+  const radioFor = useRef<string | null>(null);
   // The track whose audio was asked for again after failing, so one bad address is retried once.
   const retried = useRef<string | null>(null);
 
@@ -82,6 +117,7 @@ export default function MusicPlayerProvider({ children }: { children: React.Reac
     setTime(0);
     setDuration(0);
     setLoading(true);
+    partyNow.current.setStatus("loading", current.id);
     element.src = streamUrl(current.id);
     element.play().catch(() => setPlaying(false));
   }, [current?.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -89,6 +125,28 @@ export default function MusicPlayerProvider({ children }: { children: React.Reac
   useEffect(() => {
     if (audio.current) audio.current.volume = volume;
   }, [volume]);
+
+  // Autoplay: when the last track of the queue starts, what YouTube Music plays after it is added,
+  // so the music does not stop. Not while repeating (the queue loops), and not for a guest, whose
+  // music is the host's choice.
+  useEffect(() => {
+    if (!current || index !== queue.length - 1 || repeat !== "off" || party.role === "guest") return undefined;
+    if (radioFor.current === current.id) return undefined;
+    radioFor.current = current.id;
+    get<{ songs: Track[] }>(`/v1/music/radio/${encodeURIComponent(current.id)}`)
+      .then(({ songs }) => {
+        const add = (list: Track[]) => {
+          const known = new Set(list.map((track) => track.id));
+          return [...list, ...songs.filter((track) => !known.has(track.id))];
+        };
+        setQueue(add);
+        if (ordered.current) ordered.current = add(ordered.current);
+      })
+      .catch(() => {
+        // Nothing more to play after this one, which is what happened before there was autoplay.
+      });
+    return undefined;
+  }, [current, index, queue.length, repeat, party.role]);
 
   const start = useCallback((tracks: Track[], at: number, shuffleOn: boolean) => {
     ordered.current = shuffleOn ? tracks : null;
@@ -105,45 +163,61 @@ export default function MusicPlayerProvider({ children }: { children: React.Reac
     }
   }, []);
 
-  const play = useCallback((tracks: Track[], at = 0) => start(tracks, at, shuffle), [start, shuffle]);
+  /** A guest cannot choose what plays: that is the host's. */
+  const guestBlocked = useCallback(() => {
+    if (partyNow.current.role !== "guest") return false;
+    toast(GUEST_MESSAGE);
+    return true;
+  }, []);
+
+  const play = useCallback((tracks: Track[], at = 0) => !guestBlocked() && start(tracks, at, shuffle), [guestBlocked, start, shuffle]);
   const playShuffled = useCallback(
-    (tracks: Track[]) => start(tracks, Math.floor(Math.random() * tracks.length), true),
-    [start],
+    (tracks: Track[]) => !guestBlocked() && start(tracks, Math.floor(Math.random() * tracks.length), true),
+    [guestBlocked, start],
   );
 
   const next = useCallback(() => {
+    if (guestBlocked()) return;
     if (index + 1 < queue.length) setIndex(index + 1);
     else if (repeat === "all" && queue.length > 0) setIndex(0);
     else audio.current?.pause();
-  }, [index, queue.length, repeat]);
+  }, [guestBlocked, index, queue.length, repeat]);
 
   const previous = useCallback(() => {
+    if (guestBlocked()) return;
     const element = audio.current;
     if (element && (element.currentTime > RESTART_AFTER || index === 0)) element.currentTime = 0;
     else setIndex((i) => Math.max(0, i - 1));
-  }, [index]);
+  }, [guestBlocked, index]);
 
   const toggle = useCallback(() => {
     const element = audio.current;
     if (!element || !current) return;
+    // A guest asks the host, and plays or pauses when the host says so.
+    if (partyNow.current.role === "guest") return partyNow.current.ask({ t: element.paused ? "play" : "pause" });
     if (element.paused) void element.play();
     else element.pause();
   }, [current]);
 
+  const pause = useCallback(() => audio.current?.pause(), []);
+
   const seek = useCallback((seconds: number) => {
+    if (partyNow.current.role === "guest") return partyNow.current.ask({ t: "seek", position: seconds });
     if (audio.current) audio.current.currentTime = seconds;
   }, []);
 
   const jump = useCallback(
     (i: number) => {
+      if (guestBlocked()) return;
       if (i === index) {
         if (audio.current) audio.current.currentTime = 0;
       } else setIndex(i);
     },
-    [index],
+    [guestBlocked, index],
   );
 
   const toggleShuffle = useCallback(() => {
+    if (guestBlocked()) return;
     if (!current) return setShuffle((on) => !on);
     if (!shuffle) {
       ordered.current = queue;
@@ -156,9 +230,79 @@ export default function MusicPlayerProvider({ children }: { children: React.Reac
       ordered.current = null;
       setShuffle(false);
     }
-  }, [current, queue, index, shuffle]);
+  }, [current, guestBlocked, queue, index, shuffle]);
 
-  const cycleRepeat = useCallback(() => setRepeat((r) => (r === "off" ? "all" : r === "all" ? "one" : "off")), []);
+  const cycleRepeat = useCallback(() => {
+    if (!guestBlocked()) setRepeat((r) => (r === "off" ? "all" : r === "all" ? "one" : "off"));
+  }, [guestBlocked]);
+
+  // Hosting: the party is told what is playing when it changes, and every couple of seconds.
+  const publish = useCallback(
+    (heartbeat: boolean) => {
+      const element = audio.current;
+      if (partyNow.current.role !== "host" || !element || !current) return;
+      const item = itemOf(current);
+      // A track that is not playing and is not what the party is playing has nothing to say: it
+      // must not take the party back from the film that is.
+      if (element.paused && !sameItem(partyNow.current.item, item)) return;
+      // Playing means the sound is moving: a host that is still loading or buffering is not.
+      const moving = !element.paused && element.readyState >= HAVE_FUTURE_DATA;
+      partyNow.current.publish({ item, playing: moving, position: element.currentTime }, heartbeat);
+    },
+    [current],
+  );
+  useEffect(() => publish(false), [publish, playing, party.role]);
+  useEffect(() => {
+    if (!playing || party.role !== "host") return undefined;
+    const timer = setInterval(() => publish(true), PARTY_BEAT);
+    return () => clearInterval(timer);
+  }, [playing, party.role, publish]);
+
+  // Hosting: what guests ask for. Only while the music is what the party is playing.
+  useEffect(
+    () =>
+      party.onRequest((request) => {
+        const element = audio.current;
+        if (!element || partyNow.current.item?.kind !== "music") return;
+        if (request.t === "play") void element.play();
+        else if (request.t === "pause") element.pause();
+        else element.currentTime = Math.min(request.position, element.duration || request.position);
+      }),
+    [party.onRequest], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
+  // Following: play what the host plays, where the host is.
+  useEffect(() => {
+    if (party.role !== "guest") return undefined;
+    const element = audio.current;
+    const follow = () => {
+      const target = partyNow.current.target;
+      if (!element || !target) return;
+      const item = target.playback.item;
+      if (item?.kind !== "music") {
+        // The party is playing something else, which has its own player.
+        if (!element.paused) element.pause();
+        return;
+      }
+      if (element.dataset.track !== item.id) {
+        start([trackOf(item)], 0, false);
+        return;
+      }
+      // Until the track has loaded there is no position to correct.
+      if (element.readyState < 1) return;
+      const change = fix(element.currentTime, positionNow(target), target.playback.playing);
+      if (change.seek !== null) element.currentTime = change.seek;
+      element.playbackRate = change.speed;
+      if (target.playback.playing && element.paused) element.play().catch(() => {});
+      else if (!target.playback.playing && !element.paused) element.pause();
+    };
+    follow();
+    const timer = setInterval(follow, PARTY_CHECK);
+    return () => {
+      clearInterval(timer);
+      if (element) element.playbackRate = 1;
+    };
+  }, [party.role, party.target, start]);
 
   // The phone's lock screen and the keyboard's media keys.
   useEffect(() => {
@@ -190,6 +334,7 @@ export default function MusicPlayerProvider({ children }: { children: React.Reac
     }
     setLoading(false);
     setPlaying(false);
+    partyNow.current.setStatus("trouble", current.id);
     toast.error(`Could not play "${current.title}".`);
     if (index + 1 < queue.length) setIndex(index + 1);
   };
@@ -218,6 +363,7 @@ export default function MusicPlayerProvider({ children }: { children: React.Reac
       play,
       playShuffled,
       toggle,
+      pause,
       next,
       previous,
       seek,
@@ -227,7 +373,7 @@ export default function MusicPlayerProvider({ children }: { children: React.Reac
       jump,
       active: current !== null,
     }),
-    [queue, index, current, playing, loading, time, duration, volume, shuffle, repeat, play, playShuffled, toggle, next, previous, seek, toggleShuffle, cycleRepeat, jump],
+    [queue, index, current, playing, loading, time, duration, volume, shuffle, repeat, play, playShuffled, toggle, pause, next, previous, seek, toggleShuffle, cycleRepeat, jump],
   );
 
   return (
@@ -239,8 +385,17 @@ export default function MusicPlayerProvider({ children }: { children: React.Reac
         preload="auto"
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
-        onPlaying={() => setLoading(false)}
-        onWaiting={() => setLoading(true)}
+        onPlaying={() => {
+          setLoading(false);
+          publish(false);
+        }}
+        onCanPlay={() => current && partyNow.current.setStatus("ready", current.id)}
+        onSeeked={() => publish(false)}
+        onWaiting={() => {
+          setLoading(true);
+          if (current) partyNow.current.setStatus("loading", current.id);
+          publish(false);
+        }}
         onTimeUpdate={(event) => setTime(event.currentTarget.currentTime)}
         onDurationChange={(event) => setDuration(event.currentTarget.duration)}
         onEnded={onEnded}

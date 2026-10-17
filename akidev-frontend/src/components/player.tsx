@@ -17,13 +17,17 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
+import { fix, positionNow } from "@/lib/party/sync";
 import { DAILY_LIMIT_MESSAGE } from "@/lib/play";
 import { optionForChoice, readChoice, writeChoice } from "@/lib/subtitles";
 import { cn, formatSeconds } from "@/lib/utils";
+import { useMusicPlayer } from "@/providers/music-player";
+import { useParty } from "@/providers/party";
 import type { SubtitleOption } from "@/types/media";
 
 import { Button, IconButton } from "./button";
 import CaptionsMenu from "./captions-menu";
+import PartyButton from "./party";
 import { SidePanel } from "./side-panel";
 import { Spinner } from "./states";
 
@@ -33,6 +37,14 @@ const NEXT_OFFER = 40;
 const IDLE_FOR = 3000;
 /** How often the position is reported. */
 const REPORT_EVERY = 5000;
+/** A host waits at least this long, and at most the longer one, for guests that are still loading. */
+const HOLD_AT_LEAST = 1000;
+const HOLD_AT_MOST = 45_000;
+/** `readyState` at which there is enough picture ahead to be moving. */
+const HAVE_FUTURE_DATA = 3;
+/** How often a host says where the picture is while it plays, and how often a guest checks it is in step. */
+const PARTY_BEAT = 2000;
+const PARTY_CHECK = 1000;
 /** How far the captions rise to stay clear of the control bar while it is showing. */
 const CUES_LIFT = "5.5rem";
 type Panel = "episodes" | "sources" | "subtitles";
@@ -45,6 +57,8 @@ function finite(value: number): number {
 }
 
 type Props = {
+  /** The media id of what is playing, which a watch party names it by. */
+  mediaId: string;
   /** The playable URL returned by the API. */
   src: string;
   /** "hls" when the API had to convert the container, "file" when the browser plays it directly. */
@@ -85,6 +99,7 @@ type Props = {
  *   file  bytes the browser plays on its own, set as the element's src.
  */
 export default function Player({
+  mediaId,
   src,
   streamType,
   subtitles = NO_SUBTITLES,
@@ -117,12 +132,22 @@ export default function Player({
   const [visible, setVisible] = useState(true);
   const [panel, setPanel] = useState<Panel | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  /** When a host began waiting for guests that are still loading, or null when it is not waiting. */
+  const [heldSince, setHeldSince] = useState<number | null>(null);
   /** The subtitle file showing; null is off. */
   const [active, setActive] = useState<SubtitleOption | null>(null);
   /** Set once the viewer's remembered language has been looked at, or they have chosen themselves. */
   const decided = useRef(false);
 
   const isHls = streamType === "hls";
+
+  // The party as the timers and handlers below see it, so they need not be rebuilt each time it changes.
+  const music = useMusicPlayer();
+  const party = useParty();
+  const partyNow = useRef(party);
+  useEffect(() => {
+    partyNow.current = party;
+  });
 
   // Callbacks are held in refs so a caller passing inline functions cannot tear down and
   // rebuild the stream on every render.
@@ -264,6 +289,8 @@ export default function Player({
   const toggle = useCallback(() => {
     const element = video.current;
     if (!element) return;
+    // A guest asks the host, and plays or pauses when the host says so.
+    if (partyNow.current.role === "guest") return partyNow.current.ask({ t: element.paused ? "play" : "pause" });
     if (element.paused) element.play().catch(() => callbacks.current.onError("Playback could not be started."));
     else element.pause();
   }, []);
@@ -272,11 +299,104 @@ export default function Player({
     (delta: number) => {
       const element = video.current;
       if (!element) return;
-      element.currentTime = Math.min(Math.max(0, element.currentTime + delta), element.duration || 0);
+      const to = Math.min(Math.max(0, element.currentTime + delta), element.duration || 0);
+      if (partyNow.current.role === "guest") partyNow.current.ask({ t: "seek", position: to });
+      else element.currentTime = to;
       say(`${delta > 0 ? "+" : "−"}${Math.abs(delta)}s`);
     },
     [say],
   );
+
+  const seekTo = useCallback((to: number) => {
+    if (partyNow.current.role === "guest") partyNow.current.ask({ t: "seek", position: to });
+    else if (video.current) video.current.currentTime = to;
+  }, []);
+
+  // Hosting: the party is told what is playing when it changes, and every couple of seconds.
+  const publish = useCallback(
+    (heartbeat: boolean) => {
+      const element = video.current;
+      if (partyNow.current.role !== "host" || !element) return;
+      // Playing means the picture is moving: a host that is still loading or buffering is not.
+      const moving = !element.paused && element.readyState >= HAVE_FUTURE_DATA;
+      partyNow.current.publish({ item: { kind: "video", id: mediaId }, playing: moving, position: element.currentTime }, heartbeat);
+    },
+    [mediaId],
+  );
+  useEffect(() => publish(false), [publish, party.role]);
+  useEffect(() => {
+    if (!playing || party.role !== "host") return undefined;
+    const timer = setInterval(() => publish(true), PARTY_BEAT);
+    return () => clearInterval(timer);
+  }, [playing, party.role, publish]);
+
+  // Hosting: starts when the guests are ready, or after a while whether they are or not.
+  const { role, waitingFor } = party;
+  useEffect(() => {
+    if (heldSince === null) return undefined;
+    const release = () => {
+      setHeldSince(null);
+      video.current?.play().catch(() => {});
+    };
+    const wait = role !== "host" ? 0 : Math.max(0, (waitingFor.length === 0 ? heldSince + HOLD_AT_LEAST : heldSince + HOLD_AT_MOST) - Date.now());
+    const timer = setTimeout(release, wait);
+    return () => clearTimeout(timer);
+  }, [heldSince, role, waitingFor]);
+
+  // Hosting: what guests ask for, while this is what the party is playing.
+  useEffect(
+    () =>
+      party.onRequest((request) => {
+        const element = video.current;
+        const item = partyNow.current.item;
+        if (!element || item?.kind !== "video" || item.id !== mediaId) return;
+        if (request.t === "play") element.play().catch(() => {});
+        else if (request.t === "pause") element.pause();
+        else element.currentTime = Math.min(request.position, element.duration || request.position);
+      }),
+    [party.onRequest, mediaId], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
+  // A host who leaves the film tells the party nothing is playing, so guests do not carry on without it.
+  useEffect(
+    () => () => {
+      const now = partyNow.current;
+      if (now.role === "host" && now.item?.kind === "video" && now.item.id === mediaId) {
+        now.publish({ item: null, playing: false, position: 0 });
+      }
+    },
+    [mediaId],
+  );
+
+  // Following: be where the host is, playing or paused, a little faster or slower to close a small gap.
+  useEffect(() => {
+    if (party.role !== "guest") return undefined;
+    const element = video.current;
+    const follow = () => {
+      const target = partyNow.current.target;
+      // Until the picture has loaded there is no position to correct.
+      if (!element || !target || element.readyState < 1) return;
+      const item = target.playback.item;
+      // The host has stopped.
+      if (!item) {
+        if (!element.paused) element.pause();
+        return;
+      }
+      // What else the party is playing is another page's to show.
+      if (item.kind !== "video" || item.id !== mediaId) return;
+      const change = fix(element.currentTime, positionNow(target), target.playback.playing);
+      if (change.seek !== null) element.currentTime = change.seek;
+      element.playbackRate = change.speed;
+      if (target.playback.playing && element.paused) element.play().catch(() => {});
+      else if (!target.playback.playing && !element.paused) element.pause();
+    };
+    follow();
+    const timer = setInterval(follow, PARTY_CHECK);
+    return () => {
+      clearInterval(timer);
+      if (element) element.playbackRate = 1;
+    };
+  }, [party.role, party.target, mediaId]);
 
   const toggleFullscreen = useCallback(async () => {
     try {
@@ -397,19 +517,30 @@ export default function Player({
           const element = event.currentTarget;
           setDuration(finite(element.duration));
           setReady(true);
-          // The viewer pressed Play to get here, so it starts on its own. A browser that refuses
-          // leaves the play button for them.
-          if (!resumed.current) element.play().catch(() => {});
+          if (!resumed.current) {
+            const now = partyNow.current;
+            // A host with company waits for the guests to be ready, so no one starts behind; a
+            // guest starts when the host does. Anyone else starts on their own, as they pressed Play
+            // to get here, and a browser that refuses leaves the play button for them.
+            if (now.role === "host" && now.members.length > 1) setHeldSince(Date.now());
+            else if (now.role !== "guest") element.play().catch(() => {});
+          }
           resumed.current = true;
         }}
+        onCanPlay={() => partyNow.current.setStatus("ready", mediaId)}
         onDurationChange={(event) => setDuration(finite(event.currentTarget.duration))}
         onPlay={() => {
           setPlaying(true);
           wake();
+          publish(false);
+          // The picture has the sound to itself.
+          music.pause();
         }}
+        onSeeked={() => publish(false)}
         onPause={() => {
           setPlaying(false);
           setVisible(true);
+          publish(false);
           const element = video.current;
           if (element && finite(element.duration) > 0) callbacks.current.onProgress(element.currentTime, element.duration);
         }}
@@ -418,9 +549,14 @@ export default function Player({
           setPosition(element.currentTime);
           if (element.buffered.length > 0) setBuffered(element.buffered.end(element.buffered.length - 1));
         }}
-        onWaiting={() => setReady(false)}
+        onWaiting={() => {
+          setReady(false);
+          partyNow.current.setStatus("loading", mediaId);
+          publish(false);
+        }}
         onPlaying={() => {
           setReady(true);
+          publish(false);
           if (!started.current) {
             started.current = true;
             callbacks.current.onStarted?.();
@@ -458,6 +594,12 @@ export default function Player({
         </div>
       )}
 
+      {heldSince !== null && (
+        <div className="pointer-events-none absolute left-1/2 top-1/3 -translate-x-1/2 rounded-full bg-black/60 px-4 py-2 text-sm font-semibold text-ink">
+          Waiting for {waitingFor.length > 0 ? waitingFor.join(", ") : "everyone"}…
+        </div>
+      )}
+
       {message && (
         <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-black/60 px-4 py-2 text-sm font-semibold text-ink">
           {message}
@@ -470,7 +612,8 @@ export default function Player({
             <IconButton label="Back" onClick={onBack}>
               <ChevronLeft className="size-5" />
             </IconButton>
-            <p className="min-w-0 truncate text-[15px] font-semibold text-ink">{title}</p>
+            <p className="min-w-0 flex-1 truncate text-[15px] font-semibold text-ink">{title}</p>
+            <PartyButton />
           </div>
         </div>
 
@@ -478,7 +621,7 @@ export default function Player({
           <div className="gutter flex flex-col gap-1 pb-4">
             <div className="flex items-center gap-3 text-xs tabular-nums text-ink">
               <span className="w-12 text-right">{formatSeconds(position)}</span>
-              <Seek position={position} duration={duration} buffered={buffered} onSeek={(to) => video.current && (video.current.currentTime = to)} />
+              <Seek position={position} duration={duration} buffered={buffered} onSeek={seekTo} />
               <span className="w-12">{duration > 0 ? `−${formatSeconds(remaining)}` : "--:--"}</span>
             </div>
 

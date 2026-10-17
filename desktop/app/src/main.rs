@@ -22,6 +22,7 @@ mod music_player;
 mod music_ui;
 mod palette;
 mod panels;
+mod party;
 mod player;
 mod prefetch;
 mod progress;
@@ -49,7 +50,9 @@ fn main() {
         tracing_subscriber::registry()
             .with(
                 tracing_subscriber::EnvFilter::try_from_default_env()
-                    .unwrap_or_else(|_| "warn,akidev=info".into()),
+                    // The WebRTC library warns about things that are normal for a connection that is still
+                    // finding its way.
+                    .unwrap_or_else(|_| "warn,akidev=info,rtc_dtls=error,rtc_ice=error".into()),
             )
             .with(tracing_subscriber::fmt::layer())
             .with(analytics::ErrorLogs)

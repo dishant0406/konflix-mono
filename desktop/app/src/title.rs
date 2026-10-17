@@ -5,7 +5,9 @@ use crate::design::button::{primary_button, secondary_button};
 use crate::design::state::{
     error_state, kind_label, meta_line, score_label, section_title, skeleton,
 };
-use crate::design::tokens::{ACCENT, CANVAS, GUTTER, TEXT, TEXT_DIM, TEXT_FAINT, color, size};
+use crate::design::tokens::{
+    ACCENT, CANVAS, GUTTER, TEXT, TEXT_DIM, TEXT_FAINT, TOP_BAR, color, size,
+};
 use crate::episodes::EpisodeList;
 use crate::route::{Route, navigate};
 use crate::row::MediaRow;
@@ -144,10 +146,15 @@ impl Render for TitlePage {
             .filter(|t| t.site.eq_ignore_ascii_case("youtube"))
             .map(|t| t.id.clone());
 
+        // At least `height` tall, and taller when what it says needs the room: the text is in the
+        // flow, so a long title or description makes the banner grow and does not climb under the bar.
         let hero = div()
             .relative()
             .w_full()
-            .h(height)
+            .min_h(height)
+            .flex()
+            .flex_col()
+            .justify_end()
             .overflow_hidden()
             .bg(color(CANVAS))
             .children(art.map(|url| {
@@ -170,10 +177,11 @@ impl Render for TitlePage {
             )))
             .child(
                 div()
-                    .absolute()
-                    .left(px(GUTTER))
-                    .bottom(px(48.))
-                    .max_w(px(640.))
+                    .relative()
+                    .px(px(GUTTER))
+                    .pt(px(TOP_BAR + 40.))
+                    .pb(px(48.))
+                    .max_w(px(640. + 2. * GUTTER))
                     .flex()
                     .flex_col()
                     .items_start()
@@ -203,10 +211,13 @@ impl Render for TitlePage {
                     )
                     .child(meta_line(facts.into_iter().flatten()))
                     .children(media.description.clone().map(|text| {
+                        // One paragraph: a description's own line breaks would get past the clamp.
+                        let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
                         div()
                             .text_size(px(15.))
                             .line_height(relative(1.5))
                             .text_color(color(TEXT_DIM))
+                            .text_ellipsis()
                             .line_clamp(4)
                             .child(text)
                     }))

@@ -13,6 +13,7 @@ mod limits;
 mod media;
 mod music;
 mod origin;
+mod party;
 mod play;
 mod sources;
 mod subs;
@@ -141,6 +142,7 @@ async fn run() -> anyhow::Result<()> {
         images: images.clone(),
         subs: subs.clone(),
         music,
+        parties: Arc::default(),
         ffmpeg,
     };
 

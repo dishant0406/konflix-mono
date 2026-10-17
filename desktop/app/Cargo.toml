@@ -9,6 +9,7 @@ embed-resource = "3"
 
 [dependencies]
 akidev-core = { path = "../core" }
+akidev-party = { path = "../party" }
 gpui-kit = "=0.7.3"
 anyhow.workspace = true
 directories = "6"

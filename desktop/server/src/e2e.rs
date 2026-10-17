@@ -71,6 +71,7 @@ async fn rig(name: &str, tweak: impl FnOnce(&mut Settings)) -> Option<Rig> {
         subs: Arc::new(crate::subs::Subs::new(dir.join("subs"))),
         images: crate::img::Images::for_tests(dir.join("img"), vec!["127.0.0.1".into()]),
         music: Arc::new(akidev_core::music::Music::new("yt-dlp")),
+        parties: Arc::default(),
         ffmpeg: true,
     };
     Some(Rig {
@@ -747,4 +748,267 @@ async fn a_release_to_play_must_be_an_info_hash() {
             "{bad}"
         );
     }
+}
+
+async fn call(
+    router: &Router,
+    method: &str,
+    uri: &str,
+    token: Option<&str>,
+    body: Option<&str>,
+) -> (StatusCode, serde_json::Value) {
+    let mut request = Request::builder().method(method).uri(uri);
+    if let Some(token) = token {
+        request = request.header(header::AUTHORIZATION, format!("Bearer {token}"));
+    }
+    if body.is_some() {
+        request = request.header(header::CONTENT_TYPE, "application/json");
+    }
+    let mut request = request
+        .body(Body::from(body.unwrap_or_default().to_string()))
+        .unwrap();
+    request
+        .extensions_mut()
+        .insert(ConnectInfo("192.0.2.1:4000".parse::<SocketAddr>().unwrap()));
+    let response = router.clone().oneshot(request).await.unwrap();
+    let status = response.status();
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    (status, serde_json::from_slice(&bytes).unwrap_or_default())
+}
+
+#[tokio::test]
+async fn a_watch_party_is_made_joined_answered_and_ended_through_the_router() {
+    let Some(rig) = rig("party", |_| {}).await else {
+        return;
+    };
+    let router = &rig.router;
+    let (status, party) = call(router, "POST", "/v1/party", None, None).await;
+    assert_eq!(status, StatusCode::OK);
+    let code = party["code"].as_str().unwrap().to_string();
+    let host = party["host_token"].as_str().unwrap().to_string();
+    assert_eq!(code.len(), 6);
+
+    let (status, ice) = call(router, "GET", &format!("/v1/party/{code}/ice"), None, None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(ice["ice_servers"].is_array());
+
+    let join = format!("/v1/party/{code}/join");
+    let (status, joined) = call(
+        router,
+        "POST",
+        &join,
+        None,
+        Some(r#"{"offer":"v=0 offer"}"#),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let guest = joined["guest"].as_str().unwrap().to_string();
+
+    // Only the host may take the offers.
+    let offers = format!("/v1/party/{code}/offers");
+    let (status, _) = call(router, "GET", &offers, Some("not-the-token"), None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, taken) = call(router, "GET", &offers, Some(&host), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(taken["offers"][0]["guest"], guest.as_str());
+    assert_eq!(taken["offers"][0]["offer"], "v=0 offer");
+
+    let answer = format!("/v1/party/{code}/answer/{guest}");
+    let (status, _) = call(
+        router,
+        "POST",
+        &format!("/v1/party/{code}/answer/nobody"),
+        Some(&host),
+        Some(r#"{"answer":"x"}"#),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _) = call(
+        router,
+        "POST",
+        &answer,
+        Some("not-the-token"),
+        Some(r#"{"answer":"x"}"#),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, _) = call(
+        router,
+        "POST",
+        &answer,
+        Some(&host),
+        Some(r#"{"answer":"v=0 answer"}"#),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (status, got) = call(router, "GET", &answer, None, None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(got["answer"], "v=0 answer");
+
+    let (status, _) = call(router, "POST", &join, None, Some(r#"{"offer":""}"#)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let (status, _) = call(
+        router,
+        "DELETE",
+        &format!("/v1/party/{code}"),
+        Some(&host),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (status, _) = call(
+        router,
+        "POST",
+        &join,
+        None,
+        Some(r#"{"offer":"v=0 offer"}"#),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+/// The real server on a local port, and two real devices (the party crate) joining through it
+/// over a real WebRTC connection on this machine.
+#[tokio::test]
+async fn a_host_and_guests_stay_in_step_through_the_server() {
+    use akidev_party::{Guest, GuestEvent, Host, HostEvent, Item, Playback, Readiness};
+    use std::time::Duration;
+
+    let Some(rig) = rig("party-devices", |settings| settings.stun_urls.clear()).await else {
+        return;
+    };
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let api = format!("http://{}", listener.local_addr().unwrap());
+    let router = rig.router.clone();
+    tokio::spawn(async move {
+        axum::serve(
+            listener,
+            router.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+    });
+    let local = "127.0.0.1:0";
+    let wait = Duration::from_secs(20);
+
+    let (host, mut host_events) = Host::create_on(&api, "Hana", local).await.unwrap();
+    let (guest, mut guest_events) = Guest::join_on(&api, &host.code, "Sam", local)
+        .await
+        .unwrap();
+
+    // The roster reaches both ends.
+    let roster = tokio::time::timeout(wait, async {
+        loop {
+            if let Some(HostEvent::Members(members)) = host_events.recv().await
+                && members.len() == 2
+                && members[1].name == "Sam"
+            {
+                return members;
+            }
+        }
+    })
+    .await
+    .expect("the host sees the guest");
+    assert!(roster[0].host && !roster[1].host);
+
+    // What the host plays, the guest is told, moved on by the time it took. And until the guest
+    // says it is ready for it, the host sees it as loading.
+    host.publish(Playback {
+        item: Some(Item::Video {
+            id: "movie-tt1".into(),
+        }),
+        playing: true,
+        position: 10.0,
+    })
+    .await;
+    let target = tokio::time::timeout(wait, async {
+        loop {
+            if let Some(GuestEvent::Target(target)) = guest_events.recv().await {
+                return target;
+            }
+        }
+    })
+    .await
+    .expect("the guest is told what is playing");
+    host_sees(&mut host_events, Readiness::Loading).await;
+    assert_eq!(
+        target.playback.item,
+        Some(Item::Video {
+            id: "movie-tt1".into()
+        })
+    );
+    assert!(target.playback.playing);
+    assert!((10.0..12.0).contains(&target.position_now()));
+
+    // A guest's request reaches the host, and so does trouble.
+    guest
+        .ask(akidev_party::Message::Seek { position: 42.0 })
+        .await;
+    tokio::time::timeout(wait, async {
+        loop {
+            if host_events.recv().await == Some(HostEvent::Seek(42.0)) {
+                return;
+            }
+        }
+    })
+    .await
+    .expect("the host gets the request");
+    // How a guest is doing with what is playing reaches the host.
+    let id = Some("movie-tt1".to_string());
+    guest.status(Readiness::Ready, id.clone()).await;
+    host_sees(&mut host_events, Readiness::Ready).await;
+    guest.status(Readiness::Loading, id.clone()).await;
+    host_sees(&mut host_events, Readiness::Loading).await;
+    guest.status(Readiness::Trouble, id).await;
+    host_sees(&mut host_events, Readiness::Trouble).await;
+
+    // Someone who joins late is told what is playing without waiting for the next update.
+    let (_late, mut late_events) = Guest::join_on(&api, &host.code, "Kai", local)
+        .await
+        .unwrap();
+    let told = tokio::time::timeout(wait, async {
+        loop {
+            if let Some(GuestEvent::Target(target)) = late_events.recv().await {
+                return target;
+            }
+        }
+    })
+    .await
+    .expect("the late guest is told what is playing");
+    assert_eq!(
+        told.playback.item,
+        Some(Item::Video {
+            id: "movie-tt1".into()
+        })
+    );
+
+    // Ending the party tells everyone.
+    host.end().await;
+    tokio::time::timeout(wait, async {
+        loop {
+            if let Some(GuestEvent::Ended) = guest_events.recv().await {
+                return;
+            }
+        }
+    })
+    .await
+    .expect("the guest is told the party ended");
+}
+
+/// Waits for the host to see its first guest in the state `wanted`.
+async fn host_sees(
+    events: &mut tokio::sync::mpsc::UnboundedReceiver<akidev_party::HostEvent>,
+    wanted: akidev_party::Readiness,
+) {
+    tokio::time::timeout(std::time::Duration::from_secs(20), async {
+        loop {
+            if let Some(akidev_party::HostEvent::Members(members)) = events.recv().await
+                && members.get(1).map(|member| member.state) == Some(wanted)
+            {
+                return;
+            }
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("the host never saw the guest as {wanted:?}"));
 }

@@ -52,6 +52,12 @@ pub struct Settings {
     pub api_limit: usize,
     /// Video bytes one client may be sent in a day. Zero means no limit.
     pub max_stream_bytes_per_day: u64,
+    /// The STUN servers watch-party devices use to find each other.
+    pub stun_urls: Vec<String>,
+    /// A TURN relay for the devices that cannot reach each other directly, and the secret its
+    /// logins are made from (coturn's `static-auth-secret`). Without both there is no relay.
+    pub turn_urls: Vec<String>,
+    pub turn_secret: String,
 }
 
 fn text(name: &str, default: &str) -> String {
@@ -121,6 +127,12 @@ impl Settings {
             play_limit: number("PLAY_LIMIT_PER_10_MIN", 20),
             api_limit: number("API_LIMIT_PER_MIN", 240),
             max_stream_bytes_per_day: number("MAX_STREAM_BYTES_PER_DAY", 0),
+            stun_urls: list(
+                "STUN_URLS",
+                "stun:stun.cloudflare.com:3478,stun:stun.l.google.com:19302",
+            ),
+            turn_urls: list("TURN_URLS", ""),
+            turn_secret: text("TURN_SECRET", ""),
         }
     }
 

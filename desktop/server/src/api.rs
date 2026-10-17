@@ -5,6 +5,7 @@ use crate::deliver::{self, Deliverer, Registry};
 use crate::dto::{DetailOut, HomeOut, PageOut, RowOut, media_list};
 use crate::hls::Hls;
 use crate::limits::{Limiter, Usage, client_of};
+use crate::party;
 use crate::play::{Outcome, Player};
 use akidev_core::media_id;
 use akidev_core::model::{Filters, Kind, Media, Sort};
@@ -12,7 +13,7 @@ use akidev_core::{providers, search};
 use axum::extract::{ConnectInfo, Path, Query, State};
 use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::json;
@@ -34,6 +35,7 @@ pub struct AppState {
     pub images: Arc<crate::img::Images>,
     pub subs: Arc<crate::subs::Subs>,
     pub music: Arc<akidev_core::music::Music>,
+    pub parties: Arc<crate::party::Parties>,
     pub ffmpeg: bool,
 }
 
@@ -156,6 +158,17 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/music/search", get(music_search))
         .route("/v1/music/albums/{id}", get(music_album))
         .route("/v1/music/artists/{id}", get(music_artist))
+        .route("/v1/music/radio/{id}", get(music_radio))
+        .route("/v1/party", post(party_create))
+        .route("/v1/party/{code}", delete(party_end))
+        .route("/v1/party/{code}/ice", get(party_ice))
+        .route("/v1/party/{code}/join", post(party_join))
+        .route("/v1/party/{code}/offers", get(party_offers))
+        .route(
+            "/v1/party/{code}/answer/{guest}",
+            get(party_take_answer).post(party_answer),
+        )
+        .route("/v1/party/{code}/guests/{guest}", delete(party_guest_gone))
         .layer(CompressionLayer::new().gzip(true))
         .with_state(state.clone());
 
@@ -240,8 +253,14 @@ fn cors(settings: &Settings) -> CorsLayer {
         .filter_map(|origin| origin.parse().ok())
         .collect();
     let layer = CorsLayer::new()
-        .allow_methods([Method::GET, Method::HEAD, Method::POST, Method::OPTIONS])
-        .allow_headers([header::CONTENT_TYPE, header::RANGE])
+        .allow_methods([
+            Method::GET,
+            Method::HEAD,
+            Method::POST,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
+        .allow_headers([header::CONTENT_TYPE, header::RANGE, header::AUTHORIZATION])
         .expose_headers([
             header::CONTENT_RANGE,
             header::ACCEPT_RANGES,
@@ -755,6 +774,25 @@ async fn music_album(
     }
 }
 
+/// What plays after a track, for a player that has run out of queue.
+async fn music_radio(
+    State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Response {
+    if !within_api_limit(&state, &headers, peer) {
+        return too_many();
+    }
+    if !crate::music::is_video_id(&id) {
+        return error(StatusCode::BAD_REQUEST, "That is not a track id.");
+    }
+    match state.music.radio(&id).await {
+        Ok(songs) => cached(MUSIC_CACHE, json!({ "songs": songs })),
+        Err(_) => error(StatusCode::BAD_GATEWAY, "Music is not answering."),
+    }
+}
+
 async fn music_artist(
     State(state): State<AppState>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
@@ -794,4 +832,193 @@ async fn music_stream(
         return too_many();
     }
     crate::music::stream(&state.music, &id, headers.get(header::RANGE)).await
+}
+
+// A watch party: see party.rs. Everything here is the first message each way between two devices.
+
+/// The host's secret, from `Authorization: Bearer <token>`.
+fn bearer(headers: &HeaderMap) -> &str {
+    headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .unwrap_or("")
+}
+
+fn no_such_party() -> Response {
+    error(
+        StatusCode::NOT_FOUND,
+        "That party has ended or never existed.",
+    )
+}
+
+fn not_the_host() -> Response {
+    error(StatusCode::UNAUTHORIZED, "Only the host can do that.")
+}
+
+#[derive(Deserialize)]
+struct OfferBody {
+    offer: String,
+}
+
+#[derive(Deserialize)]
+struct AnswerBody {
+    answer: String,
+}
+
+fn sdp_ok(sdp: &str) -> bool {
+    !sdp.is_empty() && sdp.len() <= party::MAX_SDP
+}
+
+async fn party_create(
+    State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+) -> Response {
+    let client = client_of(&headers, Some(peer));
+    if !state
+        .limiter
+        .allow(&client, "party-create", 20, Duration::from_secs(3600))
+    {
+        return too_many();
+    }
+    let Some(created) = state.parties.create() else {
+        return error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Too many parties right now.",
+        );
+    };
+    Json(json!({
+        "code": created.code,
+        "host_token": created.host_token,
+    }))
+    .into_response()
+}
+
+/// A client that asks about parties by their codes faster than any person would is guessing them.
+fn within_party_polls(state: &AppState, headers: &HeaderMap, peer: SocketAddr) -> bool {
+    let client = client_of(headers, Some(peer));
+    state
+        .limiter
+        .allow(&client, "party-poll", 60, Duration::from_secs(600))
+}
+
+async fn party_ice(
+    State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Path(code): Path<String>,
+) -> Response {
+    if !within_party_polls(&state, &headers, peer) {
+        return too_many();
+    }
+    if !state.parties.exists(&code) {
+        return no_such_party();
+    }
+    Json(json!({ "ice_servers": party::ice_servers(&state.settings, &code) })).into_response()
+}
+
+async fn party_join(
+    State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Path(code): Path<String>,
+    Json(body): Json<OfferBody>,
+) -> Response {
+    let client = client_of(&headers, Some(peer));
+    if !state
+        .limiter
+        .allow(&client, "party-join", 60, Duration::from_secs(600))
+    {
+        return too_many();
+    }
+    if !sdp_ok(&body.offer) {
+        return error(StatusCode::BAD_REQUEST, "That is not a connection offer.");
+    }
+    if !state.parties.exists(&code) {
+        return no_such_party();
+    }
+    match state.parties.join(&code, body.offer) {
+        Some(guest) => Json(json!({ "guest": guest })).into_response(),
+        None => error(StatusCode::CONFLICT, "That party is full."),
+    }
+}
+
+async fn party_offers(
+    State(state): State<AppState>,
+    Path(code): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    match state.parties.take_offers(&code, bearer(&headers)).await {
+        Some(offers) => {
+            let offers: Vec<_> = offers
+                .into_iter()
+                .map(|offer| json!({ "guest": offer.guest, "offer": offer.sdp }))
+                .collect();
+            Json(json!({ "offers": offers })).into_response()
+        }
+        None if state.parties.exists(&code) => not_the_host(),
+        None => no_such_party(),
+    }
+}
+
+async fn party_answer(
+    State(state): State<AppState>,
+    Path((code, guest)): Path<(String, String)>,
+    headers: HeaderMap,
+    Json(body): Json<AnswerBody>,
+) -> Response {
+    if !sdp_ok(&body.answer) {
+        return error(StatusCode::BAD_REQUEST, "That is not a connection answer.");
+    }
+    match state
+        .parties
+        .answer(&code, bearer(&headers), &guest, body.answer)
+    {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(party::Refused::NoParty) => no_such_party(),
+        Err(party::Refused::NotTheHost) => not_the_host(),
+        Err(party::Refused::NoGuest) => error(StatusCode::NOT_FOUND, "No such guest."),
+    }
+}
+
+/// The host's answer to a guest's offer. 204 when it has not come yet: ask again.
+async fn party_take_answer(
+    State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Path((code, guest)): Path<(String, String)>,
+) -> Response {
+    if !within_party_polls(&state, &headers, peer) {
+        return too_many();
+    }
+    match state.parties.take_answer(&code, &guest).await {
+        Some(Some(answer)) => Json(json!({ "answer": answer })).into_response(),
+        Some(None) => StatusCode::NO_CONTENT.into_response(),
+        None => no_such_party(),
+    }
+}
+
+async fn party_guest_gone(
+    State(state): State<AppState>,
+    Path((code, guest)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Response {
+    if !state.parties.is_host(&code, bearer(&headers)) {
+        return not_the_host();
+    }
+    state.parties.guest_gone(&code, &guest);
+    StatusCode::NO_CONTENT.into_response()
+}
+
+async fn party_end(
+    State(state): State<AppState>,
+    Path(code): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    if state.parties.end(&code, bearer(&headers)) {
+        StatusCode::NO_CONTENT.into_response()
+    } else {
+        not_the_host()
+    }
 }

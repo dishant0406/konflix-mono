@@ -4,7 +4,9 @@
 use crate::audio::{AudioPlayer, AudioState};
 use crate::design::tokens::{LINE, TEXT, TEXT_DIM, TEXT_FAINT, color};
 use crate::music_ui::{cover, names};
-use akidev_core::music::{Music, Track};
+use crate::party::{Party, PartyEvent, PartyHandle, Role};
+use akidev_core::music::{Credit, Music, Track};
+use akidev_party::{Item, Message, Playback, Readiness, fix};
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{Icon, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -13,12 +15,18 @@ use std::cell::Cell;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// How often the playback state is read from mpv.
 const TICK: Duration = Duration::from_millis(250);
 /// Previous goes back a track only when the track is this far in or less.
 const RESTART_AFTER: f64 = 3.;
+/// How often a host tells its party where the music is while it plays.
+const PARTY_BEAT: Duration = Duration::from_secs(2);
+/// A guest seeks to catch up no more often than this, so a seek has time to land.
+const CATCH_UP_EVERY: Duration = Duration::from_secs(1);
+/// A jump of the position bigger than this, between two looks, is a seek.
+const SEEK_JUMP: f64 = 1.;
 pub const BAR_HEIGHT: f32 = 80.;
 
 /// The catalogue, and where yt-dlp lives. Set once at start.
@@ -45,6 +53,12 @@ pub fn play_shuffled(tracks: Vec<Track>, cx: &mut App) {
     player.update(cx, |player, cx| player.play_shuffled(tracks, cx));
 }
 
+/// Stops the music where it is, so a video can have the sound to itself.
+pub fn pause(cx: &mut App) {
+    let player = hub(cx).player.clone();
+    player.update(cx, |player, cx| player.pause(cx));
+}
+
 pub fn toggle(cx: &mut App) {
     let player = hub(cx).player.clone();
     player.update(cx, |player, cx| player.toggle(cx));
@@ -69,6 +83,22 @@ enum Status {
     Failed(String),
 }
 
+/// What a host last told its party, to know when to tell it again.
+#[derive(Default)]
+struct PartySync {
+    /// When it was last told, or `None` to tell it at the next look.
+    told: Option<Instant>,
+    /// The track, and where it was, at the last look, and whether it was playing.
+    looked: Option<(String, Instant, f64, bool)>,
+}
+
+/// The party, found when the window has made it (this player is made first), and what is watched
+/// of it.
+struct Joined {
+    party: Entity<Party>,
+    _requests: Subscription,
+}
+
 pub struct MusicPlayer {
     queue: Vec<Track>,
     /// The queue before shuffling, so turning shuffle off puts it back.
@@ -88,6 +118,13 @@ pub struct MusicPlayer {
     seek_bar: Rc<Cell<Bounds<Pixels>>>,
     volume_bar: Rc<Cell<Bounds<Pixels>>>,
     scrubbing: Option<f32>,
+    /// The track whose "what plays next" has been asked for, so each is asked for once.
+    radio_for: Option<String>,
+    party: Option<Joined>,
+    party_sync: PartySync,
+    /// The speed a guest was last set to, so it is only set when it changes.
+    speed: f64,
+    last_catch_up: Instant,
 }
 
 impl MusicPlayer {
@@ -117,7 +154,42 @@ impl MusicPlayer {
             seek_bar: Rc::new(Cell::new(Bounds::default())),
             volume_bar: Rc::new(Cell::new(Bounds::default())),
             scrubbing: None,
+            radio_for: None,
+            party: None,
+            party_sync: PartySync::default(),
+            speed: 1.,
+            last_catch_up: Instant::now(),
         }
+    }
+
+    /// The party, once the window has made it.
+    fn party(&mut self, cx: &mut Context<Self>) -> Option<Entity<Party>> {
+        if self.party.is_none() {
+            let party = cx.try_global::<PartyHandle>()?.0.clone();
+            let requests = cx.subscribe(&party, |player, _, event: &PartyEvent, cx| {
+                player.on_party_request(event, cx)
+            });
+            self.party = Some(Joined {
+                party,
+                _requests: requests,
+            });
+        }
+        self.party.as_ref().map(|joined| joined.party.clone())
+    }
+
+    fn role(&self, cx: &App) -> Role {
+        self.party
+            .as_ref()
+            .map_or(Role::None, |joined| joined.party.read(cx).role())
+    }
+
+    /// A guest cannot choose what plays: that is the host's.
+    fn blocked(&self, cx: &mut Context<Self>) -> bool {
+        if self.role(cx) != Role::Guest {
+            return false;
+        }
+        crate::route::toast("Only the host chooses what plays.", cx);
+        true
     }
 
     pub fn current(&self) -> Option<&Track> {
@@ -129,12 +201,15 @@ impl MusicPlayer {
     }
 
     pub fn play(&mut self, tracks: Vec<Track>, start: usize, cx: &mut Context<Self>) {
+        if self.blocked(cx) {
+            return;
+        }
         self.set_queue(tracks, start, self.shuffle);
         self.load_current(cx);
     }
 
     pub fn play_shuffled(&mut self, tracks: Vec<Track>, cx: &mut Context<Self>) {
-        if tracks.is_empty() {
+        if tracks.is_empty() || self.blocked(cx) {
             return;
         }
         let start = (time_seed() as usize) % tracks.len();
@@ -162,11 +237,48 @@ impl MusicPlayer {
         }
     }
 
+    /// Autoplay: when the last track of the queue starts, what YouTube Music plays after it is
+    /// added, so the music does not stop. Not while repeating (the queue loops), and not for a
+    /// guest, whose music is the host's choice.
+    fn autoplay(&mut self, cx: &mut Context<Self>) {
+        let Some(track) = self.current() else { return };
+        if self.index + 1 != self.queue.len()
+            || self.repeat != Repeat::Off
+            || self.role(cx) == Role::Guest
+            || self.radio_for.as_deref() == Some(track.id.as_str())
+        {
+            return;
+        }
+        let id = track.id.clone();
+        self.radio_for = Some(id.clone());
+        let music = hub(cx).music.clone();
+        crate::task::load(
+            cx,
+            async move { music.radio(&id).await },
+            |player, result, cx| {
+                // Nothing more to play after this one, when it fails: what happened before there
+                // was autoplay.
+                let Ok(songs) = result else { return };
+                let add = |list: &mut Vec<Track>| {
+                    let known: std::collections::HashSet<String> =
+                        list.iter().map(|track| track.id.clone()).collect();
+                    list.extend(songs.iter().filter(|t| !known.contains(&t.id)).cloned());
+                };
+                add(&mut player.queue);
+                if let Some(ordered) = &mut player.ordered {
+                    add(ordered);
+                }
+                cx.notify();
+            },
+        );
+    }
+
     /// Finds the audio of the current track and starts it.
     fn load_current(&mut self, cx: &mut Context<Self>) {
         let Some(track) = self.current().cloned() else {
             return;
         };
+        self.autoplay(cx);
         self.request += 1;
         let request = self.request;
         self.status = Status::Loading;
@@ -231,6 +343,7 @@ impl MusicPlayer {
 
     /// Reads mpv's state: redraws the bar if it moved, and moves on when a track ends or fails.
     fn tick(&mut self, cx: &mut Context<Self>) {
+        self.party_tick(cx);
         let Some(audio) = &self.audio else {
             return;
         };
@@ -255,6 +368,8 @@ impl MusicPlayer {
         if self.state.ended && !self.ended_handled {
             self.ended_handled = true;
             match self.repeat {
+                // The host says what comes after a track.
+                _ if self.role(cx) == Role::Guest => {}
                 Repeat::One => {
                     if let Some(audio) = &self.audio {
                         audio.seek_to(0.);
@@ -268,14 +383,220 @@ impl MusicPlayer {
         }
     }
 
+    /// A host tells its party what is playing; a guest is kept where the host is.
+    fn party_tick(&mut self, cx: &mut Context<Self>) {
+        let Some(party) = self.party(cx) else {
+            return;
+        };
+        let role = party.read(cx).role();
+        // A guest tells the host how it is doing with the track, while the track is what the party
+        // is playing.
+        if let (Role::Guest, Some(track)) = (role, self.current())
+            && matches!(party.read(cx).item(), Some(Item::Music { .. }))
+        {
+            let state = if matches!(self.status, Status::Failed(_)) || self.state.error.is_some() {
+                Readiness::Trouble
+            } else if matches!(self.status, Status::Loading)
+                || self.state.buffering
+                || self.state.duration <= 0.
+            {
+                Readiness::Loading
+            } else {
+                Readiness::Ready
+            };
+            let id = track.id.clone();
+            party.update(cx, |party, _| party.set_status(state, Some(id)));
+        }
+        match role {
+            Role::Host => self.tell_party(&party, cx),
+            Role::Guest => self.follow_party(&party, cx),
+            Role::None => {}
+        }
+        if role != Role::Guest && self.speed != 1. {
+            self.speed = 1.;
+            if let Some(audio) = &self.audio {
+                audio.set_speed(1.);
+            }
+        }
+    }
+
+    /// Tells the party the track and where it is when that has changed (a new track, paused,
+    /// played, seeked), and every couple of seconds while it plays.
+    fn tell_party(&mut self, party: &Entity<Party>, cx: &mut Context<Self>) {
+        let Some(track) = self.current().cloned() else {
+            return;
+        };
+        // Playing means the sound is moving: a host that is still loading or buffering is not.
+        let (position, playing) = (
+            self.state.position,
+            !self.state.paused && !self.state.buffering,
+        );
+        let item = Item::Music {
+            id: track.id.clone(),
+            title: track.title.clone(),
+            artist: names(&track.artists),
+            cover: track.cover.clone(),
+        };
+        // A track that is not playing and is not what the party is playing has nothing to say:
+        // it must not take the party back from the film that is.
+        if !playing && party.read(cx).item() != Some(&item) {
+            return;
+        }
+        let now = Instant::now();
+        let changed = match &self.party_sync.looked {
+            Some((id, at, was, was_playing)) => {
+                let expected = if *was_playing {
+                    was + at.elapsed().as_secs_f64()
+                } else {
+                    *was
+                };
+                *id != track.id
+                    || *was_playing != playing
+                    || (position - expected).abs() > SEEK_JUMP
+            }
+            None => true,
+        };
+        self.party_sync.looked = Some((track.id.clone(), now, position, playing));
+        let due = self
+            .party_sync
+            .told
+            .is_none_or(|told| playing && told.elapsed() >= PARTY_BEAT);
+        if !changed && !due {
+            return;
+        }
+        let heartbeat = !changed && self.party_sync.told.is_some();
+        self.party_sync.told = Some(now);
+        let playback = Playback {
+            item: Some(item),
+            playing,
+            position,
+        };
+        party.update(cx, |party, _| party.publish(playback, heartbeat));
+    }
+
+    /// Plays the track the host plays, where the host is.
+    fn follow_party(&mut self, party: &Entity<Party>, cx: &mut Context<Self>) {
+        let Some(target) = party.read(cx).target().cloned() else {
+            return;
+        };
+        let Some(Item::Music {
+            id,
+            title,
+            artist,
+            cover,
+        }) = target.playback.item.clone()
+        else {
+            // The party is playing something else, which has its own player.
+            if let Some(audio) = &self.audio
+                && !self.state.paused
+            {
+                audio.set_pause(true);
+            }
+            return;
+        };
+        if self.current().map(|track| track.id.as_str()) != Some(id.as_str()) {
+            self.set_queue(
+                vec![Track {
+                    id,
+                    title,
+                    artists: vec![Credit {
+                        id: None,
+                        name: artist,
+                    }],
+                    album: None,
+                    duration: None,
+                    explicit: false,
+                    cover,
+                }],
+                0,
+                false,
+            );
+            self.load_current(cx);
+            return;
+        }
+        // Until the track has loaded there is no position to correct.
+        let Some(audio) = &self.audio else {
+            return;
+        };
+        if self.state.duration <= 0. {
+            return;
+        }
+        let playing = target.playback.playing;
+        let change = fix(self.state.position, target.position_now(), playing);
+        if let Some(to) = change.seek
+            && self.last_catch_up.elapsed() >= CATCH_UP_EVERY
+        {
+            audio.seek_to(to);
+            self.last_catch_up = Instant::now();
+        }
+        if (change.speed - self.speed).abs() > f64::EPSILON {
+            audio.set_speed(change.speed);
+            self.speed = change.speed;
+        }
+        if playing == self.state.paused {
+            audio.set_pause(!playing);
+        }
+    }
+
+    /// A host does what a guest asked for, while the music is what the party is playing.
+    fn on_party_request(&mut self, event: &PartyEvent, cx: &mut Context<Self>) {
+        let Some(audio) = &self.audio else { return };
+        let is_music = self
+            .party
+            .as_ref()
+            .is_some_and(|joined| matches!(joined.party.read(cx).item(), Some(Item::Music { .. })));
+        if !is_music {
+            return;
+        }
+        match event {
+            PartyEvent::Play => audio.set_pause(false),
+            PartyEvent::Pause => audio.set_pause(true),
+            PartyEvent::Seek(to) => {
+                let end = if self.state.duration > 0. {
+                    self.state.duration
+                } else {
+                    *to
+                };
+                audio.seek_to(to.clamp(0., end));
+            }
+        }
+        // The party hears of it at the next look.
+        self.party_sync.told = None;
+        cx.notify();
+    }
+
     pub fn toggle(&mut self, cx: &mut Context<Self>) {
+        // A guest asks the host, and the music follows when the host does it.
+        if self.role(cx) == Role::Guest {
+            if let Some(joined) = &self.party {
+                let message = if self.state.paused {
+                    Message::Play
+                } else {
+                    Message::Pause
+                };
+                joined.party.read(cx).ask(message);
+            }
+            return;
+        }
         if let Some(audio) = &self.audio {
             audio.toggle_pause();
         }
         cx.notify();
     }
 
+    fn pause(&mut self, cx: &mut Context<Self>) {
+        if let Some(audio) = &self.audio
+            && !self.state.paused
+        {
+            audio.set_pause(true);
+            cx.notify();
+        }
+    }
+
     pub fn next(&mut self, cx: &mut Context<Self>) {
+        if self.blocked(cx) {
+            return;
+        }
         if self.index + 1 < self.queue.len() {
             self.index += 1;
             self.load_current(cx);
@@ -291,6 +612,9 @@ impl MusicPlayer {
     }
 
     pub fn previous(&mut self, cx: &mut Context<Self>) {
+        if self.blocked(cx) {
+            return;
+        }
         if self.state.position > RESTART_AFTER || self.index == 0 {
             if let Some(audio) = &self.audio {
                 audio.seek_to(0.);
@@ -302,6 +626,9 @@ impl MusicPlayer {
     }
 
     fn jump(&mut self, index: usize, cx: &mut Context<Self>) {
+        if self.blocked(cx) {
+            return;
+        }
         if index == self.index {
             if let Some(audio) = &self.audio {
                 audio.seek_to(0.);
@@ -313,6 +640,9 @@ impl MusicPlayer {
     }
 
     fn toggle_shuffle(&mut self, cx: &mut Context<Self>) {
+        if self.blocked(cx) {
+            return;
+        }
         let Some(current) = self.current().cloned() else {
             self.shuffle = !self.shuffle;
             cx.notify();
@@ -335,6 +665,9 @@ impl MusicPlayer {
     }
 
     fn cycle_repeat(&mut self, cx: &mut Context<Self>) {
+        if self.blocked(cx) {
+            return;
+        }
         self.repeat = match self.repeat {
             Repeat::Off => Repeat::All,
             Repeat::All => Repeat::One,
@@ -350,10 +683,16 @@ impl MusicPlayer {
     fn finish_scrub(&mut self, cx: &mut Context<Self>) {
         if let Some(fraction) = self.scrubbing.take()
             && self.state.duration > 0.
-            && let Some(audio) = &self.audio
         {
-            audio.seek_to(f64::from(fraction) * self.state.duration);
-            self.state.position = f64::from(fraction) * self.state.duration;
+            let to = f64::from(fraction) * self.state.duration;
+            if self.role(cx) == Role::Guest {
+                if let Some(joined) = &self.party {
+                    joined.party.read(cx).ask(Message::Seek { position: to });
+                }
+            } else if let Some(audio) = &self.audio {
+                audio.seek_to(to);
+                self.state.position = to;
+            }
         }
         cx.notify();
     }

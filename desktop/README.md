@@ -28,6 +28,7 @@ it. The bar is transparent over artwork and turns solid once a page scrolls.
 | Search (⌘K) | Results as you type, across all three catalogues. Enter opens the best match, or the full results page when nothing is highlighted |
 | Title | Banner, facts, Play and Trailer, episodes by season, cast, related and recommended titles |
 | Watch | The picture fills the window. Controls hide after three seconds. Seek bar, ±10 seconds, volume, a source picker (every release found, play any), subtitles from the file and from online providers, audio tracks, an episode panel, next episode, fullscreen, and an offer of the next episode near the end |
+| Watch party | The people icon in the bar opens a panel: start a party (you get a six-letter code and a link), or join one by its code. Everyone in a party watches or listens to the same thing and stays in step: what the host plays, guests play; a guest can pause, play and seek for everyone. Works between the app and the website, in any mix. See [Watch parties](#watch-parties) |
 | Settings | Two sliders: how much disk the torrents may use, and how many are kept at once, a switch for update checks, and the version. Saved as soon as you let go |
 
 Keys on the watch page: `space` pause, `←` `→` seek 10 seconds, `↑` `↓` volume, `m` mute,
@@ -37,11 +38,26 @@ fullscreen or close the panel. Anywhere: `⌘K` search, `⌘Q` quit.
 Progress is remembered per title, so opening an episode you left part way resumes it, and a
 title you finish drops out of "Continue watching".
 
+## Watch parties
+
+The host is a device (this app, or a browser tab), not a server. Guests connect straight to it
+with WebRTC, and only what to play and where travels: every device finds its own stream. The API
+at `api.akidev.live` is just the meeting point where the first message each way is passed, and a
+relay (`TURN_URLS`, see the root README) carries the connection for the networks that block direct
+ones. The messages, and the rules that keep a guest in step, are in
+[`party/PROTOCOL.md`](party/PROTOCOL.md); the meeting point's routes are in
+[`server/API.md`](server/API.md).
+
+`party/` is `akidev-party`: the messages, the sync rules and the WebRTC connection, for the app. The
+website has the same in `akidev-frontend/src/lib/party`. `AKIDEV_API` points a development build at
+another server (`AKIDEV_API=http://localhost:9000 cargo run -p akidev`).
+
 ## Layout
 
 ```
 core/      akidev-core: providers, indexers, release ranking, torrent engine, stream resolver
 sources/   the definitions of the indexers and providers, published separately from the app
+party/  akidev-party: watch parties, the connection and the rules that keep guests in step
 app/    akidev: the GPUI app and the libmpv player
 ```
 

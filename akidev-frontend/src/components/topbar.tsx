@@ -12,6 +12,7 @@ import { MUSIC_ROUTE } from "@/lib/music";
 import { cn } from "@/lib/utils";
 
 import { IconButton } from "./button";
+import PartyButton from "./party";
 // Search is loaded the first time it is opened, not with every page.
 const Palette = dynamic(() => import("./palette"));
 
@@ -99,6 +100,7 @@ export default function TopBar() {
             ))}
           </nav>
 
+          <PartyButton />
           <IconButton label="Search" onClick={() => setSearching(true)} className={cn(searching && "bg-ink/[0.14]")}>
             <Search className="size-[18px]" />
           </IconButton>

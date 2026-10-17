@@ -254,6 +254,16 @@ impl Player {
         self.command(&["cycle", "pause"]);
     }
 
+    pub fn set_pause(&self, paused: bool) {
+        self.command(&["set", "pause", if paused { "yes" } else { "no" }]);
+    }
+
+    /// Playback speed, 1.0 being normal. A watch party closes a small gap by running a little
+    /// faster or slower.
+    pub fn set_speed(&self, speed: f64) {
+        self.command(&["set", "speed", &speed.to_string()]);
+    }
+
     /// Jumps to an absolute position, in seconds.
     pub fn seek_to(&self, seconds: f64) {
         self.command(&["seek", &seconds.to_string(), "absolute"]);

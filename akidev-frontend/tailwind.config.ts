@@ -29,11 +29,13 @@ const config: Config = {
 				rise: { from: { opacity: "0", transform: "translateY(6px)" }, to: { opacity: "1", transform: "none" } },
 				fade: { from: { opacity: "0" }, to: { opacity: "1" } },
 				pulse: { "0%,100%": { opacity: "1" }, "50%": { opacity: "0.55" } },
+				pop: { from: { opacity: "0", transform: "translateY(-4px) scale(0.97)" }, to: { opacity: "1", transform: "none" } },
 			},
 			animation: {
 				rise: "rise 0.35s ease-out both",
 				fade: "fade 0.7s cubic-bezier(0.22,1,0.36,1) both",
 				pulse: "pulse 1.6s ease-in-out infinite",
+				pop: "pop 0.16s cubic-bezier(0.22,1,0.36,1) both",
 			},
 		}
 	},

@@ -1,5 +1,5 @@
 [workspace]
-members = ["core", "app", "server"]
+members = ["core", "party", "app", "server"]
 # Copies of other people's crates (see their PATCH.md): kept out of the workspace so clippy and the
 # tests run on our code, not theirs.
 exclude = ["vendor/ytmapi-rs", "vendor/json-crawler"]

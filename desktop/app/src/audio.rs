@@ -149,6 +149,16 @@ impl AudioPlayer {
         self.command(&["seek", &seconds.to_string(), "absolute"]);
     }
 
+    pub fn set_pause(&self, paused: bool) {
+        self.set_property("pause", if paused { "yes" } else { "no" });
+    }
+
+    /// Playback speed, 1.0 being normal. A watch party closes a small gap by running a little
+    /// faster or slower.
+    pub fn set_speed(&self, speed: f64) {
+        self.set_property("speed", &speed.to_string());
+    }
+
     /// 0 to 100.
     pub fn set_volume(&self, volume: f64) {
         self.set_property("volume", &volume.clamp(0., 100.).to_string());

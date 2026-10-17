@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/button";
 import Episodes from "@/components/episodes";
@@ -15,6 +15,7 @@ import { episodeCount, neighbour, titleLine } from "@/lib/episodes";
 import { parseMediaId } from "@/lib/media-id";
 import { playErrorMessage } from "@/lib/play";
 import { record, resumeAt } from "@/lib/progress";
+import { useParty } from "@/providers/party";
 import { useDetail } from "@/query/use-media";
 import { usePlay } from "@/query/use-play";
 import { useSubtitles } from "@/query/use-subtitles";
@@ -47,6 +48,8 @@ export default function WatchPage() {
   const [choosing, setChoosing] = useState<string | null>(null);
   const [playbackError, setPlaybackError] = useState<{ id: string; message: string } | null>(null);
 
+  const party = useParty();
+  const guest = party.role === "guest";
   const data = detail.data;
   const card = data?.media;
   const next = neighbour(data, id, 1);
@@ -75,6 +78,17 @@ export default function WatchPage() {
 
   const link = stream.data;
   const error = playbackError && playbackError.id === id ? playbackError.message : null;
+
+  // A guest says how it is doing with this one (the picture says when it is ready), and the host's
+  // list shows it: a film from a torrent can take a while to find.
+  const stuck = stream.isError || (!stream.isLoading && !stream.isIdle && !link?.available) || error !== null;
+  const searching = stream.isLoading || stream.isIdle;
+  const { setStatus } = party;
+  useEffect(() => {
+    if (!id) return;
+    if (stuck) setStatus("trouble", id);
+    else if (searching) setStatus("loading", id);
+  }, [id, stuck, searching, setStatus]);
 
   // Picking a release plays that one, from where the viewer was.
   const choose = useCallback(
@@ -165,6 +179,7 @@ export default function WatchPage() {
     <>
       <Player
         key={id}
+        mediaId={id ?? ""}
         src={link.url}
         streamType={link.stream_type}
         subtitles={subtitles.subtitles}
@@ -178,7 +193,7 @@ export default function WatchPage() {
         }}
         onStarted={() => track("playback_started", { title_key: key ?? null, stream_type: link.stream_type })}
         onProgress={onProgress}
-        onNext={next ? onNext : undefined}
+        onNext={next && !guest ? onNext : undefined}
         sources={({ position, close }) => (
           <Sources
             id={id}
@@ -192,11 +207,19 @@ export default function WatchPage() {
           />
         )}
         episodes={
-          !isFilm && key && data ? (
+          !isFilm && !guest && key && data ? (
             <Episodes titleKey={key} count={count} list={data.episodes} currentId={id} compact />
           ) : undefined
         }
       />
+      {guest && party.item?.kind === "video" && party.item.id !== id && (
+        <div className="fixed left-1/2 top-16 z-[70] flex -translate-x-1/2 items-center gap-3 rounded-xl border border-line bg-surface/95 px-4 py-2.5">
+          <span className="text-sm text-ink">The party is watching something else.</span>
+          <Button look="secondary" onClick={() => router.replace(watchPath(parseMediaId(party.item?.id)?.key ?? "", party.item?.id ?? ""))}>
+            Join them
+          </Button>
+        </div>
+      )}
       {error && (
         <p className="fixed inset-x-0 bottom-28 z-[70] mx-auto w-fit max-w-[90vw] rounded-xl border border-line bg-surface/95 px-4 py-2 text-sm text-dim">
           {error}

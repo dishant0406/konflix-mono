@@ -10,6 +10,7 @@ use crate::music_artist::ArtistPage;
 use crate::music_home::MusicPage;
 use crate::music_player::{BAR_HEIGHT, Changed, hub};
 use crate::palette::Palette;
+use crate::party::{Party, PartyHandle};
 use crate::route::{Navigator, Route, navigate};
 use crate::settings::SettingsPage;
 use crate::title::TitlePage;
@@ -49,6 +50,7 @@ struct Screen {
 pub struct AkidevApp {
     history: History<Screen>,
     palette: Entity<Palette>,
+    party: Entity<Party>,
     updates: Entity<Updates>,
     toasts: Vec<Toast>,
     next_toast: u64,
@@ -59,6 +61,7 @@ pub struct AkidevApp {
     mark: Arc<Image>,
     pictures: Entity<crate::images::PictureCache>,
     _palette_changes: Subscription,
+    _party_changes: Subscription,
     _update_changes: Subscription,
     /// Redraws the page when music starts or stops, so it leaves room for the bar.
     _music_changes: Subscription,
@@ -70,6 +73,9 @@ impl AkidevApp {
         cx.set_global(Navigator(cx.weak_entity()));
         let palette = cx.new(|cx| Palette::new(window, cx));
         let palette_changes = cx.observe(&palette, |_, _, cx| cx.notify());
+        let party = cx.new(|cx| Party::new(window, cx));
+        cx.set_global(PartyHandle(party.clone()));
+        let party_changes = cx.observe(&party, |_, _, cx| cx.notify());
         let updates = cx.new(Updates::new);
         cx.set_global(Shared(updates.clone()));
         let update_changes = cx.observe(&updates, |_, _, cx| cx.notify());
@@ -83,6 +89,7 @@ impl AkidevApp {
         AkidevApp {
             history: History::new(first, screen),
             palette,
+            party,
             updates,
             toasts: Vec::new(),
             next_toast: 0,
@@ -95,6 +102,7 @@ impl AkidevApp {
                 include_bytes!("../assets/mark.png").to_vec(),
             )),
             _palette_changes: palette_changes,
+            _party_changes: party_changes,
             _update_changes: update_changes,
             _music_changes: music_changes,
         }
@@ -316,6 +324,7 @@ impl AkidevApp {
                             )))
                             .child(div().flex_1())
                             .children(self.updates.update(cx, |updates, cx| updates.button(cx)))
+                            .child(crate::party::button(cx))
                             .child(icon_button(
                                 "search",
                                 IconName::Search,
@@ -401,6 +410,9 @@ impl Render for AkidevApp {
                 )
             })
             .when(palette_open, |shell| shell.child(self.palette.clone()))
+            .when(self.party.read(cx).is_open(), |shell| {
+                shell.child(self.party.clone())
+            })
             .child(
                 div()
                     .absolute()

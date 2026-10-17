@@ -19,6 +19,8 @@ import { useDetail, useMoreLike } from "@/query/use-media";
 import type { Detail } from "@/types/media";
 
 const HEIGHT = "h-[min(700px,max(480px,70vh))]";
+/** The banner is at least this tall, and taller when what it says needs the room. */
+const MIN_HEIGHT = "min-h-[min(700px,max(480px,70vh))]";
 
 export default function TitleView({ id: key, initial }: { id: string; initial?: Detail }) {
   const parsed = parseMediaId(key);
@@ -80,12 +82,14 @@ export default function TitleView({ id: key, initial }: { id: string; initial?: 
 
   return (
     <div className="pb-8">
-      <section className={`relative w-full overflow-hidden bg-canvas ${HEIGHT}`}>
+      <section className={`relative flex w-full flex-col justify-end overflow-hidden bg-canvas ${MIN_HEIGHT}`}>
         {art && <Image src={art} alt="" fill priority sizes="100vw" className="object-cover" />}
         <div className="absolute inset-0 bg-gradient-to-r from-canvas via-canvas/0 via-[70%] to-transparent" />
         <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent via-50% to-canvas" />
 
-        <div className="gutter absolute inset-x-0 bottom-12 flex max-w-[calc(640px+5rem)] flex-col items-start gap-3">
+        {/* In the flow, not pinned to the bottom, so a long title or description makes the banner taller
+            instead of climbing under the bar. */}
+        <div className="gutter relative flex max-w-[calc(640px+5rem)] flex-col items-start gap-3 pb-12 pt-28">
           <div className="flex items-center gap-3">
             <span className="text-xs font-bold text-accent">{KIND_LABEL[parsed.contentType]}</span>
             {!!score && <span className="text-sm font-semibold text-accent">★ {score}%</span>}
@@ -93,7 +97,7 @@ export default function TitleView({ id: key, initial }: { id: string; initial?: 
           <h1 className="line-clamp-3 text-4xl font-black leading-[1.05] text-ink sm:text-5xl md:text-[56px]">{title}</h1>
           <MetaLine parts={facts} />
           {media.description && (
-            <p className="line-clamp-4 text-[15px] leading-6 text-dim">{stripTags(media.description)}</p>
+            <p className="line-clamp-4 text-[15px] leading-6 text-dim">{stripTags(media.description).replace(/\s+/g, " ")}</p>
           )}
           {media.genres.length > 0 && (
             <p className="text-[13px] text-faint">{media.genres.slice(0, 4).join(" · ")}</p>

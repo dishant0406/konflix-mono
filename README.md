@@ -127,6 +127,29 @@ This replaced a single live fragmented MP4, which could not be played on iOS at 
 media source to answer a byte-range request with a real `206` and a length, and a stream still
 being produced has neither.
 
+## Watch parties
+
+A party plays the same film, episode or track on every device in it, and keeps them in step: what
+the host plays, guests play, and a guest can pause, play and seek for everyone. The host and the
+guests can be the desktop app or the website, in any mix.
+
+The host is a device, not this server. A guest connects straight to it with WebRTC, and only what
+to play and where travels (a media id and a position); every device finds its own stream, so the
+host's connection carries a few hundred bytes a second. `api.akidev.live` is only the meeting point
+(`/v1/party`, in `desktop/server/API.md`): it passes the first message each way so two devices on
+different networks can find each other, keeps a party in memory until its host stops asking for
+guests, and never sees what is played. The messages and the rules that keep a guest in step are in
+`desktop/party/PROTOCOL.md`; the app has them in `desktop/party`, the site in
+`akidev-frontend/src/lib/party`.
+
+Most connections go direct. Some networks (strict NATs, some mobile and corporate ones) cannot, and
+those guests need a TURN relay, or they cannot join. The server hands out the relay's login when
+`TURN_URLS` and `TURN_SECRET` are set, and the login works for one party for six hours. Run
+[coturn](https://github.com/coturn/coturn) with `use-auth-secret`, `static-auth-secret=<TURN_SECRET>`
+and `realm=akidev.live`, open UDP and TCP 3478 and its relay port range, and set `TURN_URLS` to
+`turn:<host>:3478`. The relay carries only the party's few messages, so a small box is plenty.
+`STUN_URLS` (public servers by default) is the list devices use to learn their own address.
+
 ## Why it is fast
 
 Measured from a browser in Mumbai against the server in Virginia, where a trip to the server costs
@@ -381,6 +404,8 @@ work but requires the Workers Paid plan, and its request-scoped model fits a
    | Secret | `DEPLOY_SSH_KEY` | contents of `~/.ssh/konflix_deploy` |
    | Secret | `DEPLOY_PORT` | `22` (optional) |
    | Secret | `TORBOX_API_KEY` | from torbox.app (optional) |
+   | Secret | `TURN_SECRET` | the relay's `static-auth-secret`, for watch parties (optional) |
+   | Variable | `TURN_URLS` | the relay, like `turn:turn.example:3478` (optional) |
    | Variable | `PUBLIC_URL` | `https://api.akidev.live` |
    | Variable | `NEXT_PUBLIC_API_URL` | `https://api.akidev.live` |
    | Variable | `FRONTEND_URL` | `https://akidev.live` |

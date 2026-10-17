@@ -413,6 +413,35 @@ impl Music {
         })
     }
 
+    /// What YouTube Music plays after a track: the tracks of its "radio", without the track
+    /// itself. A player that has run out of queue plays these.
+    pub async fn radio(&self, video_id: &str) -> anyhow::Result<Vec<Track>> {
+        anyhow::ensure!(is_video_id(video_id), "not a video id");
+        let yt = self.yt().await?;
+        let tracks = yt
+            .get_watch_playlist_from_video_id(ytmapi_rs::common::VideoID::from_raw(
+                video_id.to_string(),
+            ))
+            .await
+            .map_err(|e| anyhow!("radio: {e}"))?;
+        Ok(tracks
+            .into_iter()
+            .filter(|t| t.video_id.get_raw() != video_id)
+            .map(|t| Track {
+                id: t.video_id.get_raw().to_string(),
+                title: t.title,
+                artists: vec![Credit {
+                    id: None,
+                    name: t.author,
+                }],
+                album: None,
+                duration: Some(t.duration).filter(|d| !d.is_empty()),
+                explicit: false,
+                cover: cover(&t.thumbnails),
+            })
+            .collect())
+    }
+
     pub async fn artist(&self, id: &str) -> anyhow::Result<ArtistOut> {
         let yt = self.yt().await?;
         let artist = yt

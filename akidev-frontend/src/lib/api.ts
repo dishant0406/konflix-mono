@@ -3,7 +3,7 @@
 // The API is JSON over HTTP (desktop/server/API.md), so this is a small fetch wrapper: it
 // also keeps the request count and the bundle honest.
 
-const BASE = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:9000").replace(/\/+$/, "");
+export const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:9000").replace(/\/+$/, "");
 
 // Finding a source searches torrent indexers and can legitimately take a while, but it must
 // never hang. The server bounds its own work to about a minute, so this sits above that and
@@ -31,7 +31,7 @@ export async function request<T>(
   for (const [name, value] of Object.entries(options.params ?? {})) {
     if (value !== undefined && value !== null && value !== "") query.set(name, String(value));
   }
-  const url = `${BASE}${path}${query.size > 0 ? `?${query}` : ""}`;
+  const url = `${API_BASE}${path}${query.size > 0 ? `?${query}` : ""}`;
 
   let response: Response;
   try {

@@ -54,7 +54,7 @@ jobs:
         run: |
           $env:LIB = "$PWD\target\mpv;$env:LIB"
           $env:PATH = "$PWD\target\mpv;$env:PATH"
-          cargo test -p akidev-core -p akidev
+          cargo test -p akidev-core -p akidev-party -p akidev
       - name: Start it, wait, and take a picture
         # A runner has no GPU, so this can fail where a real PC would not: it reports and
         # does not fail the job.
